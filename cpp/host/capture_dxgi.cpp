@@ -1,71 +1,61 @@
-#include <d3d11.h>
-#include <dxgi1_2.h>
+#include "capture_dxgi.hpp"
 #include <iostream>
-#include <vector>
-
-#pragma comment(lib, "d3d11.lib")
-#pragma comment(lib, "dxgi.lib")
 
 namespace Host {
 
-class CaptureDXGI {
-public:
-    CaptureDXGI() : m_device(nullptr), m_context(nullptr), m_dupl(nullptr) {}
-    ~CaptureDXGI() { Cleanup(); }
+CaptureDXGI::CaptureDXGI() : m_device(nullptr), m_context(nullptr), m_dupl(nullptr) {}
 
-    bool Initialize() {
-        HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &m_device, nullptr, &m_context);
-        if (FAILED(hr)) return false;
+CaptureDXGI::~CaptureDXGI() {
+    Cleanup();
+}
 
-        IDXGIDevice* dxgiDevice = nullptr;
-        m_device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDevice);
+bool CaptureDXGI::Initialize() {
+    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &m_device, nullptr, &m_context);
+    if (FAILED(hr)) return false;
 
-        IDXGIAdapter* dxgiAdapter = nullptr;
-        dxgiDevice->GetParent(__uuidof(IDXGIAdapter), (void**)&dxgiAdapter);
-        dxgiDevice->Release();
+    IDXGIDevice* dxgiDevice = nullptr;
+    m_device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDevice);
 
-        IDXGIOutput* dxgiOutput = nullptr;
-        dxgiAdapter->GetOutput(0, &dxgiOutput);
-        dxgiAdapter->Release();
+    IDXGIAdapter* dxgiAdapter = nullptr;
+    dxgiDevice->GetParent(__uuidof(IDXGIAdapter), (void**)&dxgiAdapter);
+    dxgiDevice->Release();
 
-        IDXGIOutput1* dxgiOutput1 = nullptr;
-        dxgiOutput->QueryInterface(__uuidof(IDXGIOutput1), (void**)&dxgiOutput1);
-        dxgiOutput->Release();
+    IDXGIOutput* dxgiOutput = nullptr;
+    dxgiAdapter->GetOutput(0, &dxgiOutput);
+    dxgiAdapter->Release();
 
-        hr = dxgiOutput1->DuplicateOutput(m_device, &m_dupl);
-        dxgiOutput1->Release();
+    IDXGIOutput1* dxgiOutput1 = nullptr;
+    dxgiOutput->QueryInterface(__uuidof(IDXGIOutput1), (void**)&dxgiOutput1);
+    dxgiOutput->Release();
 
-        if (FAILED(hr)) return false;
-        return true;
-    }
+    hr = dxgiOutput1->DuplicateOutput(m_device, &m_dupl);
+    dxgiOutput1->Release();
 
-    bool AcquireFrame(ID3D11Texture2D** texture) {
-        DXGI_OUTDUPL_FRAME_INFO frameInfo;
-        IDXGIResource* desktopResource = nullptr;
-        HRESULT hr = m_dupl->AcquireNextFrame(100, &frameInfo, &desktopResource);
-        if (FAILED(hr)) return false;
+    if (FAILED(hr)) return false;
+    return true;
+}
 
-        hr = desktopResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)texture);
-        desktopResource->Release();
+bool CaptureDXGI::AcquireFrame(ID3D11Texture2D** texture) {
+    DXGI_OUTDUPL_FRAME_INFO frameInfo;
+    IDXGIResource* desktopResource = nullptr;
+    HRESULT hr = m_dupl->AcquireNextFrame(100, &frameInfo, &desktopResource);
+    if (FAILED(hr)) return false;
 
-        if (FAILED(hr)) return false;
-        return true;
-    }
+    hr = desktopResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)texture);
+    desktopResource->Release();
 
-    void ReleaseFrame() {
-        m_dupl->ReleaseFrame();
-    }
+    if (FAILED(hr)) return false;
+    return true;
+}
 
-private:
-    void Cleanup() {
-        if (m_dupl) m_dupl->Release();
-        if (m_context) m_context->Release();
-        if (m_device) m_device->Release();
-    }
+void CaptureDXGI::ReleaseFrame() {
+    m_dupl->ReleaseFrame();
+}
 
-    ID3D11Device* m_device;
-    ID3D11DeviceContext* m_context;
-    IDXGIOutputDuplication* m_dupl;
-};
+void CaptureDXGI::Cleanup() {
+    if (m_dupl) m_dupl->Release();
+    if (m_context) m_context->Release();
+    if (m_device) m_device->Release();
+}
 
 } // namespace Host

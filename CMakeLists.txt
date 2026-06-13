@@ -4,7 +4,7 @@ project(ParsecLite)
 set(CMAKE_CXX_STANDARD 17)
 
 # Set up include directories
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/cpp)
 
 # Sources
 set(COMMON_SOURCES
