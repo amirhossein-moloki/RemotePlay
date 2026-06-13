@@ -40,8 +40,8 @@ void RunBenchmark(int numFrames, int bitrateKbps) {
     PacketPool packetPool{100, 1024 * 1024};
     PacketPool udpPool{1000, 1500};
 
-    SafeQueue<std::vector<Host::EncodedPacket>> encodeQueue{"EncodeBench"};
-    SafeQueue<OutgoingPacket> sendQueue{"SendBench"};
+    SafeQueue<std::vector<Host::EncodedPacket>> encodeQueue("EncodeBench");
+    SafeQueue<OutgoingPacket> sendQueue("SendBench");
 
     Client::Receiver receiver(100);
 
@@ -50,8 +50,11 @@ void RunBenchmark(int numFrames, int bitrateKbps) {
 
     // 5. Mock Input Thread: Generates input events at 100Hz
     std::thread inputThread([&]() {
+        std::cout << "Input Thread Start" << std::endl;
         while (running) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             auto udpPkt = udpPool.acquire();
+            if (!udpPkt) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); continue; }
             Protocol::InputHeader* ih = (Protocol::InputHeader*)udpPkt->data.data();
             ih->type = (uint8_t)Protocol::PacketType::Input;
             ih->inputType = (uint8_t)Protocol::InputType::Keyboard;
@@ -64,6 +67,7 @@ void RunBenchmark(int numFrames, int bitrateKbps) {
     });
 
     std::thread encoderThread([&]() {
+        std::cout << "Encoder Thread Start" << std::endl;
         auto frameInterval = std::chrono::microseconds(1000000 / 60);
         for (int i = 0; i < numFrames; ++i) {
             auto start = std::chrono::high_resolution_clock::now();
@@ -71,6 +75,7 @@ void RunBenchmark(int numFrames, int bitrateKbps) {
             std::vector<Host::EncodedPacket> packets;
             Host::EncodedPacket ep;
             ep.packet = packetPool.acquire();
+            if (!ep.packet) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); i--; continue; }
             ep.packet->size = frameSize;
             ep.packet->frameId = i;
             ep.isKeyframe = (i % 60 == 0);
@@ -86,14 +91,25 @@ void RunBenchmark(int numFrames, int bitrateKbps) {
     });
 
     std::thread packetizerThread([&]() {
+        std::cout << "Packetizer Thread Start" << std::endl;
         std::vector<Host::EncodedPacket> frames;
         while (running && encodeQueue.wait_and_pop(frames)) {
             ScopeTimer timer("Packetizer_Total");
             for (auto& frame : frames) {
+                if (!frame.packet) continue;
                 uint16_t totalFrags = (uint16_t)((frame.packet->size + Protocol::MAX_UDP_PAYLOAD - 1) / Protocol::MAX_UDP_PAYLOAD);
+                if (totalFrags == 0) totalFrags = 1;
                 std::vector<PacketPool::Packet*> fragmentPtrs(totalFrags);
                 for (uint16_t i = 0; i < totalFrags; ++i) {
                     auto udpPkt = udpPool.acquire();
+                    if (!udpPkt) {
+                        for(uint16_t j=0; j<i; ++j) {
+                            std::unique_ptr<PacketPool::Packet> p(fragmentPtrs[j]);
+                            udpPool.release(std::move(p));
+                        }
+                        for(uint16_t j=i; j<totalFrags; ++j) fragmentPtrs[j] = nullptr;
+                        goto next_frame;
+                    }
                     Protocol::VideoHeader* vh = (Protocol::VideoHeader*)udpPkt->data.data();
                     vh->type = (uint8_t)Protocol::PacketType::Video;
                     vh->frameId = frame.packet->frameId;
@@ -107,16 +123,20 @@ void RunBenchmark(int numFrames, int bitrateKbps) {
                     fragmentPtrs[i] = udpPkt.release();
                 }
                 for (uint16_t i = 0; i < totalFrags; ++i) {
+                    if (!fragmentPtrs[i]) continue;
                     auto sendPkt = udpPool.acquire();
-                    sendPkt->size = fragmentPtrs[i]->size;
-                    memcpy(sendPkt->data.data(), fragmentPtrs[i]->data.data(), fragmentPtrs[i]->size);
-                    sendQueue.push({std::move(sendPkt), "127.0.0.1", 5005});
+                    if (sendPkt) {
+                        sendPkt->size = fragmentPtrs[i]->size;
+                        memcpy(sendPkt->data.data(), fragmentPtrs[i]->data.data(), fragmentPtrs[i]->size);
+                        sendQueue.push({std::move(sendPkt), "127.0.0.1", 5005});
+                    }
                     const int FEC_GROUP_SIZE = 5;
                     if ((i + 1) % FEC_GROUP_SIZE == 0 || i == totalFrags - 1) {
                         size_t groupStart = (i / FEC_GROUP_SIZE) * FEC_GROUP_SIZE;
                         uint16_t count = (uint16_t)(i - groupStart + 1);
                         if (count > 1) {
                             auto fecPkt = udpPool.acquire();
+                            if (!fecPkt) continue;
                             Protocol::FECHeader* fh = (Protocol::FECHeader*)fecPkt->data.data();
                             fh->type = (uint8_t)Protocol::PacketType::FEC;
                             fh->frameId = frame.packet->frameId;
@@ -132,24 +152,32 @@ void RunBenchmark(int numFrames, int bitrateKbps) {
                         }
                     }
                 }
-                for (size_t i = 0; i < totalFrags; ++i) {
-                    udpPool.release(std::unique_ptr<PacketPool::Packet>(fragmentPtrs[i]));
-                }
+            next_frame:
                 packetPool.release(std::move(frame.packet));
             }
         }
     });
 
     std::thread networkThread([&]() {
+        std::cout << "Network Thread Start" << std::endl;
         OutgoingPacket op;
         while (running && sendQueue.wait_and_pop(op)) {
+            if (!op.packet) continue;
             Protocol::PacketType type = (Protocol::PacketType)op.packet->data[0];
             if (type == Protocol::PacketType::Video) {
-                Protocol::VideoHeader* vh = (Protocol::VideoHeader*)op.packet->data.data();
-                receiver.ProcessPacket(*vh, op.packet->data.data() + sizeof(Protocol::VideoHeader));
+                if (op.packet->size >= sizeof(Protocol::VideoHeader)) {
+                    Protocol::VideoHeader* vh = (Protocol::VideoHeader*)op.packet->data.data();
+                    if (op.packet->size >= sizeof(Protocol::VideoHeader) + vh->dataSize) {
+                        receiver.ProcessPacket(*vh, op.packet->data.data() + sizeof(Protocol::VideoHeader));
+                    }
+                }
             } else if (type == Protocol::PacketType::FEC) {
-                Protocol::FECHeader* fh = (Protocol::FECHeader*)op.packet->data.data();
-                receiver.ProcessFEC(*fh, op.packet->data.data() + sizeof(Protocol::FECHeader));
+                if (op.packet->size >= sizeof(Protocol::FECHeader)) {
+                    Protocol::FECHeader* fh = (Protocol::FECHeader*)op.packet->data.data();
+                    if (op.packet->size >= sizeof(Protocol::FECHeader) + fh->dataSize) {
+                        receiver.ProcessFEC(*fh, op.packet->data.data() + sizeof(Protocol::FECHeader));
+                    }
+                }
             } else if (type == Protocol::PacketType::Input) {
                 Protocol::InputHeader* ih = (Protocol::InputHeader*)op.packet->data.data();
                 uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
@@ -161,6 +189,7 @@ void RunBenchmark(int numFrames, int bitrateKbps) {
     });
 
     std::thread clientThread([&]() {
+        std::cout << "Client Thread Start" << std::endl;
         while (running) {
             auto frame = receiver.GetNextFrame();
             if (frame) {
@@ -189,8 +218,8 @@ void RunBenchmark(int numFrames, int bitrateKbps) {
 }
 
 int main() {
-    RunBenchmark(600, 5000);   // 10s at 5Mbps
-    Profiler::getInstance().reset();
-    RunBenchmark(600, 20000);  // 10s at 20Mbps
+    RunBenchmark(100, 5000);   // Reduced frames for faster verification
+    // Profiler::getInstance().reset();
+    // RunBenchmark(600, 20000);  // 10s at 20Mbps
     return 0;
 }

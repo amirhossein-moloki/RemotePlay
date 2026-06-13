@@ -116,6 +116,7 @@ int NetworkManager::SendBatch(const BatchItem* items, size_t count) {
     struct mmsghdr msgs[64];
     struct iovec iovs[64];
     struct sockaddr_in addrs[64];
+    memset(msgs, 0, sizeof(msgs));
 
     size_t batchSize = std::min(count, (size_t)64);
     for (size_t i = 0; i < batchSize; ++i) {
