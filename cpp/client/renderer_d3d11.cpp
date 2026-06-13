@@ -19,7 +19,7 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
     }
 
     DXGI_SWAP_CHAIN_DESC sd = {};
-    sd.BufferCount = 1;
+    sd.BufferCount = 2; // Required for Flip Model
     sd.BufferDesc.Width = width;
     sd.BufferDesc.Height = height;
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -28,7 +28,10 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.OutputWindow = hwnd;
     sd.SampleDesc.Count = 1;
+    sd.SampleDesc.Quality = 0;
     sd.Windowed = TRUE;
+    sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD; // Modern low-latency flip model
+    sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // Allow VSync Off (Variable Refresh Rate)
 
     UINT flags = 0;
 #ifdef _DEBUG
@@ -70,7 +73,8 @@ void RendererD3D11::EndFrame() {
     ImGui::Render();
     m_context->OMSetRenderTargets(1, &m_backBufferView, nullptr);
     ImGui_ImplD3D11_RenderDrawData(ImGui::GetDrawData());
-    m_swapChain->Present(0, 0);
+    // Use DXGI_PRESENT_ALLOW_TEARING for lowest possible latency with Flip Discard
+    m_swapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
 }
 
 void RendererD3D11::Render(ID3D11Texture2D* texture) {

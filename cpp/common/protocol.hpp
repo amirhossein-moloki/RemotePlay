@@ -37,8 +37,9 @@ struct VideoHeader {
     uint16_t fragmentIndex;  // Fragment index in current frame
     uint16_t totalFragments; // Total fragments in current frame
     uint32_t packetSequence; // Global UDP packet sequence number
-    uint64_t timestamp;      // Capture timestamp (microseconds)
-    uint64_t captureTimestamp; // Precise capture timestamp for E2E latency (microseconds)
+    uint64_t captureTimestamp;   // Precise capture timestamp (microseconds)
+    uint64_t encodeStartTimestamp; // Encode start timestamp (microseconds)
+    uint64_t encodeEndTimestamp;   // Encode end timestamp (microseconds)
     uint8_t flags;           // Bit 0: Keyframe, Bit 1-7: Reserved
     uint16_t dataSize;       // Size of the following payload
 };

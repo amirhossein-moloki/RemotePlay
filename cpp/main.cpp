@@ -49,6 +49,11 @@ struct OutgoingPacket {
     uint16_t targetPort;
 };
 
+struct CapturedFrame {
+    ID3D11Texture2D* texture;
+    uint64_t captureTimestamp;
+};
+
 struct HostContext {
     std::atomic<bool> running{true};
     Network::NetworkManager net;
@@ -58,8 +63,8 @@ struct HostContext {
     std::mutex clientsMutex;
     std::set<std::pair<std::string, uint16_t>> clients;
 
-    LockFreeQueue<ID3D11Texture2D*, 64> captureQueue;
-    LockFreeQueue<std::vector<Host::EncodedPacket>, 64> encodeQueue;
+    LockFreeQueue<CapturedFrame, 2> captureQueue;
+    LockFreeQueue<std::vector<Host::EncodedPacket>, 2> encodeQueue;
     LockFreeQueue<OutgoingPacket, 4096> sendQueue;
 
     PacketPool packetPool{200, 1024 * 1024};
@@ -95,7 +100,7 @@ void RunHost(const std::string& ip) {
         LOG_ERROR("Host", "Failed to initialize DXGI capture");
         return;
     }
-    if (!ctx.encoder.Initialize(1920, 1080, fps, ctx.currentBitrate)) {
+    if (!ctx.encoder.Initialize(1920, 1080, fps, ctx.currentBitrate, ctx.capture.GetDevice())) {
         LOG_ERROR("Host", "Failed to initialize Hardware Encoder");
         return;
     }
@@ -107,9 +112,12 @@ void RunHost(const std::string& ip) {
     std::thread captureThread([&]() {
         while (ctx.running) {
             ID3D11Texture2D* tex = nullptr;
-            ScopeTimer timer("Capture_Time");
+            uint64_t captureTs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
             if (ctx.capture.AcquireFrame(&tex)) {
-                if (!ctx.captureQueue.push(std::move(tex))) {
+                uint64_t endCaptureTs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                Profiler::getInstance().recordTime("Capture_Time", (double)(endCaptureTs - captureTs));
+
+                if (!ctx.captureQueue.push({tex, endCaptureTs})) {
                     ctx.capture.ReleaseFrame(); // Drop if queue full
                 }
             } else if (ctx.running) {
@@ -117,17 +125,17 @@ void RunHost(const std::string& ip) {
                 ctx.capture.Initialize();
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            // Removed sleep_for(1ms) to minimize capture jitter and allow GPU-driven pace
         }
     });
 
     std::thread encoderThread([&]() {
         while (ctx.running) {
-            ID3D11Texture2D* tex = nullptr;
-            if (ctx.captureQueue.pop(tex)) {
+            CapturedFrame cf = {nullptr, 0};
+            if (ctx.captureQueue.pop(cf)) {
                 if (!ctx.encoder.IsInitialized()) {
                     LOG_WARN("Encoder", "Encoder not initialized, attempting recovery...");
-                    ctx.encoder.Initialize(1920, 1080, 60, ctx.currentBitrate);
+                    ctx.encoder.Initialize(1920, 1080, 60, ctx.currentBitrate, ctx.capture.GetDevice());
                 }
 
                 ctx.encoder.SetBitrate(ctx.currentBitrate);
@@ -135,8 +143,17 @@ void RunHost(const std::string& ip) {
                 static thread_local std::vector<Host::EncodedPacket> packets;
                 packets.clear();
 
-                ScopeTimer timer("Encode_Time");
-                if (ctx.encoder.EncodeFrame(tex, packets, ctx.packetPool)) {
+                uint64_t encodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                if (ctx.encoder.EncodeFrame(cf.texture, packets, ctx.packetPool)) {
+                    uint64_t encodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                    Profiler::getInstance().recordTime("Encode_Time", (double)(encodeEnd - encodeStart));
+
+                    for (auto& p : packets) {
+                        p.captureTimestamp = cf.captureTimestamp;
+                        p.encodeStartTimestamp = encodeStart;
+                        p.encodeEndTimestamp = encodeEnd;
+                    }
+
                     if (!ctx.encodeQueue.push(std::move(packets))) {
                         // If queue full, packets will be cleared next loop, but we need to release their buffers
                         for (auto& p : packets) ctx.packetPool.release(std::move(p.packet));
@@ -178,8 +195,9 @@ void RunHost(const std::string& ip) {
                     vh->fragmentIndex = i;
                     vh->totalFragments = totalFrags;
                     vh->packetSequence = ctx.globalPacketSequence++;
-                    vh->timestamp = frame.timestamp;
-                    vh->captureTimestamp = frame.timestamp; // We use the same for now, but in CaptureDXGI we could set a more precise one
+                    vh->captureTimestamp = frame.captureTimestamp;
+                    vh->encodeStartTimestamp = frame.encodeStartTimestamp;
+                    vh->encodeEndTimestamp = frame.encodeEndTimestamp;
                     vh->flags = frame.isKeyframe ? 0x01 : 0x00;
                     vh->dataSize = (uint16_t)std::min((uint32_t)Protocol::MAX_UDP_PAYLOAD, (uint32_t)(frame.packet->size - i * Protocol::MAX_UDP_PAYLOAD));
 
@@ -461,11 +479,21 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
         auto frame = jitterBuffer.PopFrame();
         if (frame) {
             void* texture = nullptr;
+            uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+
+            Profiler::getInstance().recordTime("EndToEnd_Latency", (double)(now - frame->captureTimestamp));
+            Profiler::getInstance().recordTime("Network_Latency", (double)(frame->receiveTimestamp - frame->encodeEndTimestamp));
+
             {
-                ScopeTimer timer("Decode_Time");
+                uint64_t decodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
                 if (decoder.DecodeFrame(frame->buffer.data(), (uint32_t)frame->totalSize, &texture)) {
-                    ScopeTimer pTimer("Present_Time");
+                    uint64_t decodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                    Profiler::getInstance().recordTime("Decode_Time", (double)(decodeEnd - decodeStart));
+
+                    uint64_t presentStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
                     renderer.Render((ID3D11Texture2D*)texture);
+                    uint64_t presentEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                    Profiler::getInstance().recordTime("Present_Time", (double)(presentEnd - presentStart));
                 }
             }
             receiver.ReturnToPool(std::move(frame));

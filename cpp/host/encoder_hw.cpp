@@ -30,7 +30,7 @@ FFmpegHardwareEncoder::~FFmpegHardwareEncoder() {
     delete m_internal;
 }
 
-bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitrateKbps) {
+bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitrateKbps, void* d3d11Device) {
     m_width = width;
     m_height = height;
     m_fps = fps;
@@ -60,6 +60,37 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
     av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
     av_opt_set(m_internal->codecCtx->priv_data, "rc", "cbr", 0);
 
+    if (d3d11Device) {
+        AVBufferRef* device_ref = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
+        if (device_ref) {
+            AVHWDeviceContext* device_ctx = (AVHWDeviceContext*)device_ref->data;
+            AVD3D11VADeviceContext* d3d11_ctx = (AVD3D11VADeviceContext*)device_ctx->hwctx;
+            d3d11_ctx->device = (ID3D11Device*)d3d11Device;
+            ((ID3D11Device*)d3d11Device)->AddRef();
+
+            if (av_hwdevice_ctx_init(device_ref) >= 0) {
+                m_internal->hwDeviceCtx = device_ref;
+                m_internal->codecCtx->hw_device_ctx = av_buffer_ref(device_ref);
+
+                // Initialize HW Frames Context for zero-copy
+                AVBufferRef* frames_ref = av_hwframe_ctx_alloc(device_ref);
+                AVHWFramesContext* frames_ctx = (AVHWFramesContext*)frames_ref->data;
+                frames_ctx->format = AV_PIX_FMT_D3D11;
+                frames_ctx->sw_format = AV_PIX_FMT_NV12;
+                frames_ctx->width = width;
+                frames_ctx->height = height;
+                frames_ctx->initial_pool_size = 1;
+
+                if (av_hwframe_ctx_init(frames_ref) >= 0) {
+                    m_internal->codecCtx->hw_frames_ctx = av_buffer_ref(frames_ref);
+                }
+                av_buffer_unref(&frames_ref);
+            } else {
+                av_buffer_unref(&device_ref);
+            }
+        }
+    }
+
     if (avcodec_open2(m_internal->codecCtx, codec, NULL) < 0) {
         LOG_ERROR("Encoder", "Failed to open codec.");
         return false;
@@ -75,10 +106,18 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
 bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) {
     if (!m_internal->codecCtx || !texturePtr) return false;
 
-    // Use a local timestamp to avoid any thread-safety issues with frameCounter if called from multiple threads
-    // though the current architecture is single-threaded per encoder.
-    m_internal->frame->data[0] = (uint8_t*)texturePtr;
-    m_internal->frame->format = AV_PIX_FMT_D3D11;
+    av_frame_unref(m_internal->frame);
+
+    if (m_internal->codecCtx->hw_frames_ctx) {
+        // Zero-copy path: Wrap the D3D11 texture directly
+        m_internal->frame->data[0] = (uint8_t*)texturePtr;
+        m_internal->frame->format = AV_PIX_FMT_D3D11;
+    } else {
+        // Fallback or non-HW path (not recommended for 20ms target)
+        m_internal->frame->data[0] = (uint8_t*)texturePtr;
+        m_internal->frame->format = AV_PIX_FMT_NV12;
+    }
+
     m_internal->frame->width = m_internal->codecCtx->width;
     m_internal->frame->height = m_internal->codecCtx->height;
     m_internal->frame->pts = m_internal->frameCounter++;
@@ -100,7 +139,10 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
                 EncodedPacket ep;
                 ep.packet = std::move(pktBuffer);
                 ep.isKeyframe = (m_internal->pkt->flags & AV_PKT_FLAG_KEY);
-                ep.timestamp = (uint64_t)m_internal->pkt->pts;
+                // The timestamps will be populated by the caller who knows the real-world time
+                ep.captureTimestamp = 0;
+                ep.encodeStartTimestamp = 0;
+                ep.encodeEndTimestamp = 0;
 
                 // Reserve space to avoid reallocations if the vector is being reused
                 if (outPackets.capacity() < outPackets.size() + 1) {

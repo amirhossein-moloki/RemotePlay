@@ -19,14 +19,16 @@ void Overlay::Render() {
         auto e2e = profiler.getStats("EndToEnd_Latency");
         auto capture = profiler.getStats("Capture_Time");
         auto encode = profiler.getStats("Encode_Time");
+        auto network = profiler.getStats("Network_Latency");
         auto decode = profiler.getStats("Decode_Time");
         auto present = profiler.getStats("Present_Time");
 
-        ImGui::Text("Total E2E Latency: %.2f ms", e2e.avg / 1000.0f);
+        ImGui::Text("Total E2E Latency: %.2f ms (P99: %.2f)", e2e.avg / 1000.0f, e2e.p99 / 1000.0f);
         ImGui::Separator();
         ImGui::Text("Capture Time: %.2f ms", capture.avg / 1000.0f);
-        ImGui::Text("Encode Time: %.2f ms", encode.avg / 1000.0f);
-        ImGui::Text("Decode Time: %.2f ms", decode.avg / 1000.0f);
+        ImGui::Text("Encode Time:  %.2f ms", encode.avg / 1000.0f);
+        ImGui::Text("Network Time: %.2f ms", network.avg / 1000.0f);
+        ImGui::Text("Decode Time:  %.2f ms", decode.avg / 1000.0f);
         ImGui::Text("Present Time: %.2f ms", present.avg / 1000.0f);
 
         static float lastTime = 0;

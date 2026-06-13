@@ -22,8 +22,10 @@
 namespace Host {
     struct EncodedPacket {
         std::unique_ptr<PacketPool::Packet> packet;
-        uint64_t timestamp;
         bool isKeyframe;
+        uint64_t captureTimestamp;
+        uint64_t encodeStartTimestamp;
+        uint64_t encodeEndTimestamp;
     };
 }
 
@@ -79,7 +81,9 @@ void RunBenchmark(int numFrames, int bitrateKbps) {
             ep.packet->size = frameSize;
             ep.packet->frameId = i;
             ep.isKeyframe = (i % 60 == 0);
-            ep.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(start.time_since_epoch()).count();
+            ep.captureTimestamp = std::chrono::duration_cast<std::chrono::microseconds>(start.time_since_epoch()).count();
+            ep.encodeStartTimestamp = ep.captureTimestamp + 1000;
+            ep.encodeEndTimestamp = ep.encodeStartTimestamp + 2000;
             packets.push_back(std::move(ep));
             encodeQueue.push(std::move(packets));
             auto end = std::chrono::high_resolution_clock::now();
@@ -116,7 +120,9 @@ void RunBenchmark(int numFrames, int bitrateKbps) {
                     vh->fragmentIndex = i;
                     vh->totalFragments = totalFrags;
                     vh->packetSequence = globalPacketSequence++;
-                    vh->timestamp = frame.timestamp;
+                    vh->captureTimestamp = frame.captureTimestamp;
+                    vh->encodeStartTimestamp = frame.encodeStartTimestamp;
+                    vh->encodeEndTimestamp = frame.encodeEndTimestamp;
                     vh->flags = frame.isKeyframe ? 0x01 : 0x00;
                     vh->dataSize = (uint16_t)std::min((uint32_t)Protocol::MAX_UDP_PAYLOAD, (uint32_t)(frame.packet->size - i * Protocol::MAX_UDP_PAYLOAD));
                     udpPkt->size = sizeof(Protocol::VideoHeader) + vh->dataSize;
@@ -193,6 +199,10 @@ void RunBenchmark(int numFrames, int bitrateKbps) {
         while (running) {
             auto frame = receiver.GetNextFrame();
             if (frame) {
+                uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                Profiler::getInstance().recordTime("EndToEnd_Latency", (double)(now - frame->captureTimestamp));
+                Profiler::getInstance().recordTime("Network_Latency", (double)(frame->receiveTimestamp - frame->encodeEndTimestamp));
+
                 framesProcessed++;
                 receiver.ReturnToPool(std::move(frame));
                 if (framesProcessed >= numFrames) running = false;
