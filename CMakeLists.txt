@@ -22,6 +22,7 @@ set(CLIENT_SOURCES
     cpp/client/decoder_hw.cpp
     cpp/client/input_capture.cpp
     cpp/client/jitter_buffer.cpp
+    cpp/client/renderer_d3d11.cpp
 )
 
 # Executable
@@ -32,7 +33,9 @@ add_executable(parsec-lite
     ${CLIENT_SOURCES}
 )
 
-# Dependencies (Windows specific)
+# Dependencies
 if(WIN32)
     target_link_libraries(parsec-lite ws2_32 iphlpapi d3d11 dxgi xinput)
+else()
+    target_link_libraries(parsec-lite pthread)
 endif()

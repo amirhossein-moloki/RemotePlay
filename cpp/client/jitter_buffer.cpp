@@ -19,9 +19,10 @@ void JitterBuffer::PushFrame(std::unique_ptr<FrameData> frame) {
     auto* existing = m_ring.get(frame->frameId);
     if (*existing && (*existing)->frameId == frame->frameId) return; // Duplicate
 
-    m_ring.insert(frame->frameId, std::move(frame));
+    uint32_t fid = frame->frameId;
+    m_ring.insert(fid, std::move(frame));
     EntryInfo info;
-    info.frameId = m_ring.get(frame->frameId)->get()->frameId;
+    info.frameId = fid;
     info.pushTime = std::chrono::steady_clock::now();
     info.occupied = true;
     m_info.insert(info.frameId, info);
