@@ -73,6 +73,8 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
 bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) {
     if (!m_internal->codecCtx || !texturePtr) return false;
 
+    // Use a local timestamp to avoid any thread-safety issues with frameCounter if called from multiple threads
+    // though the current architecture is single-threaded per encoder.
     m_internal->frame->data[0] = (uint8_t*)texturePtr;
     m_internal->frame->format = AV_PIX_FMT_D3D11;
     m_internal->frame->width = m_internal->codecCtx->width;
@@ -87,18 +89,25 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
         if (ret < 0) return false;
 
-        EncodedPacket ep;
-        ep.packet = pool.acquire();
-        if (ep.packet) {
-            if (m_internal->pkt->size <= ep.packet->data.size()) {
-                memcpy(ep.packet->data.data(), m_internal->pkt->data, m_internal->pkt->size);
-                ep.packet->size = m_internal->pkt->size;
+        auto pktBuffer = pool.acquire();
+        if (pktBuffer) {
+            if (m_internal->pkt->size <= pktBuffer->data.size()) {
+                memcpy(pktBuffer->data.data(), m_internal->pkt->data, m_internal->pkt->size);
+                pktBuffer->size = m_internal->pkt->size;
+
+                EncodedPacket ep;
+                ep.packet = std::move(pktBuffer);
                 ep.isKeyframe = (m_internal->pkt->flags & AV_PKT_FLAG_KEY);
-                ep.timestamp = m_internal->pkt->pts;
+                ep.timestamp = (uint64_t)m_internal->pkt->pts;
+
+                // Reserve space to avoid reallocations if the vector is being reused
+                if (outPackets.capacity() < outPackets.size() + 1) {
+                    outPackets.reserve(std::max((size_t)8, outPackets.capacity() * 2));
+                }
                 outPackets.push_back(std::move(ep));
             } else {
-                std::cerr << "[Encoder] Packet size exceeds pool buffer capacity" << std::endl;
-                pool.release(std::move(ep.packet));
+                // In production, we might want to log this once or handle it by expanding the pool
+                pool.release(std::move(pktBuffer));
             }
         }
 
@@ -111,10 +120,9 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
 void FFmpegHardwareEncoder::SetBitrate(int bitrateKbps) {
     if (m_internal->codecCtx && m_bitrate != bitrateKbps) {
         m_bitrate = bitrateKbps;
-        m_internal->codecCtx->bit_rate = bitrateKbps * 1000;
-        m_internal->codecCtx->rc_max_rate = bitrateKbps * 1000;
-        m_internal->codecCtx->rc_buffer_size = (bitrateKbps * 1000) / m_fps;
-        std::cout << "[Encoder] Bitrate adjusted to " << bitrateKbps << " kbps" << std::endl;
+        m_internal->codecCtx->bit_rate = (int64_t)bitrateKbps * 1000;
+        m_internal->codecCtx->rc_max_rate = (int64_t)bitrateKbps * 1000;
+        m_internal->codecCtx->rc_buffer_size = (int)((int64_t)bitrateKbps * 1000 / m_fps);
     }
 }
 

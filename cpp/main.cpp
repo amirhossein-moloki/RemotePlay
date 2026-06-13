@@ -13,6 +13,7 @@
 #include "common/network_manager.hpp"
 #include "common/protocol.hpp"
 #include "common/safe_queue.hpp"
+#include "common/lock_free_queue.hpp"
 #include "common/packet_pool.hpp"
 #include "common/fixed_ring_buffer.hpp"
 
@@ -54,9 +55,9 @@ struct HostContext {
     std::mutex clientsMutex;
     std::set<std::pair<std::string, uint16_t>> clients;
 
-    SafeQueue<ID3D11Texture2D*> captureQueue{"Capture"};
-    SafeQueue<std::vector<Host::EncodedPacket>> encodeQueue{"Encode"};
-    SafeQueue<OutgoingPacket> sendQueue{"Send"};
+    LockFreeQueue<ID3D11Texture2D*, 64> captureQueue;
+    LockFreeQueue<std::vector<Host::EncodedPacket>, 64> encodeQueue;
+    LockFreeQueue<OutgoingPacket, 4096> sendQueue;
 
     PacketPool packetPool{200, 1024 * 1024};
     PacketPool udpPool{1000, 1500};
@@ -67,6 +68,17 @@ struct HostContext {
 
 void RunHost(const std::string& ip) {
     HostContext ctx;
+
+    // Pre-warm pools to ensure zero allocations during streaming
+    for (int i = 0; i < 50; ++i) {
+        auto p = ctx.packetPool.acquire();
+        if (p) ctx.packetPool.release(std::move(p));
+    }
+    for (int i = 0; i < 2000; ++i) {
+        auto p = ctx.udpPool.acquire();
+        if (p) ctx.udpPool.release(std::move(p));
+    }
+
     if (!ctx.net.Bind(ip, 5005)) return;
     if (!ctx.capture.Initialize()) return;
     if (!ctx.encoder.Initialize(1920, 1080, 60, ctx.currentBitrate)) return;
@@ -75,39 +87,56 @@ void RunHost(const std::string& ip) {
         while (ctx.running) {
             ID3D11Texture2D* tex = nullptr;
             if (ctx.capture.AcquireFrame(&tex)) {
-                ctx.captureQueue.push(tex);
+                if (!ctx.captureQueue.push(std::move(tex))) {
+                    ctx.capture.ReleaseFrame(); // Drop if queue full
+                }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     });
 
     std::thread encoderThread([&]() {
-        ID3D11Texture2D* tex = nullptr;
-        while (ctx.running && ctx.captureQueue.wait_and_pop(tex)) {
-            ctx.encoder.SetBitrate(ctx.currentBitrate);
-            std::vector<Host::EncodedPacket> packets;
-            if (ctx.encoder.EncodeFrame(tex, packets, ctx.packetPool)) {
-                ctx.encodeQueue.push(std::move(packets));
+        while (ctx.running) {
+            ID3D11Texture2D* tex = nullptr;
+            if (ctx.captureQueue.pop(tex)) {
+                ctx.encoder.SetBitrate(ctx.currentBitrate);
+
+                static thread_local std::vector<Host::EncodedPacket> packets;
+                packets.clear();
+
+                if (ctx.encoder.EncodeFrame(tex, packets, ctx.packetPool)) {
+                    if (!ctx.encodeQueue.push(std::move(packets))) {
+                        // If queue full, packets will be cleared next loop, but we need to release their buffers
+                        for (auto& p : packets) ctx.packetPool.release(std::move(p.packet));
+                    }
+                }
+                ctx.capture.ReleaseFrame();
+            } else {
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
-            ctx.capture.ReleaseFrame();
         }
     });
 
     std::thread packetizerThread([&]() {
-        std::vector<Host::EncodedPacket> frames;
         uint32_t frameId = 0;
+        std::vector<Host::EncodedPacket> frames;
 
-        while (ctx.running && ctx.encodeQueue.wait_and_pop(frames)) {
-            ScopeTimer timer("Packetizer_Total");
-            for (auto& frame : frames) {
+        while (ctx.running) {
+            if (ctx.encodeQueue.pop(frames)) {
+                ScopeTimer timer("Packetizer_Total");
+                for (auto& frame : frames) {
                 uint16_t totalFrags = (uint16_t)((frame.packet->size + Protocol::MAX_UDP_PAYLOAD - 1) / Protocol::MAX_UDP_PAYLOAD);
 
-                // Use a fixed-size array on stack or pre-allocated to avoid vector allocations
-                static thread_local std::array<PacketPool::Packet*, 1024> fragmentPtrs;
+                // Use a fixed-size array on stack to avoid vector allocations
+                PacketPool::Packet* fragmentPtrs[1024];
                 if (totalFrags > 1024) continue;
 
                 for (uint16_t i = 0; i < totalFrags; ++i) {
                     auto udpPkt = ctx.udpPool.acquire();
+                    if (!udpPkt) {
+                        for (uint16_t j = 0; j < i; ++j) ctx.udpPool.release(std::unique_ptr<PacketPool::Packet>(fragmentPtrs[j]));
+                        goto next_frame;
+                    }
                     Protocol::VideoHeader* vh = (Protocol::VideoHeader*)udpPkt->data.data();
                     vh->type = (uint8_t)Protocol::PacketType::Video;
                     vh->frameId = frameId;
@@ -125,41 +154,54 @@ void RunHost(const std::string& ip) {
                 }
 
                 std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+                std::lock_guard<std::mutex> lock(ctx.clientsMutex);
                 for (const auto& client : ctx.clients) {
                     for (size_t i = 0; i < totalFrags; ++i) {
-                        auto sendPkt = ctx.udpPool.acquire();
-                        sendPkt->size = fragmentPtrs[i]->size;
-                        memcpy(sendPkt->data.data(), fragmentPtrs[i]->data.data(), fragmentPtrs[i]->size);
-                        ctx.sendQueue.push({std::move(sendPkt), client.first, client.second});
-
+                        // Calculate FEC before pushing the source packet to the send queue
+                        // to avoid race condition with the sender thread.
                         const int FEC_GROUP_SIZE = 5;
-                        if ((i + 1) % FEC_GROUP_SIZE == 0 || i == totalFrags - 1) {
-                            size_t groupStart = (i / FEC_GROUP_SIZE) * FEC_GROUP_SIZE;
+                        size_t groupStart = (i / FEC_GROUP_SIZE) * FEC_GROUP_SIZE;
+                        bool isLastInGroup = ((i + 1) % FEC_GROUP_SIZE == 0 || i == totalFrags - 1);
+
+                        auto sendPkt = ctx.udpPool.acquire();
+                        if (sendPkt) {
+                            sendPkt->size = fragmentPtrs[i]->size;
+                            memcpy(sendPkt->data.data(), fragmentPtrs[i]->data.data(), fragmentPtrs[i]->size);
+                            ctx.sendQueue.push({std::move(sendPkt), client.first, client.second});
+                        }
+
+                        if (isLastInGroup) {
                             uint16_t count = (uint16_t)(i - groupStart + 1);
                             if (count > 1) {
                                 auto fecPkt = ctx.udpPool.acquire();
-                                Protocol::FECHeader* fh = (Protocol::FECHeader*)fecPkt->data.data();
-                                fh->type = (uint8_t)Protocol::PacketType::FEC;
-                                fh->frameId = frameId;
-                                fh->fragmentStart = (uint16_t)groupStart;
-                                fh->fragmentCount = count;
-                                fh->packetSequence = ctx.globalPacketSequence++;
+                                if (fecPkt) {
+                                    Protocol::FECHeader* fh = (Protocol::FECHeader*)fecPkt->data.data();
+                                    fh->type = (uint8_t)Protocol::PacketType::FEC;
+                                    fh->frameId = frameId;
+                                    fh->fragmentStart = (uint16_t)groupStart;
+                                    fh->fragmentCount = count;
+                                    fh->packetSequence = ctx.globalPacketSequence++;
 
-                                uint16_t maxPayloadSize = 0;
-                                for (size_t j = 0; j < count; ++j) {
-                                    maxPayloadSize = std::max(maxPayloadSize, ((Protocol::VideoHeader*)fragmentPtrs[groupStart+j]->data.data())->dataSize);
-                                }
-                                fh->dataSize = maxPayloadSize;
+                                    uint16_t maxPayloadSize = 0;
+                                    for (size_t j = 0; j < count; ++j) {
+                                        maxPayloadSize = std::max(maxPayloadSize, ((Protocol::VideoHeader*)fragmentPtrs[groupStart+j]->data.data())->dataSize);
+                                    }
+                                    fh->dataSize = maxPayloadSize;
 
-                                uint8_t* fecPayload = fecPkt->data.data() + sizeof(Protocol::FECHeader);
-                                memset(fecPayload, 0, maxPayloadSize);
-                                for (size_t j = 0; j < count; ++j) {
-                                    Protocol::VideoHeader* vh = (Protocol::VideoHeader*)fragmentPtrs[groupStart+j]->data.data();
-                                    uint8_t* fragPayload = fragmentPtrs[groupStart+j]->data.data() + sizeof(Protocol::VideoHeader);
-                                    for (size_t k = 0; k < vh->dataSize; ++k) fecPayload[k] ^= fragPayload[k];
+                                    uint8_t* fecPayload = fecPkt->data.data() + sizeof(Protocol::FECHeader);
+                                    memset(fecPayload, 0, maxPayloadSize);
+
+                                    for (size_t j = 0; j < count; ++j) {
+                                        Protocol::VideoHeader* vh = (Protocol::VideoHeader*)fragmentPtrs[groupStart+j]->data.data();
+                                        uint8_t* fragPayload = fragmentPtrs[groupStart+j]->data.data() + sizeof(Protocol::VideoHeader);
+
+                                        for (size_t k = 0; k < vh->dataSize; ++k) {
+                                            fecPayload[k] ^= fragPayload[k];
+                                        }
+                                    }
+                                    fecPkt->size = sizeof(Protocol::FECHeader) + fh->dataSize;
+                                    ctx.sendQueue.push({std::move(fecPkt), client.first, client.second});
                                 }
-                                fecPkt->size = sizeof(Protocol::FECHeader) + fh->dataSize;
-                                ctx.sendQueue.push({std::move(fecPkt), client.first, client.second});
                             }
                         }
                     }
@@ -168,20 +210,42 @@ void RunHost(const std::string& ip) {
                 for (size_t i = 0; i < totalFrags; ++i) {
                     ctx.udpPool.release(std::unique_ptr<PacketPool::Packet>(fragmentPtrs[i]));
                 }
+            next_frame:
                 ctx.packetPool.release(std::move(frame.packet));
             }
             frameId++;
+        } else {
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
         }
-    });
+    }
+});
 
     std::thread senderThread([&]() {
-        OutgoingPacket op;
-        while (ctx.running && ctx.sendQueue.wait_and_pop(op)) {
-            {
-                ScopeTimer timer("Network_SendTo");
-                ctx.net.SendTo(op.packet->data.data(), op.packet->size, op.targetIp, op.targetPort);
+        const size_t MAX_BATCH = 64;
+        Network::NetworkManager::BatchItem batch[MAX_BATCH];
+        OutgoingPacket ops[MAX_BATCH];
+
+        while (ctx.running) {
+            size_t count = 0;
+            while (count < MAX_BATCH && ctx.sendQueue.pop(ops[count])) {
+                batch[count].data = ops[count].packet->data.data();
+                batch[count].size = ops[count].packet->size;
+                batch[count].targetIp = ops[count].targetIp;
+                batch[count].targetPort = ops[count].targetPort;
+                count++;
             }
-            ctx.udpPool.release(std::move(op.packet));
+
+            if (count > 0) {
+                {
+                    ScopeTimer timer("Network_SendBatch");
+                    ctx.net.SendBatch(batch, count);
+                }
+                for (size_t i = 0; i < count; ++i) {
+                    ctx.udpPool.release(std::move(ops[i].packet));
+                }
+            } else {
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
+            }
         }
     });
 
@@ -228,9 +292,6 @@ void RunHost(const std::string& ip) {
     std::cin.get();
 
     ctx.running = false;
-    ctx.captureQueue.stop();
-    ctx.encodeQueue.stop();
-    ctx.sendQueue.stop();
 
     if (captureThread.joinable()) captureThread.join();
     if (encoderThread.joinable()) encoderThread.join();

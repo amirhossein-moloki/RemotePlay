@@ -16,13 +16,17 @@ void FrameData::Reset() {
 }
 
 Receiver::Receiver(size_t poolSize) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    // No lock needed in constructor
     for (size_t i = 0; i < poolSize; ++i) {
         auto frame = std::make_unique<FrameData>();
         frame->buffer.resize(1024 * 1024);
         frame->fragmentMap.resize(1024);
         frame->fragmentSizes.resize(1024);
-        m_framePool.push_back(std::move(frame));
+        m_framePool.push_back(frame.get());
+        m_frameStorage.push_back(std::move(frame));
+    }
+    for (size_t i = 0; i < 64; ++i) {
+        *m_frameRing.get((uint32_t)i) = nullptr;
     }
 }
 
@@ -37,11 +41,13 @@ void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t*
 
     if (header.frameId < m_nextFrameIdToRead) return;
 
-    auto* framePtr = m_frameRing.get(header.frameId);
+    FrameData** framePtr = m_frameRing.get(header.frameId);
     if (!*framePtr || (*framePtr)->frameId != header.frameId) {
-        if (*framePtr) ReturnToPoolInternal(std::move(*framePtr));
+        if (*framePtr) ReturnToPoolInternalRaw(*framePtr);
 
-        auto newFrame = GetFromPoolInternal();
+        FrameData* newFrame = GetFromPoolInternalRaw();
+        if (!newFrame) return;
+
         newFrame->Reset();
         newFrame->frameId = header.frameId;
         newFrame->totalFragments = header.totalFragments;
@@ -53,7 +59,7 @@ void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t*
         m_frameRing.insert(header.frameId, std::move(newFrame));
     }
 
-    FrameData* frame = m_frameRing.get(header.frameId)->get();
+    FrameData* frame = *m_frameRing.get(header.frameId);
     if (header.fragmentIndex < frame->fragmentMap.size() && !frame->fragmentMap[header.fragmentIndex]) {
         size_t offset = header.fragmentIndex * Protocol::MAX_UDP_PAYLOAD;
         if (offset + header.dataSize <= frame->buffer.size()) {
@@ -103,9 +109,9 @@ void Receiver::ProcessFEC(const Protocol::FECHeader& header, const uint8_t* payl
 
 void Receiver::TryRecover(uint32_t frameId, uint16_t groupStart) {
     ScopeTimer timer("Receiver_TryRecover");
-    auto* framePtr = m_frameRing.get(frameId);
+    FrameData** framePtr = m_frameRing.get(frameId);
     if (!*framePtr || (*framePtr)->frameId != frameId) return;
-    FrameData* frame = (*framePtr).get();
+    FrameData* frame = *framePtr;
     if (frame->isComplete) return;
 
     uint32_t fecIdx = (frameId * 13) + (groupStart / 5);
@@ -140,10 +146,10 @@ void Receiver::TryRecover(uint32_t frameId, uint16_t groupStart) {
             uint8_t* otherPayload = frame->buffer.data() + (idx * Protocol::MAX_UDP_PAYLOAD);
             uint16_t otherSize = frame->fragmentSizes[idx];
 
-            for (size_t k = 0; k < group->fecHeader.dataSize; ++k) {
-                uint8_t byte = (k < otherSize) ? otherPayload[k] : 0;
-                recoveredPayload[k] ^= byte;
+            for (size_t k = 0; k < otherSize; ++k) {
+                recoveredPayload[k] ^= otherPayload[k];
             }
+            // Bytes beyond otherSize in recoveredPayload are already XORed with 0 (no-op)
         }
 
         frame->fragmentMap[missingIndex] = true;
@@ -162,7 +168,7 @@ void Receiver::TryRecover(uint32_t frameId, uint16_t groupStart) {
     }
 }
 
-std::unique_ptr<FrameData> Receiver::GetNextFrame() {
+Receiver::FramePtr Receiver::GetNextFrame() {
     std::lock_guard<std::mutex> lock(m_mutex);
 
     uint32_t newestComplete = 0;
@@ -178,44 +184,68 @@ std::unique_ptr<FrameData> Receiver::GetNextFrame() {
     }
 
     if (found) {
+        // Return skipped frames to pool
         for (uint32_t fid = m_nextFrameIdToRead; fid < newestComplete; ++fid) {
-            auto* framePtr = m_frameRing.get(fid);
+            FrameData** framePtr = m_frameRing.get(fid);
             if (*framePtr && (*framePtr)->frameId == fid) {
-                ReturnToPoolInternal(std::move(*framePtr));
+                ReturnToPoolInternalRaw(*framePtr);
+                *framePtr = nullptr;
             }
         }
 
-        m_nextFrameIdToRead = newestComplete;
-        auto* framePtr = m_frameRing.get(newestComplete);
-        auto frame = std::move(*framePtr);
-        m_nextFrameIdToRead++;
-        return frame;
+        // Pop the target frame
+        FrameData** framePtr = m_frameRing.get(newestComplete);
+        FrameData* frameRaw = *framePtr;
+        *framePtr = nullptr;
+
+        // Advance read pointer
+        m_nextFrameIdToRead = newestComplete + 1;
+
+        return FramePtr(frameRaw, FrameDeleter{this});
     }
 
-    return nullptr;
+    return FramePtr(nullptr, FrameDeleter{this});
 }
 
-void Receiver::ReturnToPool(std::unique_ptr<FrameData> frame) {
+void Receiver::FrameDeleter::operator()(FrameData* frame) const {
+    if (frame && receiver) {
+        receiver->ReturnToPoolRaw(frame);
+    }
+}
+
+void Receiver::ReturnToPool(FramePtr frame) {
+    // Just let it go out of scope or reset, deleter handles it
+    frame.reset();
+}
+
+void Receiver::ReturnToPoolRaw(FrameData* frame) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    ReturnToPoolInternal(std::move(frame));
+    ReturnToPoolInternalRaw(frame);
 }
 
-std::unique_ptr<FrameData> Receiver::GetFromPoolInternal() {
+FrameData* Receiver::GetFromPoolInternalRaw() {
     if (m_framePool.empty()) {
+        // Emergency allocation if pool is too small, though we should avoid this in hot path
         auto frame = std::make_unique<FrameData>();
         frame->buffer.resize(1024 * 1024);
         frame->fragmentMap.resize(1024);
         frame->fragmentSizes.resize(1024);
-        return frame;
+        FrameData* ptr = frame.get();
+        m_frameStorage.push_back(std::move(frame));
+        return ptr;
     }
-    auto frame = std::move(m_framePool.back());
+    FrameData* frame = m_framePool.back();
     m_framePool.pop_back();
     return frame;
 }
 
-void Receiver::ReturnToPoolInternal(std::unique_ptr<FrameData> frame) {
+void Receiver::ReturnToPoolInternalRaw(FrameData* frame) {
     if (frame) {
-        m_framePool.push_back(std::move(frame));
+        // Basic duplicate check to prevent double-free to pool
+        for (auto it = m_framePool.begin(); it != m_framePool.end(); ++it) {
+            if (*it == frame) return;
+        }
+        m_framePool.push_back(frame);
     }
 }
 

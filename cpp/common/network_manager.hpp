@@ -35,6 +35,15 @@ public:
 
     bool Bind(const std::string& ip, uint16_t port);
     int SendTo(const void* data, size_t size, const std::string& targetIp, uint16_t targetPort);
+
+    struct BatchItem {
+        const void* data;
+        size_t size;
+        std::string targetIp;
+        uint16_t targetPort;
+    };
+    int SendBatch(const BatchItem* items, size_t count);
+
     int ReceiveFrom(void* buffer, size_t maxSize, std::string& senderIp, uint16_t& senderPort);
 
 private:
