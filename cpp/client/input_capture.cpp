@@ -39,11 +39,19 @@ void InputCapture::HandleRawInput(LPARAM lParam) {
         Protocol::KeyboardEvent kb = { raw->data.keyboard.VKey, (uint8_t)!(raw->data.keyboard.Flags & RI_KEY_BREAK) };
         SendPacket(header, kb);
     } else if (raw->header.dwType == RIM_TYPEMOUSE) {
-        if (raw->data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE) {
-            Protocol::InputHeader header = { (uint8_t)Protocol::PacketType::Input, (uint8_t)Protocol::InputType::MouseMove };
-            Protocol::MouseMoveEvent mm = { raw->data.mouse.lLastX, raw->data.mouse.lLastY };
-            SendPacket(header, mm);
+        Protocol::InputHeader header = { (uint8_t)Protocol::PacketType::Input, (uint8_t)Protocol::InputType::MouseMove };
+        Protocol::MouseMoveEvent mm = { 0 };
+        mm.x = raw->data.mouse.lLastX;
+        mm.y = raw->data.mouse.lLastY;
+        mm.isRelative = !(raw->data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE);
+
+        if (!mm.isRelative) {
+            // For absolute moves, we should ideally know the screen size
+            // but for now we'll pass it as is and host will handle mapping
+            mm.screenWidth = GetSystemMetrics(SM_CXSCREEN);
+            mm.screenHeight = GetSystemMetrics(SM_CYSCREEN);
         }
+        SendPacket(header, mm);
     }
 }
 

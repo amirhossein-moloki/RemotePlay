@@ -9,6 +9,8 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/cpp)
 # Sources
 set(COMMON_SOURCES
     cpp/common/network_manager.cpp
+    cpp/common/logger.cpp
+    cpp/common/config.cpp
 )
 
 set(HOST_SOURCES
@@ -23,6 +25,13 @@ set(CLIENT_SOURCES
     cpp/client/input_capture.cpp
     cpp/client/jitter_buffer.cpp
     cpp/client/renderer_d3d11.cpp
+    cpp/client/overlay.cpp
+    cpp/third_party/imgui/imgui.cpp
+    cpp/third_party/imgui/imgui_draw.cpp
+    cpp/third_party/imgui/imgui_tables.cpp
+    cpp/third_party/imgui/imgui_widgets.cpp
+    cpp/third_party/imgui/imgui_impl_win32.cpp
+    cpp/third_party/imgui/imgui_impl_d3d11.cpp
 )
 
 # Executable

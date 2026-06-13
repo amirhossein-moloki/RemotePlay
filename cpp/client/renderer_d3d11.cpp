@@ -2,6 +2,10 @@
 
 #ifdef _WIN32
 #include <iostream>
+#include "../common/logger.hpp"
+#include "third_party/imgui/imgui.h"
+#include "third_party/imgui/imgui_impl_win32.h"
+#include "third_party/imgui/imgui_impl_d3d11.h"
 
 namespace Client {
 
@@ -10,7 +14,7 @@ RendererD3D11::~RendererD3D11() { Shutdown(); }
 
 bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
     if (!hwnd) {
-        std::cerr << "[Renderer] Invalid HWND provided." << std::endl;
+        LOG_ERROR("Renderer", "Invalid HWND provided.");
         return false;
     }
 
@@ -34,7 +38,9 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
     HRESULT hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, nullptr, 0,
                                                D3D11_SDK_VERSION, &sd, &m_swapChain, &m_device, nullptr, &m_context);
     if (FAILED(hr)) {
-        std::cerr << "[Renderer] Failed to create D3D11 device and swap chain. HR: " << std::hex << hr << std::endl;
+        std::stringstream ss;
+        ss << "0x" << std::hex << hr;
+        LOG_ERROR("Renderer", "Failed to create D3D11 device and swap chain. HR: " + ss.str());
         return false;
     }
 
@@ -43,8 +49,28 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
     m_device->CreateRenderTargetView(pBackBuffer, nullptr, &m_backBufferView);
     pBackBuffer->Release();
 
-    std::cout << "[Renderer] D3D11 Renderer initialized at " << width << "x" << height << std::endl;
+    // Initialize ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGui::StyleColorsDark();
+    ImGui_ImplWin32_Init(hwnd);
+    ImGui_ImplD3D11_Init(m_device, m_context);
+
+    LOG_INFO("Renderer", "D3D11 Renderer initialized at " + std::to_string(width) + "x" + std::to_string(height));
     return true;
+}
+
+void RendererD3D11::NewFrame() {
+    ImGui_ImplD3D11_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+}
+
+void RendererD3D11::EndFrame() {
+    ImGui::Render();
+    m_context->OMSetRenderTargets(1, &m_backBufferView, nullptr);
+    ImGui_ImplD3D11_RenderDrawData(ImGui::GetDrawData());
+    m_swapChain->Present(0, 0);
 }
 
 void RendererD3D11::Render(ID3D11Texture2D* texture) {
@@ -59,10 +85,13 @@ void RendererD3D11::Render(ID3D11Texture2D* texture) {
     m_context->CopyResource(backBuffer, texture);
     backBuffer->Release();
 
-    m_swapChain->Present(0, 0);
 }
 
 void RendererD3D11::Shutdown() {
+    ImGui_ImplD3D11_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
+
     if (m_backBufferView) m_backBufferView->Release();
     if (m_swapChain) m_swapChain->Release();
     if (m_context) m_context->Release();

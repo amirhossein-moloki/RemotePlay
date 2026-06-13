@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <iostream>
 #include <chrono>
+#include "../common/logger.hpp"
 
 namespace Host {
 
@@ -12,7 +13,7 @@ InputInjector::InputInjector() {
     if (m_vigem) {
         VIGEM_ERROR err = vigem_connect(m_vigem);
         if (!VIGEM_SUCCESS(err)) {
-            std::cerr << "[Injector] ViGEmBus connection failed: " << err << std::endl;
+            LOG_ERROR("Injector", "ViGEmBus connection failed: " + std::to_string(err));
             vigem_free(m_vigem);
             m_vigem = nullptr;
         }
@@ -47,10 +48,16 @@ void InputInjector::InjectKeyboard(const Protocol::KeyboardEvent& ev) {
 void InputInjector::InjectMouseMove(const Protocol::MouseMoveEvent& ev) {
     INPUT input = { 0 };
     input.type = INPUT_MOUSE;
-    // Map client coordinates to absolute screen coordinates (0-65535)
-    input.mi.dx = (LONG)((double)ev.x * 65536.0 / (double)ev.screenWidth);
-    input.mi.dy = (LONG)((double)ev.y * 65536.0 / (double)ev.screenHeight);
-    input.mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE | MOUSEEVENTF_VIRTUALDESK;
+    if (ev.isRelative) {
+        input.mi.dx = ev.x;
+        input.mi.dy = ev.y;
+        input.mi.dwFlags = MOUSEEVENTF_MOVE;
+    } else {
+        // Map client coordinates to absolute screen coordinates (0-65535)
+        input.mi.dx = (LONG)((double)ev.x * 65536.0 / (double)ev.screenWidth);
+        input.mi.dy = (LONG)((double)ev.y * 65536.0 / (double)ev.screenHeight);
+        input.mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE | MOUSEEVENTF_VIRTUALDESK;
+    }
     SendInput(1, &input, sizeof(INPUT));
 }
 
@@ -78,9 +85,9 @@ void InputInjector::HandleGamepadStatus(const std::string& clientIp, const Proto
             VIGEM_ERROR err = vigem_target_add(m_vigem, target);
             if (VIGEM_SUCCESS(err)) {
                 m_targets[key] = target;
-                std::cout << "[Injector] Plugged in virtual X360 controller for " << clientIp << " ID " << (int)ev.gamepadId << std::endl;
+                LOG_INFO("Injector", "Plugged in virtual X360 controller for " + clientIp + " ID " + std::to_string((int)ev.gamepadId));
             } else {
-                std::cerr << "[Injector] Failed to plug in virtual controller: " << err << std::endl;
+                LOG_ERROR("Injector", "Failed to plug in virtual controller: " + std::to_string(err));
                 vigem_target_free(target);
             }
         }
@@ -90,7 +97,7 @@ void InputInjector::HandleGamepadStatus(const std::string& clientIp, const Proto
             vigem_target_remove(m_vigem, it->second);
             vigem_target_free(it->second);
             m_targets.erase(it);
-            std::cout << "[Injector] Unplugged virtual X360 controller for " << clientIp << " ID " << (int)ev.gamepadId << std::endl;
+            LOG_INFO("Injector", "Unplugged virtual X360 controller for " + clientIp + " ID " + std::to_string((int)ev.gamepadId));
         }
     }
 #endif

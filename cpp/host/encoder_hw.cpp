@@ -1,5 +1,6 @@
 #include "encoder_hw.hpp"
 #include <iostream>
+#include "../common/logger.hpp"
 
 #ifdef _WIN32
 extern "C" {
@@ -39,7 +40,7 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
     if (!codec) codec = avcodec_find_encoder_by_name("h264_amf");
     if (!codec) codec = avcodec_find_encoder_by_name("h264_qsv");
     if (!codec) {
-        std::cerr << "[Encoder] No hardware H.264 encoder found (nvenc, amf, qsv)." << std::endl;
+        LOG_ERROR("Encoder", "No hardware H.264 encoder found (nvenc, amf, qsv).");
         return false;
     }
 
@@ -60,13 +61,14 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
     av_opt_set(m_internal->codecCtx->priv_data, "rc", "cbr", 0);
 
     if (avcodec_open2(m_internal->codecCtx, codec, NULL) < 0) {
-        std::cerr << "[Encoder] Failed to open codec." << std::endl;
+        LOG_ERROR("Encoder", "Failed to open codec.");
         return false;
     }
 
     m_internal->pkt = av_packet_alloc();
     m_internal->frame = av_frame_alloc();
 
+    m_initialized = true;
     return true;
 }
 
@@ -127,6 +129,7 @@ void FFmpegHardwareEncoder::SetBitrate(int bitrateKbps) {
 }
 
 void FFmpegHardwareEncoder::Shutdown() {
+    m_initialized = false;
     if (m_internal->codecCtx) avcodec_free_context(&m_internal->codecCtx);
     if (m_internal->hwDeviceCtx) av_buffer_unref(&m_internal->hwDeviceCtx);
     if (m_internal->frame) av_frame_free(&m_internal->frame);

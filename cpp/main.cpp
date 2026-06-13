@@ -10,6 +10,8 @@
 #include <array>
 
 #include "common/profiler.hpp"
+#include "common/logger.hpp"
+#include "common/config.hpp"
 #include "common/network_manager.hpp"
 #include "common/protocol.hpp"
 #include "common/safe_queue.hpp"
@@ -27,6 +29,7 @@
 #include "client/input_capture.hpp"
 #include "client/renderer_d3d11.hpp"
 #include "client/jitter_buffer.hpp"
+#include "client/overlay.hpp"
 #endif
 
 void ShowUsage() {
@@ -67,7 +70,12 @@ struct HostContext {
 };
 
 void RunHost(const std::string& ip) {
+    auto& config = Config::getInstance();
+    int bitrate = config.getInt("host.bitrate", 5000);
+    int fps = config.getInt("host.fps", 60);
+
     HostContext ctx;
+    ctx.currentBitrate = bitrate;
 
     // Pre-warm pools to ensure zero allocations during streaming
     for (int i = 0; i < 50; ++i) {
@@ -79,19 +87,35 @@ void RunHost(const std::string& ip) {
         if (p) ctx.udpPool.release(std::move(p));
     }
 
-    if (!ctx.net.Bind(ip, 5005)) return;
-    if (!ctx.capture.Initialize()) return;
-    if (!ctx.encoder.Initialize(1920, 1080, 60, ctx.currentBitrate)) return;
+    if (!ctx.net.Bind(ip, 5005)) {
+        LOG_ERROR("Host", "Failed to bind network to " + ip);
+        return;
+    }
+    if (!ctx.capture.Initialize()) {
+        LOG_ERROR("Host", "Failed to initialize DXGI capture");
+        return;
+    }
+    if (!ctx.encoder.Initialize(1920, 1080, fps, ctx.currentBitrate)) {
+        LOG_ERROR("Host", "Failed to initialize Hardware Encoder");
+        return;
+    }
+
+    LOG_INFO("Host", "Streaming started at " + std::to_string(fps) + " FPS, " + std::to_string(bitrate) + " kbps");
 
     uint32_t packetsReceived = 0;
 
     std::thread captureThread([&]() {
         while (ctx.running) {
             ID3D11Texture2D* tex = nullptr;
+            ScopeTimer timer("Capture_Time");
             if (ctx.capture.AcquireFrame(&tex)) {
                 if (!ctx.captureQueue.push(std::move(tex))) {
                     ctx.capture.ReleaseFrame(); // Drop if queue full
                 }
+            } else if (ctx.running) {
+                // Try to re-init if AcquireFrame fails (it cleans up on device lost)
+                ctx.capture.Initialize();
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -101,16 +125,25 @@ void RunHost(const std::string& ip) {
         while (ctx.running) {
             ID3D11Texture2D* tex = nullptr;
             if (ctx.captureQueue.pop(tex)) {
+                if (!ctx.encoder.IsInitialized()) {
+                    LOG_WARN("Encoder", "Encoder not initialized, attempting recovery...");
+                    ctx.encoder.Initialize(1920, 1080, 60, ctx.currentBitrate);
+                }
+
                 ctx.encoder.SetBitrate(ctx.currentBitrate);
 
                 static thread_local std::vector<Host::EncodedPacket> packets;
                 packets.clear();
 
+                ScopeTimer timer("Encode_Time");
                 if (ctx.encoder.EncodeFrame(tex, packets, ctx.packetPool)) {
                     if (!ctx.encodeQueue.push(std::move(packets))) {
                         // If queue full, packets will be cleared next loop, but we need to release their buffers
                         for (auto& p : packets) ctx.packetPool.release(std::move(p.packet));
                     }
+                } else {
+                    LOG_ERROR("Encoder", "EncodeFrame failed, shutting down encoder for restart.");
+                    ctx.encoder.Shutdown();
                 }
                 ctx.capture.ReleaseFrame();
             } else {
@@ -146,6 +179,7 @@ void RunHost(const std::string& ip) {
                     vh->totalFragments = totalFrags;
                     vh->packetSequence = ctx.globalPacketSequence++;
                     vh->timestamp = frame.timestamp;
+                    vh->captureTimestamp = frame.timestamp; // We use the same for now, but in CaptureDXGI we could set a more precise one
                     vh->flags = frame.isKeyframe ? 0x01 : 0x00;
                     vh->dataSize = (uint16_t)std::min((uint32_t)Protocol::MAX_UDP_PAYLOAD, (uint32_t)(frame.packet->size - i * Protocol::MAX_UDP_PAYLOAD));
 
@@ -284,7 +318,8 @@ void RunHost(const std::string& ip) {
                 } else if (type == Protocol::PacketType::Feedback && len >= (int)sizeof(Protocol::FeedbackHeader)) {
                     Protocol::FeedbackHeader* fb = (Protocol::FeedbackHeader*)buf;
                     Profiler::getInstance().recordValue("Network_LossRate", fb->lossRate);
-                    Profiler::getInstance().recordValue("Network_RTT", fb->rttMs);
+                    Profiler::getInstance().recordValue("Network_RTT", (double)fb->rttMs);
+                    Profiler::getInstance().recordValue("Host_Bitrate", (double)ctx.currentBitrate);
                     if (fb->lossRate > 0.05f) {
                         ctx.currentBitrate = std::max(1000, (int)ctx.currentBitrate - 500);
                     } else if (fb->lossRate < 0.01f) {
@@ -295,7 +330,7 @@ void RunHost(const std::string& ip) {
         }
     });
 
-    std::cout << "Host running on " << ip << ". Press Enter to stop." << std::endl;
+    LOG_INFO("Host", "Host running on " + ip + ". Press Enter to stop.");
     std::cin.get();
 
     ctx.running = false;
@@ -318,8 +353,25 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
     Client::RendererD3D11 renderer;
     HWND hwnd = GetConsoleWindow();
 
-    if (!renderer.Initialize(hwnd, 1920, 1080)) return;
-    if (!decoder.Initialize(renderer.GetDevice())) return;
+    if (!renderer.Initialize(hwnd, 1920, 1080)) {
+        LOG_ERROR("Client", "Failed to initialize Renderer");
+        return;
+    }
+
+    Client::InputCapture inputCap([&](const std::vector<uint8_t>& data) {
+        net.SendTo(data.data(), data.size(), hostIp, 5005);
+    });
+
+    // We need a message loop for Raw Input
+    // In a real app, this would be part of the main window loop
+    inputCap.RegisterDevices(hwnd);
+
+    if (!decoder.Initialize(renderer.GetDevice())) {
+        LOG_ERROR("Client", "Failed to initialize Decoder");
+        return;
+    }
+
+    LOG_INFO("Client", "Connecting to " + hostIp + "...");
 
     std::atomic<uint32_t> lastFrameId{0};
 
@@ -333,6 +385,10 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
                 Protocol::PacketType type = (Protocol::PacketType)buf[0];
                 if (type == Protocol::PacketType::Video && len >= (int)sizeof(Protocol::VideoHeader)) {
                     Protocol::VideoHeader* vh = (Protocol::VideoHeader*)buf;
+
+                    uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                    Profiler::getInstance().recordTime("EndToEnd_Latency", (double)(now - vh->captureTimestamp));
+
                     receiver.ProcessPacket(*vh, buf + sizeof(Protocol::VideoHeader));
                     lastFrameId = std::max((uint32_t)lastFrameId, vh->frameId);
                 } else if (type == Protocol::PacketType::FEC && len >= (int)sizeof(Protocol::FECHeader)) {
@@ -355,9 +411,6 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
         }
     });
 
-    Client::InputCapture inputCap([&](const std::vector<uint8_t>& data) {
-        net.SendTo(data.data(), data.size(), hostIp, 5005);
-    });
     std::thread inputThread([&]() {
         while (running) {
             inputCap.PollGamepads();
@@ -365,10 +418,42 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
         }
     });
 
+    std::thread watchdogThread([&]() {
+        uint32_t lastProcessedFrame = 0;
+        int timeoutCount = 0;
+        while (running) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (lastFrameId == lastProcessedFrame && lastFrameId != 0) {
+                timeoutCount++;
+                if (timeoutCount > 5) {
+                    LOG_WARN("Client", "No new frames for 5 seconds, triggering re-handshake...");
+                    uint8_t handshake = (uint8_t)Protocol::PacketType::Handshake;
+                    net.SendTo(&handshake, 1, hostIp, 5005);
+                    timeoutCount = 0;
+                }
+            } else {
+                timeoutCount = 0;
+            }
+            lastProcessedFrame = lastFrameId;
+        }
+    });
+
     uint8_t handshake = (uint8_t)Protocol::PacketType::Handshake;
     net.SendTo(&handshake, 1, hostIp, 5005);
 
     while (running) {
+        // Handle Windows messages for Raw Input
+        MSG msg;
+        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+            if (msg.message == WM_QUIT) running = false;
+            if (msg.message == WM_INPUT) inputCap.HandleRawInput(msg.lParam);
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+
+        renderer.NewFrame();
+        Client::Overlay::Render();
+
         while (auto frame = receiver.GetNextFrame()) {
             jitterBuffer.PushFrame(std::move(frame));
         }
@@ -376,19 +461,26 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
         auto frame = jitterBuffer.PopFrame();
         if (frame) {
             void* texture = nullptr;
-            if (decoder.DecodeFrame(frame->buffer.data(), (uint32_t)frame->totalSize, &texture)) {
-                renderer.Render((ID3D11Texture2D*)texture);
+            {
+                ScopeTimer timer("Decode_Time");
+                if (decoder.DecodeFrame(frame->buffer.data(), (uint32_t)frame->totalSize, &texture)) {
+                    ScopeTimer pTimer("Present_Time");
+                    renderer.Render((ID3D11Texture2D*)texture);
+                }
             }
             receiver.ReturnToPool(std::move(frame));
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
+
+        renderer.EndFrame();
     }
 
     running = false;
     if (netThread.joinable()) netThread.join();
     if (feedbackThread.joinable()) feedbackThread.join();
     if (inputThread.joinable()) inputThread.join();
+    if (watchdogThread.joinable()) watchdogThread.join();
 }
 #else
 void RunHost(const std::string& ip) {}
@@ -396,6 +488,9 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {}
 #endif
 
 int main(int argc, char* argv[]) {
+    Logger::getInstance().init("parsec-lite.log");
+    Config::getInstance().load("config.ini");
+
     std::vector<std::string> args(argv, argv + argc);
     if (args.size() < 2) { ShowUsage(); return 1; }
 

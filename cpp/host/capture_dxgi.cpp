@@ -2,6 +2,7 @@
 
 #ifdef _WIN32
 #include <iostream>
+#include "../common/logger.hpp"
 
 namespace Host {
 
@@ -38,10 +39,20 @@ bool CaptureDXGI::Initialize() {
 }
 
 bool CaptureDXGI::AcquireFrame(ID3D11Texture2D** texture) {
+    if (!m_dupl) return false;
+
     DXGI_OUTDUPL_FRAME_INFO frameInfo;
     IDXGIResource* desktopResource = nullptr;
     HRESULT hr = m_dupl->AcquireNextFrame(100, &frameInfo, &desktopResource);
-    if (FAILED(hr)) return false;
+    if (FAILED(hr)) {
+        if (hr == DXGI_ERROR_ACCESS_LOST || hr == DXGI_ERROR_DEVICE_REMOVED) {
+            std::stringstream ss;
+            ss << "0x" << std::hex << hr;
+            LOG_WARN("Capture", "DXGI Device lost (HR: " + ss.str() + "), cleaning up for re-init.");
+            Cleanup();
+        }
+        return false;
+    }
 
     hr = desktopResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)texture);
     desktopResource->Release();
