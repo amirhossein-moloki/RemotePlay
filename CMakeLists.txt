@@ -26,6 +26,7 @@ set(CLIENT_SOURCES
     cpp/client/jitter_buffer.cpp
     cpp/client/renderer_d3d11.cpp
     cpp/client/overlay.cpp
+    cpp/client/launcher.cpp
     cpp/third_party/imgui/imgui.cpp
     cpp/third_party/imgui/imgui_draw.cpp
     cpp/third_party/imgui/imgui_tables.cpp

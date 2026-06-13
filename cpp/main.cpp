@@ -30,6 +30,7 @@
 #include "client/renderer_d3d11.hpp"
 #include "client/jitter_buffer.hpp"
 #include "client/overlay.hpp"
+#include "client/launcher.hpp"
 #endif
 
 void ShowUsage() {
@@ -360,6 +361,46 @@ void RunHost(const std::string& ip) {
     if (receiverThread.joinable()) receiverThread.join();
 }
 
+void RunLauncher() {
+    Network::NetworkManager net;
+    auto interfaces = Network::NetworkManager::EnumerateInterfaces();
+
+    Client::LauncherConfig config;
+    if (!interfaces.empty()) config.selectedIp = interfaces[0].ip;
+
+    Client::RendererD3D11 renderer;
+    HWND hwnd = GetConsoleWindow();
+    if (!renderer.Initialize(hwnd, 1280, 720)) return;
+
+    bool sessionStarted = false;
+
+    while (!sessionStarted) {
+        MSG msg;
+        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+            if (msg.message == WM_QUIT) return;
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+
+        renderer.NewFrame();
+        Client::Launcher::Render(config, interfaces);
+
+        if (config.startRequested) {
+            sessionStarted = true;
+        }
+
+        renderer.EndFrame();
+    }
+
+    renderer.Shutdown();
+
+    if (config.isHost) {
+        RunHost(config.selectedIp);
+    } else {
+        RunClient(config.selectedIp, config.hostIp);
+    }
+}
+
 void RunClient(const std::string& localIp, const std::string& hostIp) {
     std::atomic<bool> running{true};
     Network::NetworkManager net;
@@ -539,7 +580,9 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (args[1] == "--host") {
+    if (args.size() == 1) {
+        RunLauncher();
+    } else if (args[1] == "--host") {
         RunHost(selectedIp);
     } else if (args[1] == "--client" && args.size() > 2) {
         RunClient(selectedIp, args[2]);
