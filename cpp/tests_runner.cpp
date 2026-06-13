@@ -154,6 +154,31 @@ void TestReceiverSkipping() {
     std::cout << "Receiver Skipping Tests Passed!" << std::endl;
 }
 
+void TestGamepadProtocol() {
+    std::cout << "Running Gamepad Protocol Tests..." << std::endl;
+
+    // Test GamepadState
+    Protocol::GamepadState gp;
+    gp.gamepadId = 1;
+    gp.buttons = 0x1234;
+    gp.leftTrigger = 100;
+    gp.rightTrigger = 200;
+    gp.thumbLX = -1000;
+    gp.thumbLY = 2000;
+    gp.thumbRX = -3000;
+    gp.thumbRY = 4000;
+
+    assert(sizeof(Protocol::GamepadState) == 13);
+
+    // Test GamepadStatusEvent
+    Protocol::GamepadStatusEvent status;
+    status.gamepadId = 2;
+    status.isConnected = 1;
+    assert(sizeof(Protocol::GamepadStatusEvent) == 2);
+
+    std::cout << "Gamepad Protocol Tests Passed!" << std::endl;
+}
+
 void TestJitterBuffer() {
     std::cout << "Running JitterBuffer Tests..." << std::endl;
     Client::JitterBuffer jb(3);
@@ -197,6 +222,7 @@ int main() {
         TestReceiverFEC();
         TestReceiverSkipping();
         TestJitterBuffer();
+        TestGamepadProtocol();
         std::cout << "\nAll Core Logic Tests Passed Successfully!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Test failed: " << e.what() << std::endl;
