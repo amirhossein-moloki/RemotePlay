@@ -10,7 +10,9 @@ enum class PacketType : uint8_t {
     Video = 0x01,
     Input = 0x02,
     Discovery = 0x03,
-    Handshake = 0x04
+    Handshake = 0x04,
+    FEC = 0x05,
+    Feedback = 0x06
 };
 
 // Input subtypes
@@ -23,19 +25,38 @@ enum class InputType : uint8_t {
 };
 
 // Maximum UDP payload size (to stay within MTU)
-const uint16_t MAX_UDP_PAYLOAD = 1300; // Reduced slightly to be safer
+const uint16_t MAX_UDP_PAYLOAD = 1300;
 
 #pragma pack(push, 1)
 
 // Video Packet Header
 struct VideoHeader {
     uint8_t type;            // PacketType::Video
-    uint32_t sequence;       // Frame sequence number
+    uint32_t frameId;        // Frame sequence number
     uint16_t fragmentIndex;  // Fragment index in current frame
     uint16_t totalFragments; // Total fragments in current frame
+    uint32_t packetSequence; // Global UDP packet sequence number
     uint64_t timestamp;      // Capture timestamp (microseconds)
     uint8_t flags;           // Bit 0: Keyframe, Bit 1-7: Reserved
     uint16_t dataSize;       // Size of the following payload
+};
+
+// FEC Packet Header (XOR based)
+struct FECHeader {
+    uint8_t type;            // PacketType::FEC
+    uint32_t frameId;        // Frame this FEC belongs to
+    uint16_t fragmentStart;  // First fragment index covered by this FEC
+    uint16_t fragmentCount;  // Number of fragments covered
+    uint32_t packetSequence; // Global UDP packet sequence number
+    uint16_t dataSize;       // Size of the XORed payload
+};
+
+// Feedback Packet Header (Client -> Host)
+struct FeedbackHeader {
+    uint8_t type;            // PacketType::Feedback
+    uint32_t lastReceivedFrameId;
+    float lossRate;
+    uint32_t rttMs;
 };
 
 // Input Packet Header

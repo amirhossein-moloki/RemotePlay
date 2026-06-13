@@ -3,6 +3,8 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include <memory>
+#include "../common/packet_pool.hpp"
 
 #ifdef _WIN32
 #include <d3d11.h>
@@ -11,7 +13,7 @@
 namespace Host {
 
 struct EncodedPacket {
-    std::vector<uint8_t> data;
+    std::unique_ptr<PacketPool::Packet> packet;
     bool isKeyframe;
     uint64_t timestamp;
 };
@@ -20,7 +22,8 @@ class EncoderHW {
 public:
     virtual ~EncoderHW() {}
     virtual bool Initialize(int width, int height, int fps, int bitrateKbps) = 0;
-    virtual bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets) = 0;
+    virtual bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) = 0;
+    virtual void SetBitrate(int bitrateKbps) = 0;
     virtual void Shutdown() = 0;
 };
 
@@ -30,7 +33,8 @@ public:
     ~FFmpegHardwareEncoder() override;
 
     bool Initialize(int width, int height, int fps, int bitrateKbps) override;
-    bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets) override;
+    bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) override;
+    void SetBitrate(int bitrateKbps) override;
     void Shutdown() override;
 
 private:

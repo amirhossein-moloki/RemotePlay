@@ -70,11 +70,9 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
     return true;
 }
 
-bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets) {
+bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) {
     if (!m_internal->codecCtx || !texturePtr) return false;
 
-    // Zero-copy: Pass the texture directly to FFmpeg.
-    // In a real environment, the AVFrame data pointer would be set to the ID3D11Texture2D.
     m_internal->frame->data[0] = (uint8_t*)texturePtr;
     m_internal->frame->format = AV_PIX_FMT_D3D11;
     m_internal->frame->width = m_internal->codecCtx->width;
@@ -89,16 +87,35 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
         if (ret < 0) return false;
 
-        EncodedPacket p;
-        p.data.assign(m_internal->pkt->data, m_internal->pkt->data + m_internal->pkt->size);
-        p.isKeyframe = (m_internal->pkt->flags & AV_PKT_FLAG_KEY);
-        p.timestamp = m_internal->pkt->pts;
-        outPackets.push_back(std::move(p));
+        EncodedPacket ep;
+        ep.packet = pool.acquire();
+        if (ep.packet) {
+            if (m_internal->pkt->size <= ep.packet->data.size()) {
+                memcpy(ep.packet->data.data(), m_internal->pkt->data, m_internal->pkt->size);
+                ep.packet->size = m_internal->pkt->size;
+                ep.isKeyframe = (m_internal->pkt->flags & AV_PKT_FLAG_KEY);
+                ep.timestamp = m_internal->pkt->pts;
+                outPackets.push_back(std::move(ep));
+            } else {
+                std::cerr << "[Encoder] Packet size exceeds pool buffer capacity" << std::endl;
+                pool.release(std::move(ep.packet));
+            }
+        }
 
         av_packet_unref(m_internal->pkt);
     }
 
     return true;
+}
+
+void FFmpegHardwareEncoder::SetBitrate(int bitrateKbps) {
+    if (m_internal->codecCtx && m_bitrate != bitrateKbps) {
+        m_bitrate = bitrateKbps;
+        m_internal->codecCtx->bit_rate = bitrateKbps * 1000;
+        m_internal->codecCtx->rc_max_rate = bitrateKbps * 1000;
+        m_internal->codecCtx->rc_buffer_size = (bitrateKbps * 1000) / m_fps;
+        std::cout << "[Encoder] Bitrate adjusted to " << bitrateKbps << " kbps" << std::endl;
+    }
 }
 
 void FFmpegHardwareEncoder::Shutdown() {
@@ -113,7 +130,8 @@ struct FFmpegHardwareEncoder::InternalData {};
 FFmpegHardwareEncoder::FFmpegHardwareEncoder() : m_internal(nullptr) {}
 FFmpegHardwareEncoder::~FFmpegHardwareEncoder() {}
 bool FFmpegHardwareEncoder::Initialize(int w, int h, int f, int b) { return false; }
-bool FFmpegHardwareEncoder::EncodeFrame(void* t, std::vector<EncodedPacket>& o) { return false; }
+bool FFmpegHardwareEncoder::EncodeFrame(void* t, std::vector<EncodedPacket>& o, PacketPool& p) { return false; }
+void FFmpegHardwareEncoder::SetBitrate(int b) {}
 void FFmpegHardwareEncoder::Shutdown() {}
 #endif
 
