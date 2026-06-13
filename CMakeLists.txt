@@ -21,6 +21,7 @@ set(CLIENT_SOURCES
     cpp/client/receiver.cpp
     cpp/client/decoder_hw.cpp
     cpp/client/input_capture.cpp
+    cpp/client/jitter_buffer.cpp
 )
 
 # Executable
