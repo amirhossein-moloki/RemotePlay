@@ -1,83 +1,101 @@
-#include <map>
-#include <vector>
-#include <mutex>
-#include "../common/protocol.hpp"
+#include "receiver.hpp"
 
 namespace Client {
 
-struct FrameData {
-    uint32_t sequence;
-    std::vector<uint8_t> buffer;
-    size_t totalSize;
-    uint16_t fragmentsReceived;
-    uint16_t totalFragments;
-    uint64_t timestamp;
-    bool isComplete;
-};
+void FrameData::Reset() {
+    sequence = 0;
+    totalSize = 0;
+    fragmentsReceived = 0;
+    totalFragments = 0;
+    timestamp = 0;
+    isComplete = false;
+}
 
-class Receiver {
-public:
-    Receiver() {}
+Receiver::Receiver(size_t poolSize) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (size_t i = 0; i < poolSize; ++i) {
+        auto frame = std::make_unique<FrameData>();
+        frame->buffer.resize(1024 * 1024);
+        m_framePool.push_back(std::move(frame));
+    }
+}
 
-    void ProcessPacket(const Protocol::VideoHeader& header, const uint8_t* payload) {
-        std::lock_guard<std::mutex> lock(m_mutex);
+void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t* payload) {
+    std::lock_guard<std::mutex> lock(m_mutex);
 
-        // Drop old frames
-        if (header.sequence < m_lastCompletedSequence && m_lastCompletedSequence != 0) {
-            return;
+    if (header.sequence < m_lastCompletedSequence && m_lastCompletedSequence != 0) {
+        return;
+    }
+
+    auto it = m_pendingFrames.find(header.sequence);
+    if (it == m_pendingFrames.end()) {
+        if (m_pendingFrames.size() >= 5) {
+            auto oldest = m_pendingFrames.begin();
+            ReturnToPoolInternal(std::move(oldest->second));
+            m_pendingFrames.erase(oldest);
         }
 
-        auto& frame = m_pendingFrames[header.sequence];
-        if (frame.buffer.empty()) {
-            frame.sequence = header.sequence;
-            frame.totalFragments = header.totalFragments;
-            frame.fragmentsReceived = 0;
-            frame.timestamp = header.timestamp;
-            frame.isComplete = false;
-            // Rough estimate of size
-            frame.buffer.resize(header.totalFragments * Protocol::MAX_UDP_PAYLOAD);
-        }
+        auto frame = GetFromPoolInternal();
+        if (!frame) return;
 
-        // Copy fragment to buffer
-        size_t offset = header.fragmentIndex * Protocol::MAX_UDP_PAYLOAD;
-        if (offset + header.dataSize <= frame.buffer.size()) {
-            memcpy(frame.buffer.data() + offset, payload, header.dataSize);
-            frame.fragmentsReceived++;
-            if (header.fragmentIndex == header.totalFragments - 1) {
-                frame.totalSize = offset + header.dataSize;
-            }
-        }
+        frame->Reset();
+        frame->sequence = header.sequence;
+        frame->totalFragments = header.totalFragments;
+        frame->timestamp = header.timestamp;
 
-        if (frame.fragmentsReceived == frame.totalFragments) {
-            frame.isComplete = true;
-            frame.buffer.resize(frame.totalSize);
-            m_lastCompletedSequence = header.sequence;
+        it = m_pendingFrames.emplace(header.sequence, std::move(frame)).first;
+    }
+
+    auto& frame = it->second;
+    size_t offset = header.fragmentIndex * Protocol::MAX_UDP_PAYLOAD;
+    if (offset + header.dataSize <= frame->buffer.size()) {
+        std::memcpy(frame->buffer.data() + offset, payload, header.dataSize);
+        frame->fragmentsReceived++;
+
+        if (header.fragmentIndex == header.totalFragments - 1) {
+            frame->totalSize = offset + header.dataSize;
         }
     }
 
-    bool GetNextFrame(FrameData& outFrame) {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if (m_pendingFrames.empty()) return false;
-
-        auto it = m_pendingFrames.begin();
-        if (it->second.isComplete) {
-            outFrame = std::move(it->second);
-            m_pendingFrames.erase(it);
-            return true;
-        }
-
-        // Optional: If we have many pending frames, drop incomplete ones that are too old
-        if (m_pendingFrames.size() > 5) {
-             m_pendingFrames.erase(it);
-        }
-
-        return false;
+    if (frame->fragmentsReceived == frame->totalFragments) {
+        frame->isComplete = true;
+        m_lastCompletedSequence = header.sequence;
     }
+}
 
-private:
-    std::map<uint32_t, FrameData> m_pendingFrames;
-    uint32_t m_lastCompletedSequence = 0;
-    std::mutex m_mutex;
-};
+std::unique_ptr<FrameData> Receiver::GetNextFrame() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_pendingFrames.empty()) return nullptr;
+
+    auto it = m_pendingFrames.begin();
+    if (it->second->isComplete) {
+        auto frame = std::move(it->second);
+        m_pendingFrames.erase(it);
+        return frame;
+    }
+    return nullptr;
+}
+
+void Receiver::ReturnToPool(std::unique_ptr<FrameData> frame) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ReturnToPoolInternal(std::move(frame));
+}
+
+std::unique_ptr<FrameData> Receiver::GetFromPoolInternal() {
+    if (m_framePool.empty()) {
+        auto frame = std::make_unique<FrameData>();
+        frame->buffer.resize(1024 * 1024);
+        return frame;
+    }
+    auto frame = std::move(m_framePool.back());
+    m_framePool.pop_back();
+    return frame;
+}
+
+void Receiver::ReturnToPoolInternal(std::unique_ptr<FrameData> frame) {
+    if (frame) {
+        m_framePool.push_back(std::move(frame));
+    }
+}
 
 } // namespace Client
