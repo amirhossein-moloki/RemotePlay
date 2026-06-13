@@ -21,7 +21,8 @@ enum class InputType : uint8_t {
     MouseMove = 0x02,
     MouseButton = 0x03,
     MouseScroll = 0x04,
-    Gamepad = 0x05
+    Gamepad = 0x05,
+    GamepadStatus = 0x06
 };
 
 // Maximum UDP payload size (to stay within MTU)
@@ -101,6 +102,12 @@ struct GamepadState {
     int16_t thumbLY;
     int16_t thumbRX;
     int16_t thumbRY;
+};
+
+// Gamepad Status Event (Connect/Disconnect)
+struct GamepadStatusEvent {
+    uint8_t gamepadId;
+    uint8_t isConnected;
 };
 
 #pragma pack(pop)

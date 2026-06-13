@@ -273,6 +273,12 @@ void RunHost(const std::string& ip) {
                     } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseMove && len >= (int)(sizeof(Protocol::InputHeader) + sizeof(Protocol::MouseMoveEvent))) {
                         ScopeTimer timer("Input_Injection_MouseMove");
                         ctx.injector.InjectMouseMove(*(Protocol::MouseMoveEvent*)(buf + sizeof(Protocol::InputHeader)));
+                    } else if (ih->inputType == (uint8_t)Protocol::InputType::GamepadStatus && len >= (int)(sizeof(Protocol::InputHeader) + sizeof(Protocol::GamepadStatusEvent))) {
+                        ScopeTimer timer("Input_Injection_GamepadStatus");
+                        ctx.injector.HandleGamepadStatus(senderIp, *(Protocol::GamepadStatusEvent*)(buf + sizeof(Protocol::InputHeader)));
+                    } else if (ih->inputType == (uint8_t)Protocol::InputType::Gamepad && len >= (int)(sizeof(Protocol::InputHeader) + sizeof(Protocol::GamepadState))) {
+                        ScopeTimer timer("Input_Injection_Gamepad");
+                        ctx.injector.InjectGamepad(senderIp, *(Protocol::GamepadState*)(buf + sizeof(Protocol::InputHeader)));
                     }
                 } else if (type == Protocol::PacketType::Feedback && len >= (int)sizeof(Protocol::FeedbackHeader)) {
                     Protocol::FeedbackHeader* fb = (Protocol::FeedbackHeader*)buf;
@@ -354,7 +360,7 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
     std::thread inputThread([&]() {
         while (running) {
             inputCap.PollGamepads();
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(4)); // ~250Hz polling for sub-5ms latency
         }
     });
 

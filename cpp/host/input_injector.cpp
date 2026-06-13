@@ -2,11 +2,36 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <iostream>
+#include <chrono>
 
 namespace Host {
 
-InputInjector::InputInjector() {}
-InputInjector::~InputInjector() {}
+InputInjector::InputInjector() {
+#ifdef _WIN32
+    m_vigem = vigem_alloc();
+    if (m_vigem) {
+        VIGEM_ERROR err = vigem_connect(m_vigem);
+        if (!VIGEM_SUCCESS(err)) {
+            std::cerr << "[Injector] ViGEmBus connection failed: " << err << std::endl;
+            vigem_free(m_vigem);
+            m_vigem = nullptr;
+        }
+    }
+#endif
+}
+
+InputInjector::~InputInjector() {
+#ifdef _WIN32
+    if (m_vigem) {
+        for (auto& pair : m_targets) {
+            vigem_target_remove(m_vigem, pair.second);
+            vigem_target_free(pair.second);
+        }
+        vigem_disconnect(m_vigem);
+        vigem_free(m_vigem);
+    }
+#endif
+}
 
 void InputInjector::InjectKeyboard(const Protocol::KeyboardEvent& ev) {
     INPUT input = { 0 };
@@ -42,21 +67,54 @@ void InputInjector::InjectMouseButton(const Protocol::MouseButtonEvent& ev) {
     SendInput(1, &input, sizeof(INPUT));
 }
 
-void InputInjector::InjectGamepad(const Protocol::GamepadState& ev) {
-    // Detailed integration path for ViGEmBus:
-    // 1. PVIGEM_CLIENT client = vigem_alloc();
-    // 2. vigem_connect(client);
-    // 3. PVIGEM_TARGET pad = vigem_target_x360_alloc();
-    // 4. vigem_target_add(client, pad);
-    // 5. XUSB_REPORT report = {0};
-    //    report.wButtons = ev.buttons;
-    //    report.bLeftTrigger = ev.leftTrigger;
-    //    report.bRightTrigger = ev.rightTrigger;
-    //    report.sThumbLX = ev.thumbLX;
-    //    ...
-    // 6. vigem_target_x360_update(client, pad, report);
+void InputInjector::HandleGamepadStatus(const std::string& clientIp, const Protocol::GamepadStatusEvent& ev) {
+#ifdef _WIN32
+    if (!m_vigem) return;
 
-    std::cout << "[Injector] Gamepad ID " << (int)ev.gamepadId << " - Buttons: " << ev.buttons << std::endl;
+    auto key = std::make_pair(clientIp, ev.gamepadId);
+    if (ev.isConnected) {
+        if (m_targets.find(key) == m_targets.end()) {
+            PVIGEM_TARGET target = vigem_target_x360_alloc();
+            VIGEM_ERROR err = vigem_target_add(m_vigem, target);
+            if (VIGEM_SUCCESS(err)) {
+                m_targets[key] = target;
+                std::cout << "[Injector] Plugged in virtual X360 controller for " << clientIp << " ID " << (int)ev.gamepadId << std::endl;
+            } else {
+                std::cerr << "[Injector] Failed to plug in virtual controller: " << err << std::endl;
+                vigem_target_free(target);
+            }
+        }
+    } else {
+        auto it = m_targets.find(key);
+        if (it != m_targets.end()) {
+            vigem_target_remove(m_vigem, it->second);
+            vigem_target_free(it->second);
+            m_targets.erase(it);
+            std::cout << "[Injector] Unplugged virtual X360 controller for " << clientIp << " ID " << (int)ev.gamepadId << std::endl;
+        }
+    }
+#endif
+}
+
+void InputInjector::InjectGamepad(const std::string& clientIp, const Protocol::GamepadState& ev) {
+#ifdef _WIN32
+    if (!m_vigem) return;
+
+    auto it = m_targets.find(std::make_pair(clientIp, ev.gamepadId));
+    if (it != m_targets.end()) {
+        XUSB_REPORT report;
+        XUSB_REPORT_INIT(&report);
+        report.wButtons = ev.buttons;
+        report.bLeftTrigger = ev.leftTrigger;
+        report.bRightTrigger = ev.rightTrigger;
+        report.sThumbLX = ev.thumbLX;
+        report.sThumbLY = ev.thumbLY;
+        report.sThumbRX = ev.thumbRX;
+        report.sThumbRY = ev.thumbRY;
+
+        vigem_target_x360_update(m_vigem, it->second, report);
+    }
+#endif
 }
 
 } // namespace Host

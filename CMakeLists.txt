@@ -35,7 +35,7 @@ add_executable(parsec-lite
 
 # Dependencies
 if(WIN32)
-    target_link_libraries(parsec-lite ws2_32 iphlpapi d3d11 dxgi xinput)
+    target_link_libraries(parsec-lite ws2_32 iphlpapi d3d11 dxgi xinput ViGEmClient)
 else()
     target_link_libraries(parsec-lite pthread)
 endif()

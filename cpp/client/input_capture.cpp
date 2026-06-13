@@ -50,40 +50,44 @@ void InputCapture::HandleRawInput(LPARAM lParam) {
 void InputCapture::PollGamepads() {
     for (DWORD i = 0; i < XUSER_MAX_COUNT; i++) {
         XINPUT_STATE state;
-        if (XInputGetState(i, &state) == ERROR_SUCCESS) {
-            Protocol::InputHeader header;
-            header.type = (uint8_t)Protocol::PacketType::Input;
-            header.inputType = (uint8_t)Protocol::InputType::Gamepad;
-            header.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        DWORD dwResult = XInputGetState(i, &state);
+        bool connected = (dwResult == ERROR_SUCCESS);
 
-            Protocol::GamepadState gp;
-            gp.gamepadId = (uint8_t)i;
-            gp.buttons = state.Gamepad.wButtons;
-            gp.leftTrigger = state.Gamepad.bLeftTrigger;
-            gp.rightTrigger = state.Gamepad.bRightTrigger;
-            gp.thumbLX = state.Gamepad.sThumbLX;
-            gp.thumbLY = state.Gamepad.sThumbLY;
-            gp.thumbRX = state.Gamepad.sThumbRX;
-            gp.thumbRY = state.Gamepad.sThumbRY;
+        if (connected != m_gamepadConnected[i]) {
+            m_gamepadConnected[i] = connected;
+            Protocol::InputHeader header = { (uint8_t)Protocol::PacketType::Input, (uint8_t)Protocol::InputType::GamepadStatus };
+            Protocol::GamepadStatusEvent status = { (uint8_t)i, (uint8_t)(connected ? 1 : 0) };
+            SendPacket(header, status);
 
-            std::vector<uint8_t> packet(sizeof(header) + sizeof(gp));
-            memcpy(packet.data(), &header, sizeof(header));
-            memcpy(packet.data() + sizeof(header), &gp, sizeof(gp));
-            m_callback(packet);
+            if (connected) {
+                // Initialize last state to force an update on first connection
+                m_lastGamepadState[i] = state;
+                m_lastGamepadState[i].dwPacketNumber--; // Ensure it's different
+            }
+        }
+
+        if (connected) {
+            // Only send update if state changed (delta-compression)
+            if (state.dwPacketNumber != m_lastGamepadState[i].dwPacketNumber) {
+                m_lastGamepadState[i] = state;
+
+                Protocol::InputHeader header = { (uint8_t)Protocol::PacketType::Input, (uint8_t)Protocol::InputType::Gamepad };
+                Protocol::GamepadState gp;
+                gp.gamepadId = (uint8_t)i;
+                gp.buttons = state.Gamepad.wButtons;
+                gp.leftTrigger = state.Gamepad.bLeftTrigger;
+                gp.rightTrigger = state.Gamepad.bRightTrigger;
+                gp.thumbLX = state.Gamepad.sThumbLX;
+                gp.thumbLY = state.Gamepad.sThumbLY;
+                gp.thumbRX = state.Gamepad.sThumbRX;
+                gp.thumbRY = state.Gamepad.sThumbRY;
+
+                SendPacket(header, gp);
+            }
         }
     }
 }
 
-template<typename T>
-void InputCapture::SendPacket(const Protocol::InputHeader& header, const T& payload) {
-    Protocol::InputHeader h = header;
-    h.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-
-    std::vector<uint8_t> packet(sizeof(h) + sizeof(T));
-    memcpy(packet.data(), &h, sizeof(h));
-    memcpy(packet.data() + sizeof(h), &payload, sizeof(T));
-    m_callback(packet);
-}
 
 } // namespace Client
 #else
