@@ -54,6 +54,7 @@ void InputCapture::PollGamepads() {
             Protocol::InputHeader header;
             header.type = (uint8_t)Protocol::PacketType::Input;
             header.inputType = (uint8_t)Protocol::InputType::Gamepad;
+            header.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 
             Protocol::GamepadState gp;
             gp.gamepadId = (uint8_t)i;
@@ -75,9 +76,12 @@ void InputCapture::PollGamepads() {
 
 template<typename T>
 void InputCapture::SendPacket(const Protocol::InputHeader& header, const T& payload) {
-    std::vector<uint8_t> packet(sizeof(header) + sizeof(T));
-    memcpy(packet.data(), &header, sizeof(header));
-    memcpy(packet.data() + sizeof(header), &payload, sizeof(T));
+    Protocol::InputHeader h = header;
+    h.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+
+    std::vector<uint8_t> packet(sizeof(h) + sizeof(T));
+    memcpy(packet.data(), &h, sizeof(h));
+    memcpy(packet.data() + sizeof(h), &payload, sizeof(T));
     m_callback(packet);
 }
 

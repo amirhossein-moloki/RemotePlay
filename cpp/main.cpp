@@ -9,6 +9,7 @@
 #include <chrono>
 #include <array>
 
+#include "common/profiler.hpp"
 #include "common/network_manager.hpp"
 #include "common/protocol.hpp"
 #include "common/safe_queue.hpp"
@@ -53,9 +54,9 @@ struct HostContext {
     std::mutex clientsMutex;
     std::set<std::pair<std::string, uint16_t>> clients;
 
-    SafeQueue<ID3D11Texture2D*> captureQueue;
-    SafeQueue<std::vector<Host::EncodedPacket>> encodeQueue;
-    SafeQueue<OutgoingPacket> sendQueue;
+    SafeQueue<ID3D11Texture2D*> captureQueue{"Capture"};
+    SafeQueue<std::vector<Host::EncodedPacket>> encodeQueue{"Encode"};
+    SafeQueue<OutgoingPacket> sendQueue{"Send"};
 
     PacketPool packetPool{200, 1024 * 1024};
     PacketPool udpPool{1000, 1500};
@@ -97,6 +98,7 @@ void RunHost(const std::string& ip) {
         uint32_t frameId = 0;
 
         while (ctx.running && ctx.encodeQueue.wait_and_pop(frames)) {
+            ScopeTimer timer("Packetizer_Total");
             for (auto& frame : frames) {
                 uint16_t totalFrags = (uint16_t)((frame.packet->size + Protocol::MAX_UDP_PAYLOAD - 1) / Protocol::MAX_UDP_PAYLOAD);
 
@@ -175,7 +177,10 @@ void RunHost(const std::string& ip) {
     std::thread senderThread([&]() {
         OutgoingPacket op;
         while (ctx.running && ctx.sendQueue.wait_and_pop(op)) {
-            ctx.net.SendTo(op.packet->data.data(), op.packet->size, op.targetIp, op.targetPort);
+            {
+                ScopeTimer timer("Network_SendTo");
+                ctx.net.SendTo(op.packet->data.data(), op.packet->size, op.targetIp, op.targetPort);
+            }
             ctx.udpPool.release(std::move(op.packet));
         }
     });
@@ -187,19 +192,28 @@ void RunHost(const std::string& ip) {
         while (ctx.running) {
             int len = ctx.net.ReceiveFrom(buf, sizeof(buf), senderIp, senderPort);
             if (len > 0) {
+                packetsReceived++;
                 Protocol::PacketType type = (Protocol::PacketType)buf[0];
                 if (type == Protocol::PacketType::Handshake) {
                     std::lock_guard<std::mutex> lock(ctx.clientsMutex);
                     ctx.clients.insert({senderIp, senderPort});
                 } else if (type == Protocol::PacketType::Input && len >= (int)sizeof(Protocol::InputHeader)) {
                     Protocol::InputHeader* ih = (Protocol::InputHeader*)buf;
+
+                    uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                    Profiler::getInstance().recordTime("Input_NetworkLatency", (double)(now - ih->timestamp));
+
                     if (ih->inputType == (uint8_t)Protocol::InputType::Keyboard && len >= (int)(sizeof(Protocol::InputHeader) + sizeof(Protocol::KeyboardEvent))) {
+                        ScopeTimer timer("Input_Injection_Keyboard");
                         ctx.injector.InjectKeyboard(*(Protocol::KeyboardEvent*)(buf + sizeof(Protocol::InputHeader)));
                     } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseMove && len >= (int)(sizeof(Protocol::InputHeader) + sizeof(Protocol::MouseMoveEvent))) {
+                        ScopeTimer timer("Input_Injection_MouseMove");
                         ctx.injector.InjectMouseMove(*(Protocol::MouseMoveEvent*)(buf + sizeof(Protocol::InputHeader)));
                     }
                 } else if (type == Protocol::PacketType::Feedback && len >= (int)sizeof(Protocol::FeedbackHeader)) {
                     Protocol::FeedbackHeader* fb = (Protocol::FeedbackHeader*)buf;
+                    Profiler::getInstance().recordValue("Network_LossRate", fb->lossRate);
+                    Profiler::getInstance().recordValue("Network_RTT", fb->rttMs);
                     if (fb->lossRate > 0.05f) {
                         ctx.currentBitrate = std::max(1000, (int)ctx.currentBitrate - 500);
                     } else if (fb->lossRate < 0.01f) {
