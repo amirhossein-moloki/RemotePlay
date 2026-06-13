@@ -68,8 +68,8 @@ Receiver::FramePtr JitterBuffer::PopFrame() {
     bool found = false;
 
     // Target delay is based on measured jitter.
-    // We want to hold at least 1.5x avg jitter to absorb spikes, but capped.
-    double targetDelayMs = std::clamp(m_avgJitterMs * 1.5, 5.0, 30.0);
+    // On stable LAN, avgJitterMs will be < 1ms, allowing near-immediate pop.
+    double targetDelayMs = std::clamp(m_avgJitterMs * 1.1, 1.0, 20.0);
 
     for (uint32_t i = 0; i < 32; ++i) {
         uint32_t fid = m_nextPopFrameId + i;

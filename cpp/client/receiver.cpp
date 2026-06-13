@@ -9,7 +9,10 @@ void FrameData::Reset() {
     totalSize = 0;
     fragmentsReceived = 0;
     totalFragments = 0;
-    timestamp = 0;
+    captureTimestamp = 0;
+    encodeStartTimestamp = 0;
+    encodeEndTimestamp = 0;
+    receiveTimestamp = 0;
     isComplete = false;
     std::fill(fragmentMap.begin(), fragmentMap.end(), false);
     std::fill(fragmentSizes.begin(), fragmentSizes.end(), 0);
@@ -51,7 +54,11 @@ void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t*
         newFrame->Reset();
         newFrame->frameId = header.frameId;
         newFrame->totalFragments = header.totalFragments;
-        newFrame->timestamp = header.timestamp;
+        newFrame->captureTimestamp = header.captureTimestamp;
+        newFrame->encodeStartTimestamp = header.encodeStartTimestamp;
+        newFrame->encodeEndTimestamp = header.encodeEndTimestamp;
+        newFrame->receiveTimestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+
         if (newFrame->fragmentMap.size() < header.totalFragments) {
             newFrame->fragmentMap.resize(header.totalFragments, false);
             newFrame->fragmentSizes.resize(header.totalFragments, 0);

@@ -17,7 +17,10 @@ struct FrameData {
     size_t totalSize;
     uint16_t fragmentsReceived;
     uint16_t totalFragments;
-    uint64_t timestamp;
+    uint64_t captureTimestamp;
+    uint64_t encodeStartTimestamp;
+    uint64_t encodeEndTimestamp;
+    uint64_t receiveTimestamp;
     bool isComplete;
     std::vector<bool> fragmentMap;
     std::vector<uint16_t> fragmentSizes; // Store individual fragment sizes for FEC

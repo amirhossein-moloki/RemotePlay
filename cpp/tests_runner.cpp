@@ -19,7 +19,7 @@
 
 void TestProtocol() {
     std::cout << "Running Protocol Tests..." << std::endl;
-    assert(sizeof(Protocol::VideoHeader) == 32);
+    assert(sizeof(Protocol::VideoHeader) == 40);
     std::cout << "Protocol Tests Passed!" << std::endl;
 }
 
