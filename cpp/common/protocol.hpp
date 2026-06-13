@@ -23,7 +23,7 @@ enum class InputType : uint8_t {
 };
 
 // Maximum UDP payload size (to stay within MTU)
-const uint16_t MAX_UDP_PAYLOAD = 1400;
+const uint16_t MAX_UDP_PAYLOAD = 1300; // Reduced slightly to be safer
 
 #pragma pack(push, 1)
 
@@ -54,6 +54,8 @@ struct KeyboardEvent {
 struct MouseMoveEvent {
     int32_t x;
     int32_t y;
+    uint32_t screenWidth;
+    uint32_t screenHeight;
 };
 
 // Mouse Button Event
@@ -67,7 +69,7 @@ struct MouseScrollEvent {
     int32_t delta;
 };
 
-// Gamepad State (XInput-like)
+// Gamepad State (XInput-compatible)
 struct GamepadState {
     uint8_t gamepadId;
     uint16_t buttons;
