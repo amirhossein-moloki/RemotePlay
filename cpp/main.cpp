@@ -83,6 +83,8 @@ void RunHost(const std::string& ip) {
     if (!ctx.capture.Initialize()) return;
     if (!ctx.encoder.Initialize(1920, 1080, 60, ctx.currentBitrate)) return;
 
+    uint32_t packetsReceived = 0;
+
     std::thread captureThread([&]() {
         while (ctx.running) {
             ID3D11Texture2D* tex = nullptr;
@@ -153,7 +155,6 @@ void RunHost(const std::string& ip) {
                     fragmentPtrs[i] = udpPkt.release(); // Ownership moved to fragmentPtrs for now
                 }
 
-                std::lock_guard<std::mutex> lock(ctx.clientsMutex);
                 std::lock_guard<std::mutex> lock(ctx.clientsMutex);
                 for (const auto& client : ctx.clients) {
                     for (size_t i = 0; i < totalFrags; ++i) {
