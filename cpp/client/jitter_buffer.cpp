@@ -5,7 +5,7 @@ namespace Client {
 
 JitterBuffer::JitterBuffer(size_t maxFrames) : m_maxFrames(maxFrames) {}
 
-void JitterBuffer::PushFrame(std::unique_ptr<FrameData> frame) {
+void JitterBuffer::PushFrame(Receiver::FramePtr frame) {
     if (!frame) return;
     std::lock_guard<std::mutex> lock(m_mutex);
 
@@ -15,6 +15,17 @@ void JitterBuffer::PushFrame(std::unique_ptr<FrameData> frame) {
     }
 
     if (frame->frameId < m_nextPopFrameId) return;
+
+    // Adaptive jitter estimation
+    auto now = std::chrono::steady_clock::now();
+    if (m_hasLastPushTime) {
+        auto delta = std::chrono::duration_cast<std::chrono::microseconds>(now - m_lastPushTime).count() / 1000.0;
+        // Simple EWMA for jitter
+        double currentJitter = std::abs(delta - 16.67); // Assuming 60fps
+        m_avgJitterMs = m_avgJitterMs * 0.9 + currentJitter * 0.1;
+    }
+    m_lastPushTime = now;
+    m_hasLastPushTime = true;
 
     auto* existing = m_ring.get(frame->frameId);
     if (*existing && (*existing)->frameId == frame->frameId) return; // Duplicate
@@ -49,24 +60,31 @@ void JitterBuffer::PushFrame(std::unique_ptr<FrameData> frame) {
     }
 }
 
-std::unique_ptr<FrameData> JitterBuffer::PopFrame() {
+Receiver::FramePtr JitterBuffer::PopFrame() {
     std::lock_guard<std::mutex> lock(m_mutex);
 
     // Find newest available frame to avoid HoL blocking
     uint32_t bestFid = 0;
     bool found = false;
 
+    // Target delay is based on measured jitter.
+    // We want to hold at least 1.5x avg jitter to absorb spikes, but capped.
+    double targetDelayMs = std::clamp(m_avgJitterMs * 1.5, 5.0, 30.0);
+
     for (uint32_t i = 0; i < 32; ++i) {
         uint32_t fid = m_nextPopFrameId + i;
         auto* info = m_info.get(fid);
         if (info->occupied && info->frameId == fid) {
             auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - info->pushTime).count();
+            auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(now - info->pushTime).count() / 1000.0;
 
             // If it's been in the buffer long enough, or buffer is full, or it's a newer frame and we want to catch up
-            if (elapsed >= 10 || m_count >= m_maxFrames) {
+            if (elapsed >= targetDelayMs || m_count >= m_maxFrames) {
                 bestFid = fid;
                 found = true;
+                // If we are over-buffered, prioritize the newest frame to reduce latency
+                if (m_count >= m_maxFrames) continue;
+                else break;
             }
         }
     }
@@ -91,7 +109,7 @@ std::unique_ptr<FrameData> JitterBuffer::PopFrame() {
         return frame;
     }
 
-    return nullptr;
+    return Receiver::FramePtr(nullptr, Receiver::FrameDeleter{nullptr});
 }
 
 } // namespace Client

@@ -34,7 +34,9 @@ public:
         std::lock_guard<std::mutex> lock(m_mutex);
         if (m_pool.empty()) {
             Profiler::getInstance().recordCounter("PacketPoolExhausted");
-            return std::make_unique<Packet>(1024 * 1024); // Fallback capacity
+            // Production hardening: Avoid runtime heap allocation in hot path.
+            // Returning nullptr forces the caller to handle exhaustion (e.g., drop frame).
+            return nullptr;
         }
         auto pkt = std::move(m_pool.back());
         m_pool.pop_back();

@@ -97,6 +97,48 @@ int NetworkManager::SendTo(const void* data, size_t size, const std::string& tar
     return sendto(m_socket, (const char*)data, (int)size, 0, (struct sockaddr*)&addr, sizeof(addr));
 }
 
+int NetworkManager::SendBatch(const BatchItem* items, size_t count) {
+    if (count == 0) return 0;
+
+#ifdef _WIN32
+    // Windows: Use WSASendTo with multiple buffers if possible,
+    // but WSASendTo doesn't support multiple target addresses in one call easily like sendmmsg.
+    // However, for single client (typical LAN), we can still benefit from reducing syscalls if we had multiple buffers for SAME target.
+    // Given the current BatchItem has different targets, we fall back to loop for now on Windows unless we optimize for same-target.
+    int totalSent = 0;
+    for (size_t i = 0; i < count; ++i) {
+        int ret = SendTo(items[i].data, items[i].size, items[i].targetIp, items[i].targetPort);
+        if (ret > 0) totalSent += ret;
+    }
+    return totalSent;
+#else
+    // Linux: Use sendmmsg
+    struct mmsghdr msgs[64];
+    struct iovec iovs[64];
+    struct sockaddr_in addrs[64];
+
+    size_t batchSize = std::min(count, (size_t)64);
+    for (size_t i = 0; i < batchSize; ++i) {
+        addrs[i].sin_family = AF_INET;
+        addrs[i].sin_port = htons(items[i].targetPort);
+        inet_pton(AF_INET, items[i].targetIp.c_str(), &addrs[i].sin_addr);
+
+        iovs[i].iov_base = (void*)items[i].data;
+        iovs[i].iov_len = items[i].size;
+
+        msgs[i].msg_hdr.msg_name = &addrs[i];
+        msgs[i].msg_hdr.msg_namelen = sizeof(addrs[i]);
+        msgs[i].msg_hdr.msg_iov = &iovs[i];
+        msgs[i].msg_hdr.msg_iovlen = 1;
+        msgs[i].msg_hdr.msg_control = NULL;
+        msgs[i].msg_hdr.msg_controllen = 0;
+        msgs[i].msg_hdr.msg_flags = 0;
+    }
+
+    return sendmmsg(m_socket, msgs, batchSize, 0);
+#endif
+}
+
 int NetworkManager::ReceiveFrom(void* buffer, size_t maxSize, std::string& senderIp, uint16_t& senderPort) {
     sockaddr_in addr;
 #ifdef _WIN32

@@ -38,16 +38,23 @@ public:
     void ProcessPacket(const Protocol::VideoHeader& header, const uint8_t* payload);
     void ProcessFEC(const Protocol::FECHeader& header, const uint8_t* payload);
 
-    std::unique_ptr<FrameData> GetNextFrame();
-    void ReturnToPool(std::unique_ptr<FrameData> frame);
+    struct FrameDeleter {
+        Receiver* receiver = nullptr;
+        void operator()(FrameData* frame) const;
+    };
+    using FramePtr = std::unique_ptr<FrameData, FrameDeleter>;
+    FramePtr GetNextFrame();
+    void ReturnToPool(FramePtr frame);
+    void ReturnToPoolRaw(FrameData* frame);
 
 private:
-    std::unique_ptr<FrameData> GetFromPoolInternal();
-    void ReturnToPoolInternal(std::unique_ptr<FrameData> frame);
+    FrameData* GetFromPoolInternalRaw();
+    void ReturnToPoolInternalRaw(FrameData* frame);
     void TryRecover(uint32_t frameId, uint16_t groupStart);
 
-    FixedRingBuffer<std::unique_ptr<FrameData>, 64> m_frameRing;
-    std::vector<std::unique_ptr<FrameData>> m_framePool;
+    FixedRingBuffer<FrameData*, 64> m_frameRing;
+    std::vector<FrameData*> m_framePool;
+    std::vector<std::unique_ptr<FrameData>> m_frameStorage;
 
     // Use a larger ring and better index to avoid collisions
     FixedRingBuffer<FECGroup, 1024> m_fecRing;

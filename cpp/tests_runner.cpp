@@ -67,9 +67,9 @@ void TestPacketPool() {
     auto p2 = pool.acquire();
     assert(p1->data.size() == 100);
 
-    // Test fallback
+    // Test exhaustion (should return nullptr now)
     auto p3 = pool.acquire();
-    assert(p3->data.size() == 1024 * 1024);
+    assert(p3 == nullptr);
 
     pool.release(std::move(p1));
     auto p4 = pool.acquire();
@@ -80,6 +80,8 @@ void TestPacketPool() {
 void TestReceiverFEC() {
     std::cout << "Running Receiver FEC Tests..." << std::endl;
     Client::Receiver receiver(10);
+
+    Client::Receiver::FrameDeleter noopDeleter;
 
     uint32_t frameId = 100;
     uint16_t totalFrags = 3;
@@ -116,7 +118,7 @@ void TestReceiverFEC() {
 
     receiver.ProcessFEC(fh, fecData);
 
-    auto frame = receiver.GetNextFrame();
+    Client::Receiver::FramePtr frame = receiver.GetNextFrame();
     assert(frame != nullptr);
     assert(frame->isComplete);
 
@@ -131,6 +133,8 @@ void TestReceiverSkipping() {
     std::cout << "Running Receiver Skipping Tests..." << std::endl;
     Client::Receiver receiver(10);
 
+    auto noopDeleter = [](Client::FrameData*){};
+
     Protocol::VideoHeader vh;
     vh.type = (uint8_t)Protocol::PacketType::Video;
     vh.totalFragments = 1;
@@ -143,7 +147,7 @@ void TestReceiverSkipping() {
     vh.frameId = 12;
     receiver.ProcessPacket(vh, data);
 
-    auto frame = receiver.GetNextFrame();
+    Client::Receiver::FramePtr frame = receiver.GetNextFrame();
     assert(frame != nullptr);
     assert(frame->frameId == 12);
 
@@ -154,26 +158,28 @@ void TestJitterBuffer() {
     std::cout << "Running JitterBuffer Tests..." << std::endl;
     Client::JitterBuffer jb(3);
 
-    auto f1 = std::make_unique<Client::FrameData>(); f1->frameId = 1;
+    auto noopDeleter = [](Client::FrameData*){};
+
+    auto f1 = new Client::FrameData(); f1->frameId = 1;
     f1->buffer.resize(100); f1->fragmentMap.resize(1); f1->fragmentSizes.resize(1);
-    auto f2 = std::make_unique<Client::FrameData>(); f2->frameId = 2;
+    auto f2 = new Client::FrameData(); f2->frameId = 2;
     f2->buffer.resize(100); f2->fragmentMap.resize(1); f2->fragmentSizes.resize(1);
-    auto f3 = std::make_unique<Client::FrameData>(); f3->frameId = 3;
+    auto f3 = new Client::FrameData(); f3->frameId = 3;
     f3->buffer.resize(100); f3->fragmentMap.resize(1); f3->fragmentSizes.resize(1);
-    auto f4 = std::make_unique<Client::FrameData>(); f4->frameId = 4;
+    auto f4 = new Client::FrameData(); f4->frameId = 4;
     f4->buffer.resize(100); f4->fragmentMap.resize(1); f4->fragmentSizes.resize(1);
 
-    jb.PushFrame(std::move(f1));
-    jb.PushFrame(std::move(f2));
-    jb.PushFrame(std::move(f3));
+    jb.PushFrame(Client::Receiver::FramePtr(f1, Client::Receiver::FrameDeleter()));
+    jb.PushFrame(Client::Receiver::FramePtr(f2, Client::Receiver::FrameDeleter()));
+    jb.PushFrame(Client::Receiver::FramePtr(f3, Client::Receiver::FrameDeleter()));
 
-    // Test timing pop - wait for 10ms threshold
+    // Test timing pop - wait for threshold (targetDelayMs defaults to 7.5ms since jitter is 5ms)
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     auto p1 = jb.PopFrame();
     assert(p1 != nullptr);
     assert(p1->frameId == 3); // Current PopFrame pops newest available if threshold met
 
-    jb.PushFrame(std::move(f4));
+    jb.PushFrame(Client::Receiver::FramePtr(f4, Client::Receiver::FrameDeleter()));
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     auto p2 = jb.PopFrame();
     assert(p2 != nullptr);

@@ -12,11 +12,11 @@ class JitterBuffer {
 public:
     JitterBuffer(size_t maxFrames = 3);
 
-    void PushFrame(std::unique_ptr<FrameData> frame);
-    std::unique_ptr<FrameData> PopFrame();
+    void PushFrame(Receiver::FramePtr frame);
+    Receiver::FramePtr PopFrame();
 
 private:
-    FixedRingBuffer<std::unique_ptr<FrameData>, 32> m_ring;
+    FixedRingBuffer<Receiver::FramePtr, 32> m_ring;
     struct EntryInfo {
         uint32_t frameId = 0;
         std::chrono::steady_clock::time_point pushTime;
@@ -29,6 +29,10 @@ private:
     size_t m_count = 0;
     size_t m_maxFrames;
     std::mutex m_mutex;
+
+    double m_avgJitterMs = 5.0;
+    std::chrono::steady_clock::time_point m_lastPushTime;
+    bool m_hasLastPushTime = false;
 };
 
 } // namespace Client
