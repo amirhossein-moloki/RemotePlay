@@ -63,6 +63,7 @@ struct FeedbackHeader {
 struct InputHeader {
     uint8_t type;            // PacketType::Input
     uint8_t inputType;       // InputType subtype
+    uint64_t timestamp;      // Client-side capture timestamp (microseconds)
 };
 
 // Keyboard Event

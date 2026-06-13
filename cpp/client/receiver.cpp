@@ -1,5 +1,6 @@
 #include "receiver.hpp"
 #include <iostream>
+#include "common/profiler.hpp"
 
 namespace Client {
 
@@ -26,6 +27,7 @@ Receiver::Receiver(size_t poolSize) {
 }
 
 void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t* payload) {
+    ScopeTimer timer("Receiver_ProcessPacket");
     std::lock_guard<std::mutex> lock(m_mutex);
 
     if (!m_firstFrameReceived) {
@@ -77,6 +79,7 @@ void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t*
 }
 
 void Receiver::ProcessFEC(const Protocol::FECHeader& header, const uint8_t* payload) {
+    ScopeTimer timer("Receiver_ProcessFEC");
     std::lock_guard<std::mutex> lock(m_mutex);
     if (header.frameId < m_nextFrameIdToRead) return;
 
@@ -99,6 +102,7 @@ void Receiver::ProcessFEC(const Protocol::FECHeader& header, const uint8_t* payl
 }
 
 void Receiver::TryRecover(uint32_t frameId, uint16_t groupStart) {
+    ScopeTimer timer("Receiver_TryRecover");
     auto* framePtr = m_frameRing.get(frameId);
     if (!*framePtr || (*framePtr)->frameId != frameId) return;
     FrameData* frame = (*framePtr).get();

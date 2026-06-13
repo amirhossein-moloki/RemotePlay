@@ -4,6 +4,7 @@
 #include <mutex>
 #include <memory>
 #include <cstdint>
+#include "profiler.hpp"
 
 /**
  * A pool of pre-allocated buffers to avoid heap allocations in the hot path.
@@ -29,8 +30,10 @@ public:
     }
 
     std::unique_ptr<Packet> acquire() {
+        Profiler::getInstance().recordCounter("PacketAcquire");
         std::lock_guard<std::mutex> lock(m_mutex);
         if (m_pool.empty()) {
+            Profiler::getInstance().recordCounter("PacketPoolExhausted");
             return std::make_unique<Packet>(1024 * 1024); // Fallback capacity
         }
         auto pkt = std::move(m_pool.back());
@@ -39,6 +42,7 @@ public:
     }
 
     void release(std::unique_ptr<Packet> pkt) {
+        Profiler::getInstance().recordCounter("PacketRelease");
         if (!pkt) return;
         std::lock_guard<std::mutex> lock(m_mutex);
         m_pool.push_back(std::move(pkt));
