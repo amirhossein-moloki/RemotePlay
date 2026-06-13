@@ -16,6 +16,7 @@ from common.protocol import (TYPE_VIDEO, TYPE_INPUT, VIDEO_HEADER_FMT, VIDEO_HEA
 class Client:
     def __init__(self, host_ip, port=5005):
         self.host_addr = (host_ip, port)
+        self.video_host_addr = (host_ip, 5006)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # Bind to any port to receive video
         self.sock.bind(("0.0.0.0", 0))
@@ -60,6 +61,8 @@ class Client:
         cv2.namedWindow("Stream", cv2.WINDOW_NORMAL)
 
         # In a real scenario, we'd send a "connect" packet to the host so it knows our port.
+        self.sock.sendto(b"CONNECT", self.video_host_addr)
+        # Also connect to injector
         self.sock.sendto(b"CONNECT", self.host_addr)
 
         try:
@@ -104,8 +107,8 @@ class Client:
                                     cv2.imshow("Stream", img)
                                     if cv2.waitKey(1) & 0xFF == ord('q'):
                                         return
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"Decoding error: {e}")
 
         except KeyboardInterrupt:
             print("Stopping client...")

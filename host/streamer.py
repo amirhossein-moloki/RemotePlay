@@ -14,11 +14,13 @@ class HostStreamer:
     def __init__(self, client_ip=None, client_port=5005, width=1280, height=720, fps=30):
         self.client_addr = (client_ip, client_port) if client_ip else None
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # Bind to a port to receive CONNECT if client_ip is not known
         try:
-            self.sock.bind(("0.0.0.0", 5005))
+            # Using a different port for video if injector is on 5005
+            self.streamer_port = 5006
+            self.sock.bind(("0.0.0.0", self.streamer_port))
         except OSError:
-            # If 5005 is taken, try another or ignore if we just want to send
             pass
 
         self.width = width
@@ -79,7 +81,7 @@ class HostStreamer:
                     frame = av.VideoFrame.from_ndarray(frame_rgb, format='rgb24')
                     for packet in self.stream.encode(frame):
                         # 3. Send
-                        video_data = packet.to_bytes()
+                        video_data = bytes(packet)
                         udp_packets = create_video_packets(video_data, self.sequence)
                         for p in udp_packets:
                             try:
@@ -100,7 +102,7 @@ class HostStreamer:
                 # Flush encoder
                 try:
                     for packet in self.stream.encode():
-                        video_data = packet.to_bytes()
+                        video_data = bytes(packet)
                         udp_packets = create_video_packets(video_data, self.sequence)
                         for p in udp_packets:
                             self.sock.sendto(p, self.client_addr)

@@ -28,43 +28,48 @@ This system allows for low-latency game streaming over a Local Area Network (LAN
 +---------------------+                       +---------------------+
 ```
 
-## Module Breakdown
+## Detailed Module Breakdown
 
-### Host Modules
-1. **Screen Capture**: Uses high-performance APIs (like Windows Desktop Duplication) to grab screen frames.
-2. **Video Encoder**: Encodes frames into H.264/H.265 using hardware acceleration (NVENC, AMF, QuickSync) to minimize CPU usage and latency.
-3. **Streaming Server**: Packages encoded data into UDP packets and sends them to the client.
-4. **Input Receiver**: Listens for input events from the client and forwards them to the Injector.
-5. **Input Injector**: Uses OS-level APIs (SendInput) or virtual drivers (ViGEmBus) to simulate keyboard, mouse, and controller inputs.
+### Host Pipeline
+1.  **Capture Module**: Responsible for grabbing the desktop or application window frames.
+    -   *Prototype*: Uses `mss` for cross-platform capture.
+    -   *Production*: Uses Windows Desktop Duplication API (DDA) for zero-copy GPU capture.
+2.  **Encoder Module**: Compresses raw frames into H.264/H.265 bitstream.
+    -   *Prototype*: PyAV (FFmpeg) with `ultrafast` preset and `zerolatency` tune.
+    -   *Production*: Direct integration with NVIDIA NVENC SDK, AMD AMF, or Intel QuickSync for hardware-accelerated encoding.
+3.  **Streaming Server**: Manages network connections and packetizes encoded data.
+    -   *Function*: Handles fragmentation, sequence numbering, and UDP transmission.
 
-### Client Modules
-1. **Receiver**: Listens for UDP packets from the host and reassembles encoded frames.
-2. **Video Decoder**: Decodes H.264/H.265 bitstream into raw frames using hardware acceleration.
-3. **Renderer**: Displays the decoded frames on the client's screen.
-4. **Input Capture**: Hooks into the client OS to capture keyboard, mouse, and gamepad events.
-5. **Input Sender**: Transmits captured events to the host with minimal delay.
+### Client Pipeline
+1.  **Receiver**: Reassembles UDP packets into complete frames.
+    -   *Function*: Handles out-of-order packets and packet loss via a jitter buffer.
+2.  **Decoder Module**: Decodes the bitstream back into raw image frames.
+    -   *Prototype*: PyAV (FFmpeg) software or hardware decoding.
+    -   *Production*: Hardware-accelerated decoding (e.g., via DXVA2 or NVDEC).
+3.  **Renderer**: Displays frames to the user.
+    -   *Prototype*: OpenCV `imshow`.
+    -   *Production*: SDL2, DirectX, or Vulkan for low-latency rendering.
 
-## Tech Stack (Prototype)
-- **Language**: Python 3.x
-- **Libraries**:
-  - `mss`: Fast screen capture.
-  - `PyAV (av)`: FFmpeg bindings for encoding/decoding.
-  - `OpenCV`: Frame rendering and basic UI.
-  - `pynput`: Input capture and injection.
-  - `socket`: Low-level networking.
+### Input Management
+1.  **Input Capture (Client)**: Monitors keyboard, mouse, and gamepad events.
+    -   *Prototype*: `pynput` and `pygame`.
+2.  **Input Injector (Host)**: Simulates inputs on the host machine.
+    -   *Prototype*: `pynput`.
+    -   *Production*: `SendInput` API or ViGEmBus driver for virtual controller support.
 
-## Tech Stack (Production Recommendation)
-- **Language**: C++ or Rust.
-- **Libraries**:
-  - **Capture**: Windows Desktop Duplication API (DDA).
-  - **Encoding**: NVIDIA Video Codec SDK (NVENC), AMD AMF, Intel QuickSync.
-  - **Networking**: Custom UDP protocol with Jitter Buffer, or ENet.
-  - **Rendering**: SDL2 or DirectX/Vulkan for zero-copy display.
-  - **Input**: ViGEmBus for virtual controller support.
+## Technology Stack Justification
 
-## Latency Optimization Strategies
-1. **Hardware Acceleration**: Always prefer GPU encoding/decoding.
-2. **UDP over TCP**: Avoid retransmission delays; drop late frames instead.
-3. **Zero-Copy**: Minimize data movement between CPU and GPU memory.
-4. **Intra-refresh**: Use "Infinite GOP" or periodic intra-refresh to avoid large I-frames causing network spikes.
-5. **Rate Control**: Implement CBR (Constant Bit Rate) with low-latency tuning (zerolatency tune in x264).
+| Layer | Recommended (Production) | Reason |
+| :--- | :--- | :--- |
+| **Language** | C++ or Rust | Performance, low-level memory control, and access to native SDKs. |
+| **Capture** | Desktop Duplication API | High-performance, low-latency screen capture on Windows. |
+| **Video Codec** | H.264 / H.265 (HEVC) | Broad hardware support and excellent compression-to-latency ratio. |
+| **Networking** | Custom UDP or ENet | UDP is essential to avoid TCP's head-of-line blocking. |
+| **Input Injection** | ViGEmBus | Allows for full virtual Xbox/DualShock controller emulation. |
+
+## Network Flow
+1.  **Handshake**: Client sends a `CONNECT` broadcast or direct message. Host acknowledges.
+2.  **Stream Negotiation**: Host and Client agree on resolution, FPS, and bitrate.
+3.  **Data Transmission**:
+    -   **Video**: Host -> Client (Unreliable/UDP).
+    -   **Input**: Client -> Host (Reliable-ordered UDP or low-latency TCP).

@@ -3,6 +3,13 @@ import struct
 # Packet types
 TYPE_VIDEO = 1
 TYPE_INPUT = 2
+TYPE_CONTROL = 3
+
+# Control types
+CONTROL_CONNECT = 1
+CONTROL_ACK = 2
+CONTROL_PING = 3
+CONTROL_PONG = 4
 
 # Input types
 INPUT_KEY_PRESS = 1
@@ -31,9 +38,16 @@ def create_video_packets(frame_data, sequence):
         packets.append(header + payload)
     return packets
 
-# Input packet format: [Type (1B)] [InputType (1B)] [Data...]
-# Key: [InputType (1B)] [KeyCode (4B)]
-# Mouse Move: [InputType (1B)] [X (4B)] [Y (4B)]
-# Mouse Click: [InputType (1B)] [X (4B)] [Y (4B)] [Button (1B)] [Pressed (1B)]
-# Gamepad Axis: [InputType (1B)] [GamepadID (1B)] [Axis (1B)] [Value (2B, signed)]
-# Gamepad Button: [InputType (1B)] [GamepadID (1B)] [Button (1B)] [Pressed (1B)]
+def create_control_packet(control_type, data=b""):
+    return struct.pack("!B B", TYPE_CONTROL, control_type) + data
+
+# Input packet serialization helpers
+def serialize_key_event(input_type, vk):
+    return struct.pack("!B B I", TYPE_INPUT, input_type, vk)
+
+def serialize_mouse_move(x, y):
+    return struct.pack("!B B i i", TYPE_INPUT, INPUT_MOUSE_MOVE, x, y)
+
+def serialize_mouse_click(x, y, button, pressed):
+    # button: 1=left, 2=right, 3=middle
+    return struct.pack("!B B i i B B", TYPE_INPUT, INPUT_MOUSE_CLICK, x, y, button, 1 if pressed else 0)
