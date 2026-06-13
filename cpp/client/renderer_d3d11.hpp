@@ -17,6 +17,9 @@ public:
 
     ID3D11Device* GetDevice() { return m_device; }
 
+    void NewFrame();
+    void EndFrame();
+
 private:
     ID3D11Device* m_device = nullptr;
     ID3D11DeviceContext* m_context = nullptr;

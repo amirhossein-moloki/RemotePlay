@@ -1,5 +1,6 @@
 #include "decoder_hw.hpp"
 #include <iostream>
+#include "../common/logger.hpp"
 
 #ifdef _WIN32
 extern "C" {
@@ -55,7 +56,7 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr) {
     m_internal->pkt = av_packet_alloc();
     m_internal->frame = av_frame_alloc();
 
-    std::cout << "[Decoder] FFmpeg Hardware Decoder initialized (D3D11VA)." << std::endl;
+    LOG_INFO("Decoder", "FFmpeg Hardware Decoder initialized (D3D11VA).");
     return true;
 }
 

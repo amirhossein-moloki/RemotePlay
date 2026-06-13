@@ -25,6 +25,7 @@ public:
     virtual bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) = 0;
     virtual void SetBitrate(int bitrateKbps) = 0;
     virtual void Shutdown() = 0;
+    virtual bool IsInitialized() const = 0;
 };
 
 class FFmpegHardwareEncoder : public EncoderHW {
@@ -36,6 +37,7 @@ public:
     bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) override;
     void SetBitrate(int bitrateKbps) override;
     void Shutdown() override;
+    bool IsInitialized() const override { return m_initialized; }
 
 private:
     bool SetupHardwareContext();
@@ -44,6 +46,7 @@ private:
     int m_height = 0;
     int m_fps = 0;
     int m_bitrate = 0;
+    bool m_initialized = false;
 
     struct InternalData;
     InternalData* m_internal = nullptr;
