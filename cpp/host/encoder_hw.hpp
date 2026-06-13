@@ -2,6 +2,11 @@
 
 #include <vector>
 #include <string>
+#include <cstdint>
+
+#ifdef _WIN32
+#include <d3d11.h>
+#endif
 
 namespace Host {
 
@@ -21,13 +26,23 @@ public:
 
 class FFmpegHardwareEncoder : public EncoderHW {
 public:
+    FFmpegHardwareEncoder();
+    ~FFmpegHardwareEncoder() override;
+
     bool Initialize(int width, int height, int fps, int bitrateKbps) override;
     bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets) override;
     void Shutdown() override;
 
 private:
-    int m_width, m_height;
-    std::string m_encoderName;
+    bool SetupHardwareContext();
+
+    int m_width = 0;
+    int m_height = 0;
+    int m_fps = 0;
+    int m_bitrate = 0;
+
+    struct InternalData;
+    InternalData* m_internal = nullptr;
 };
 
 } // namespace Host

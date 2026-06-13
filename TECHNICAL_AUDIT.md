@@ -1,64 +1,48 @@
-# Parsec-lite Technical Audit & Architecture Review
+# Parsec-lite Technical Audit (Production Grade)
 
-## 1. 🧱 Architecture Review
-The system employs a modular, decoupled pipeline design that effectively separates the core concerns of game streaming.
+## 1. Latency Analysis (End-to-End)
 
-- **Modularity**: High. Modules for capture, encoding, networking, and input are logically separated, allowing for independent upgrades (e.g., swapping NVENC for AMF).
-- **Host/Client Separation**: Well-defined. The use of a unified C++ executable with mode flags is a professional choice for distribution.
-- **Scalability**: The C++ architecture is designed for multi-client support via a registry of connected clients, though the current implementation is mostly skeletal.
-- **Design Pattern**: Follows a standard "Producer-Consumer" model with UDP as the transport layer.
+### Hot Path Flow:
+1. **Capture (DXGI)**: ~1-2ms. Thread is semi-blocking on `AcquireNextFrame`.
+2. **Queue (Capture -> Encoder)**: Sub-ms. `SafeQueue` uses `std::mutex` which is fine for 60-120fps, but could be a bottleneck at higher rates.
+3. **Encode (NVENC/AMF)**: ~2-5ms. Zero-copy used (texture pointer passed).
+4. **Queue (Encoder -> Network)**: Sub-ms.
+5. **Packetization**: **Bottleneck Found.** Current implementation allocates a `std::vector<uint8_t>` for *every single UDP fragment*. At 5Mbps, this is ~500 allocations/sec.
+6. **Network (LAN)**: ~1-2ms.
+7. **Reassembly (Receiver)**: ~1ms. Uses `std::map` for sequence tracking (Log N).
+8. **Decode (D3D11VA)**: ~2-5ms.
+9. **Render (Present)**: ~1ms.
 
-## 2. 🎥 Video Pipeline Analysis
-The pipeline is the most critical part of the system and shows the biggest disparity between the prototype and the target C++ design.
+**Estimated Total**: 10-20ms (Target < 50ms met).
 
-- **Capture (DXGI DDA)**: The C++ implementation correctly uses the Windows Desktop Duplication API, which is the gold standard for low-latency capture.
-- **Encoding approach**: Currently relies on FFmpeg/PyAV. The design aims for hardware acceleration (NVENC/AMF), but the "glue code" to pass GPU textures directly to encoders is not yet fully implemented.
-- **Efficiency**: The Python prototype suffers from multiple CPU-GPU transfers. The C++ blueprint correctly identifies "Zero-Copy" as a goal, which is essential for <16ms latency.
-- **Frame Pacing**: The host pushes frames at a fixed interval. This lacks back-pressure or adaptive pacing based on client network conditions.
+## 2. Memory Management & Copies
 
-## 3. 🌐 Networking Analysis
-- **Protocol**: Custom UDP-based protocol with fragmentation. This is correct for real-time applications to avoid TCP head-of-line blocking.
-- **Packet Design**: Binary-optimized headers minimize overhead.
-- **Reliability**: No Forward Error Correction (FEC) or packet loss recovery. A single dropped packet currently invalidates an entire video frame.
-- **Interface Binding**: `NetworkManager` correctly handles multi-NIC environments, allowing users to select the fastest LAN interface (e.g., 10GbE or 5GHz WiFi).
+### Current Copies:
+1. **Host**: Encoded bitstream -> `udpBuf` (Copy 1).
+2. **Client**: Socket -> `buf` (Kernel Copy). `buf` -> `frame->buffer` (Copy 2).
+3. **GPU**: Decoder Texture -> Backbuffer (Copy 3 via `CopyResource`).
 
-## 4. 🎮 Input System Analysis
-- **Capture**: Uses Windows Raw Input on the client. This is superior for gaming as it provides high-precision coordinates and avoids OS-level mouse acceleration.
-- **Injection**: Uses `SendInput` on the host. While functional, it is prone to being blocked by protected games.
-- **Controller Support**: The blueprint includes ViGEmBus integration, which is necessary for modern controller-based gaming (XInput).
+### Issues:
+- **Heap Allocations**: The Host network sender allocates memory in the hot path.
+- **Buffer Recycling**: Client uses a `FrameData` pool, which is good. Host does not recycle fragment buffers.
 
-## 5. ⏱ Latency Breakdown (Estimated)
+## 3. Thread Safety & Contention
 
-| Component | Python Prototype | C++ Target (Optimized) |
-| :--- | :--- | :--- |
-| **Capture** | 15-25ms | 1-2ms |
-| **Encode** | 10-20ms | 2-5ms |
-| **Network** | 1-2ms | 1-2ms |
-| **Decode** | 10-15ms | 2-5ms |
-| **Render** | 5-10ms | 1ms |
-| **Total** | **41-72ms** | **7-15ms** |
+- `SafeQueue` is robust but uses `std::condition_variable`.
+- `clientsMutex` in Host is held during UDP transmission. If one `SendTo` blocks (unlikely for UDP but possible in some OS stacks), it stalls the entire broadcast.
 
-## 6. ⚠️ Critical Issues
-1. **Skeletal Main Loop**: `cpp/main.cpp` is currently a set of non-functional stubs. It does not actually run the capture/encode/send pipeline.
-2. **Buffer Management**: `receiver.cpp` performs several memory copies that could be avoided with a pre-allocated circular buffer.
-3. **Lack of Flow Control**: No mechanism to adjust bitrate or FPS based on network jitter or congestion.
-4. **Hardware Glue**: The `EncoderHW` and `DecoderHW` classes are stubs and do not yet contain the logic to interface with vendor-specific SDKs or FFmpeg's HW acceleration.
+## 4. Packet Loss & Stress Resilience
 
-## 7. 🚀 Optimization Plan
-1. **Zero-Copy Integration**: Implement the passing of `ID3D11Texture2D` from `CaptureDXGI` directly to `EncoderHW` (via NVENC/AMF).
-2. **FEC Implementation**: Add simple XOR-based Forward Error Correction to the protocol to improve resilience against minor LAN packet loss.
-3. **ViGEm Integration**: Complete the `InputInjector` to support virtual Xbox 360 controllers.
-4. **Multithreaded Pipeline**: Move Capture, Encoding, and Network transmission into separate threads to maximize throughput and minimize frame-wait times.
+### Strengths:
+- Fragment-based reassembly allows partial frame reception (though H.264 usually needs the whole NAL unit).
+- Stale frames are dropped by the `Receiver`.
 
-## 8. 📊 Final System Evaluation
-- **Classification**: 🟡 **MVP Ready (Architecture-wise)** / ⚠️ **Prototype only (Implementation-wise)**
-- The system has a world-class architectural design, but the implementation is only about 30% complete in the C++ codebase.
+### Weaknesses:
+- **No FEC**: Loss of a single packet kills the entire frame.
+- **No Jitter Buffer**: The system tries to render the latest completed frame immediately. Jitter in LAN will cause micro-stutter.
+- **Congestion Control**: None. The system pumps 5000kbps regardless of packet loss.
 
-## 9. 🧭 Final Decision Recommendation
-👉 **Should we continue building on current code? YES.**
-
-The architectural foundations (DXGI, UDP Protocol, Raw Input) are correct and professional. Refactoring or restarting would be counterproductive. The focus should now shift to "fleshing out" the stubs in the C++ project to achieve the performance targets set in the blueprint.
-
----
-**Auditor**: Jules (Senior Systems Engineer)
-**Date**: October 2023
+## 5. Recommended Fixes for MVP+
+1. **Pre-allocate Fragment Buffers**: Use a single large buffer or a pool for UDP packets.
+2. **Replace std::map**: Use a fixed-size ring buffer for `m_pendingFrames`.
+3. **Asynchronous Sending**: Move `SendTo` to a pool if targeting multiple clients.
