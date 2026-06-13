@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parsec-Lite UI Mockup</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        #stream-window {
+            width: 1280px;
+            height: 720px;
+            background-image: linear-gradient(45deg, #2c3e50, #000000);
+            position: relative;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+            border: 2px solid #333;
+        }
+        #game-placeholder {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            opacity: 0.5;
+        }
+        #game-placeholder h1 {
+            font-size: 48px;
+            margin: 0;
+        }
+        /* ImGui Style Overlay */
+        #imgui-overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 320px;
+            background-color: rgba(30, 30, 30, 0.7);
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 14px;
+            user-select: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+        }
+        #imgui-title {
+            background-color: #3b3b3b;
+            padding: 2px 8px;
+            margin: -10px -10px 10px -10px;
+            border-bottom: 1px solid #555;
+            border-radius: 4px 4px 0 0;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+        }
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+        .separator {
+            height: 1px;
+            background-color: #555;
+            margin: 8px 0;
+        }
+        .label {
+            color: #aaa;
+        }
+        .value {
+            color: #4cd137;
+            font-weight: bold;
+        }
+        .btn {
+            background-color: #4a4a4a;
+            border: 1px solid #666;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 2px;
+            cursor: pointer;
+            margin-top: 10px;
+            width: 100%;
+            text-align: center;
+        }
+        .btn:hover {
+            background-color: #5a5a5a;
+        }
+    </style>
+</head>
+<body>
+    <div id="stream-window">
+        <div id="game-placeholder">
+            <h1>LAN Game Stream</h1>
+            <p>1920x1080 @ 60 FPS</p>
+        </div>
+
+        <div id="imgui-overlay">
+            <div id="imgui-title">
+                <span>Parsec-Lite Telemetry</span>
+                <span>×</span>
+            </div>
+
+            <div class="metric">
+                <span class="label">Total E2E Latency:</span>
+                <span class="value">14.25 ms (P99: 18.40)</span>
+            </div>
+
+            <div class="separator"></div>
+
+            <div class="metric">
+                <span class="label">Capture Time:</span>
+                <span class="value">2.10 ms</span>
+            </div>
+            <div class="metric">
+                <span class="label">Encode Time:</span>
+                <span class="value">4.50 ms</span>
+            </div>
+            <div class="metric">
+                <span class="label">Network Time:</span>
+                <span class="value">5.20 ms</span>
+            </div>
+            <div class="metric">
+                <span class="label">Decode Time:</span>
+                <span class="value">1.85 ms</span>
+            </div>
+            <div class="metric">
+                <span class="label">Present Time:</span>
+                <span class="value">0.60 ms</span>
+            </div>
+
+            <div class="separator"></div>
+
+            <div class="metric">
+                <span class="label">FPS:</span>
+                <span class="value">60.2</span>
+            </div>
+            <div class="metric">
+                <span class="label">Packet Loss:</span>
+                <span class="value" style="color: #e84118;">0.02%</span>
+            </div>
+            <div class="metric">
+                <span class="label">RTT:</span>
+                <span class="value">10 ms</span>
+            </div>
+            <div class="metric">
+                <span class="label">Bitrate:</span>
+                <span class="value">8.50 Mbps</span>
+            </div>
+
+            <div class="separator"></div>
+
+            <div class="btn">Close Overlay</div>
+        </div>
+    </div>
+</body>
+</html>
