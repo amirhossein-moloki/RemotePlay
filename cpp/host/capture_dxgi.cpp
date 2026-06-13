@@ -1,4 +1,6 @@
 #include "capture_dxgi.hpp"
+
+#ifdef _WIN32
 #include <iostream>
 
 namespace Host {
@@ -59,3 +61,4 @@ void CaptureDXGI::Cleanup() {
 }
 
 } // namespace Host
+#endif

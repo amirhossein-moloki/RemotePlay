@@ -3,11 +3,15 @@
 #include <vector>
 #include <cstring>
 #include <memory>
+#include <thread>
+#include <chrono>
+
 #include "common/protocol.hpp"
 #include "common/network_manager.hpp"
 #include "common/network_manager.cpp"
 #include "common/fixed_ring_buffer.hpp"
 #include "common/packet_pool.hpp"
+#include "common/safe_queue.hpp"
 #include "client/receiver.hpp"
 #include "client/receiver.cpp"
 #include "client/jitter_buffer.hpp"
@@ -25,6 +29,52 @@ void TestRingBuffer() {
     rb.insert(0, 10);
     assert(*rb.get(0) == 10);
     std::cout << "RingBuffer Tests Passed!" << std::endl;
+}
+
+void TestSafeQueue() {
+    std::cout << "Running SafeQueue Tests..." << std::endl;
+    SafeQueue<int> q;
+    q.push(1);
+    q.push(2);
+    int val;
+    assert(q.wait_and_pop(val));
+    assert(val == 1);
+    assert(q.wait_and_pop(val));
+    assert(val == 2);
+
+    std::thread t([&q]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        q.push(3);
+    });
+    assert(q.wait_and_pop(val));
+    assert(val == 3);
+    t.join();
+
+    std::thread t2([&q]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        q.stop();
+    });
+    assert(!q.wait_and_pop(val));
+    t2.join();
+
+    std::cout << "SafeQueue Tests Passed!" << std::endl;
+}
+
+void TestPacketPool() {
+    std::cout << "Running PacketPool Tests..." << std::endl;
+    PacketPool pool(2, 100);
+    auto p1 = pool.acquire();
+    auto p2 = pool.acquire();
+    assert(p1->data.size() == 100);
+
+    // Test fallback
+    auto p3 = pool.acquire();
+    assert(p3->data.size() == 1024 * 1024);
+
+    pool.release(std::move(p1));
+    auto p4 = pool.acquire();
+    assert(p4->data.size() == 100);
+    std::cout << "PacketPool Tests Passed!" << std::endl;
 }
 
 void TestReceiverFEC() {
@@ -100,13 +150,48 @@ void TestReceiverSkipping() {
     std::cout << "Receiver Skipping Tests Passed!" << std::endl;
 }
 
+void TestJitterBuffer() {
+    std::cout << "Running JitterBuffer Tests..." << std::endl;
+    Client::JitterBuffer jb(3);
+
+    auto f1 = std::make_unique<Client::FrameData>(); f1->frameId = 1;
+    f1->buffer.resize(100); f1->fragmentMap.resize(1); f1->fragmentSizes.resize(1);
+    auto f2 = std::make_unique<Client::FrameData>(); f2->frameId = 2;
+    f2->buffer.resize(100); f2->fragmentMap.resize(1); f2->fragmentSizes.resize(1);
+    auto f3 = std::make_unique<Client::FrameData>(); f3->frameId = 3;
+    f3->buffer.resize(100); f3->fragmentMap.resize(1); f3->fragmentSizes.resize(1);
+    auto f4 = std::make_unique<Client::FrameData>(); f4->frameId = 4;
+    f4->buffer.resize(100); f4->fragmentMap.resize(1); f4->fragmentSizes.resize(1);
+
+    jb.PushFrame(std::move(f1));
+    jb.PushFrame(std::move(f2));
+    jb.PushFrame(std::move(f3));
+
+    // Test timing pop - wait for 10ms threshold
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    auto p1 = jb.PopFrame();
+    assert(p1 != nullptr);
+    assert(p1->frameId == 3); // Current PopFrame pops newest available if threshold met
+
+    jb.PushFrame(std::move(f4));
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    auto p2 = jb.PopFrame();
+    assert(p2 != nullptr);
+    assert(p2->frameId == 4);
+
+    std::cout << "JitterBuffer Tests Passed!" << std::endl;
+}
+
 int main() {
     try {
         TestProtocol();
         TestRingBuffer();
+        TestSafeQueue();
+        TestPacketPool();
         TestReceiverFEC();
         TestReceiverSkipping();
-        std::cout << "\nAll Hardening Tests Passed Successfully!" << std::endl;
+        TestJitterBuffer();
+        std::cout << "\nAll Core Logic Tests Passed Successfully!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Test failed: " << e.what() << std::endl;
         return 1;

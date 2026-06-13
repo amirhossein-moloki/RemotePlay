@@ -42,6 +42,7 @@ class HostStreamer:
 
     def _listen_for_clients(self):
         print(f"Listening for clients on {self.port}...")
+        self.sock.settimeout(1.0)
         while True:
             try:
                 data, addr = self.sock.recvfrom(1024)
@@ -50,6 +51,8 @@ class HostStreamer:
                         if addr not in self.clients:
                             self.clients.add(addr)
                             print(f"New client connected: {addr}")
+            except socket.timeout:
+                continue
             except Exception as e:
                 print(f"Error receiving from client: {e}")
 
