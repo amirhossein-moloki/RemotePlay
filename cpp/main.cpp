@@ -445,6 +445,46 @@ void RunHost(const std::string& ip) {
 }
 
 void RunLauncher() {
+    // Attempt to launch the modern Qt-based UI first
+    char buffer[MAX_PATH];
+    GetModuleFileNameA(NULL, buffer, MAX_PATH);
+    std::string path(buffer);
+    size_t lastSlash = path.find_last_of("\\/");
+    std::string dir = (lastSlash != std::string::npos) ? path.substr(0, lastSlash) : ".";
+
+    // Check possible locations for the modern UI
+    std::string modernUiPaths[] = {
+        dir + "\\appNexusDash.exe",
+        dir + "\\NexusDash\\appNexusDash.exe",
+        dir + "\\..\\NexusDash\\Release\\appNexusDash.exe"
+    };
+
+    bool launched = false;
+    for (const auto& uiPath : modernUiPaths) {
+        DWORD attribs = GetFileAttributesA(uiPath.c_str());
+        if (attribs != INVALID_FILE_ATTRIBUTES && !(attribs & FILE_ATTRIBUTE_DIRECTORY)) {
+            LOG_INFO("Main", "Launching modern UI: " + uiPath);
+
+            STARTUPINFOA si;
+            PROCESS_INFORMATION pi;
+            ZeroMemory(&si, sizeof(si));
+            si.cb = sizeof(si);
+            ZeroMemory(&pi, sizeof(pi));
+
+            if (CreateProcessA(uiPath.c_str(), NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+                CloseHandle(pi.hProcess);
+                CloseHandle(pi.hThread);
+                launched = true;
+                break;
+            }
+        }
+    }
+
+    if (launched) return;
+
+    LOG_WARN("Main", "Modern UI not found or failed to launch. Falling back to legacy ImGui launcher.");
+
+    // Legacy Fallback
     Network::NetworkManager net;
     auto interfaces = Network::NetworkManager::EnumerateInterfaces();
 
@@ -452,7 +492,7 @@ void RunLauncher() {
     if (!interfaces.empty()) config.selectedIp = interfaces[0].ip;
 
     Client::RendererD3D11 renderer;
-    HWND hwnd = CreateAppWindow("Parsec-Lite Launcher", 1280, 720);
+    HWND hwnd = CreateAppWindow("Parsec-Lite Launcher (Legacy)", 1280, 720);
 
     if (!renderer.Initialize(hwnd, 1280, 720)) {
         ShowFatalError("Launcher Error", "Failed to initialize D3D11 Renderer.");
@@ -460,7 +500,6 @@ void RunLauncher() {
     }
 
     bool sessionStarted = false;
-
     while (!sessionStarted) {
         MSG msg;
         while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
@@ -471,22 +510,15 @@ void RunLauncher() {
 
         renderer.NewFrame();
         Client::Launcher::Render(config, interfaces);
-
-        if (config.startRequested) {
-            sessionStarted = true;
-        }
-
+        if (config.startRequested) sessionStarted = true;
         renderer.EndFrame();
     }
 
     renderer.Shutdown();
     DestroyWindow(hwnd);
 
-    if (config.isHost) {
-        RunHost(config.selectedIp);
-    } else {
-        RunClient(config.selectedIp, config.hostIp);
-    }
+    if (config.isHost) RunHost(config.selectedIp);
+    else RunClient(config.selectedIp, config.hostIp);
 }
 
 void RunClient(const std::string& localIp, const std::string& hostIp) {

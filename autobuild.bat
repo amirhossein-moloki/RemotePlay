@@ -9,12 +9,14 @@ echo    Parsec-lite: Automated Build ^& Setup
 echo ======================================================
 echo.
 echo [1] Build C++ Production Version
-echo [2] Exit
+echo [2] Build Modern Qt 6 Version
+echo [3] Exit
 echo.
-set /p choice="Select an option [1-2]: "
+set /p choice="Select an option [1-3]: "
 
 if "%choice%"=="1" goto :BUILD_CPP
-if "%choice%"=="2" goto :FINISH
+if "%choice%"=="2" goto :BUILD_QT
+if "%choice%"=="3" goto :FINISH
 goto :MENU
 
 :BUILD_CPP
@@ -99,6 +101,44 @@ echo.
 echo Press any key to return to menu or exit...
 pause >nul
 goto :MENU
+
+:BUILD_QT
+cls
+echo [1/2] Checking for Qt 6 Environment...
+echo [*] Ensure Qt 6.7+ is installed and in your PATH.
+cmake --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [^!] CMake was not found.
+    goto :PAUSE_FINISH
+)
+
+echo [2/2] Building Modern UI (NexusDash)...
+if not exist build (
+    mkdir build
+)
+cd build
+cmake ..
+if %errorlevel% neq 0 (
+    echo [^!] ERROR: CMake configuration failed.
+    cd ..
+    goto :PAUSE_FINISH
+)
+
+echo [*] Compiling NexusDash...
+cmake --build . --target appNexusDash --config Release
+if %errorlevel% neq 0 (
+    echo [^!] ERROR: Build failed.
+    cd ..
+    goto :PAUSE_FINISH
+)
+
+echo.
+echo ======================================================
+echo [+] SUCCESS: Modern UI built!
+echo Binary Location: build\NexusDash\Release\appNexusDash.exe
+echo ======================================================
+cd ..
+goto :PAUSE_FINISH
 
 :FINISH
 exit

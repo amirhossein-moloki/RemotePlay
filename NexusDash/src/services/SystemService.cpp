@@ -13,9 +13,14 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
 
 void SystemService::updateStats()
 {
-    // Simulated data
+    // Simulated data for CPU/Memory
     m_cpuUsage = QRandomGenerator::global()->generateDouble() * 40.0 + 5.0;
     m_memoryUsage = QRandomGenerator::global()->generateDouble() * 60.0 + 20.0;
+
+    // Real data from ParsecLiteCore
+    if (Parsec_GetTelemetry(&m_stats)) {
+        emit statsChanged();
+    }
 
     emit cpuUsageChanged();
     emit memoryUsageChanged();
