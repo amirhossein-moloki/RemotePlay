@@ -1,0 +1,15 @@
+/app/ParsecLite.UI/bin/Debug/net8.0/ParsecLite.UI
+/app/ParsecLite.UI/bin/Debug/net8.0/ParsecLite.UI.deps.json
+/app/ParsecLite.UI/bin/Debug/net8.0/ParsecLite.UI.runtimeconfig.json
+/app/ParsecLite.UI/bin/Debug/net8.0/ParsecLite.UI.dll
+/app/ParsecLite.UI/bin/Debug/net8.0/ParsecLite.UI.pdb
+/app/ParsecLite.UI/obj/Debug/net8.0/ParsecLite.UI.GeneratedMSBuildEditorConfig.editorconfig
+/app/ParsecLite.UI/obj/Debug/net8.0/ParsecLite.UI.AssemblyInfoInputs.cache
+/app/ParsecLite.UI/obj/Debug/net8.0/ParsecLite.UI.AssemblyInfo.cs
+/app/ParsecLite.UI/obj/Debug/net8.0/ParsecLite.UI.csproj.CoreCompileInputs.cache
+/app/ParsecLite.UI/obj/Debug/net8.0/ParsecLite.UI.sourcelink.json
+/app/ParsecLite.UI/obj/Debug/net8.0/ParsecLite.UI.dll
+/app/ParsecLite.UI/obj/Debug/net8.0/refint/ParsecLite.UI.dll
+/app/ParsecLite.UI/obj/Debug/net8.0/ParsecLite.UI.pdb
+/app/ParsecLite.UI/obj/Debug/net8.0/ParsecLite.UI.genruntimeconfig.cache
+/app/ParsecLite.UI/obj/Debug/net8.0/ref/ParsecLite.UI.dll

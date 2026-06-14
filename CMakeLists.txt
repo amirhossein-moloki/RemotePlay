@@ -39,6 +39,14 @@ set(CLIENT_SOURCES
     ${IMGUI_SOURCES}
 )
 
+# Shared Library (API)
+add_library(ParsecLiteCore SHARED
+    cpp/common/parsec_lite_api.cpp
+    ${COMMON_SOURCES}
+    ${HOST_SOURCES}
+    ${CLIENT_SOURCES}
+)
+
 # Executable
 add_executable(parsec-lite
     cpp/main.cpp
@@ -48,6 +56,7 @@ add_executable(parsec-lite
 )
 
 # Set up include directories
+target_include_directories(ParsecLiteCore PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cpp)
 target_include_directories(parsec-lite PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cpp)
 
 # --- Dependency Discovery ---
@@ -59,8 +68,11 @@ if(WIN32)
     find_library(AVUTIL_LIBRARY NAMES avutil)
 
     if(AVCODEC_INCLUDE_DIR AND AVCODEC_LIBRARY)
+        target_include_directories(ParsecLiteCore PRIVATE ${AVCODEC_INCLUDE_DIR})
         target_include_directories(parsec-lite PRIVATE ${AVCODEC_INCLUDE_DIR})
+        target_link_libraries(ParsecLiteCore PRIVATE ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY})
         target_link_libraries(parsec-lite PRIVATE ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY})
+        target_compile_definitions(ParsecLiteCore PRIVATE PARSEC_LITE_ENABLE_FFMPEG)
         target_compile_definitions(parsec-lite PRIVATE PARSEC_LITE_ENABLE_FFMPEG)
     else()
         message(WARNING "FFmpeg not found. Ensure it's in your PATH or CMAKE_PREFIX_PATH. Hardware encoding/decoding will be disabled.")
@@ -71,15 +83,20 @@ if(WIN32)
     find_library(VIGEM_LIBRARY NAMES ViGEmClient)
 
     if(VIGEM_INCLUDE_DIR AND VIGEM_LIBRARY)
+        target_include_directories(ParsecLiteCore PRIVATE ${VIGEM_INCLUDE_DIR})
         target_include_directories(parsec-lite PRIVATE ${VIGEM_INCLUDE_DIR})
+        target_link_libraries(ParsecLiteCore PRIVATE ${VIGEM_LIBRARY})
         target_link_libraries(parsec-lite PRIVATE ${VIGEM_LIBRARY})
+        target_compile_definitions(ParsecLiteCore PRIVATE PARSEC_LITE_ENABLE_VIGEM)
         target_compile_definitions(parsec-lite PRIVATE PARSEC_LITE_ENABLE_VIGEM)
     else()
         message(WARNING "ViGEmClient not found. Controller support will be disabled.")
     endif()
 
     # System libraries
+    target_link_libraries(ParsecLiteCore PRIVATE ws2_32 iphlpapi d3d11 dxgi xinput)
     target_link_libraries(parsec-lite PRIVATE ws2_32 iphlpapi d3d11 dxgi xinput)
 else()
+    target_link_libraries(ParsecLiteCore PRIVATE pthread)
     target_link_libraries(parsec-lite PRIVATE pthread)
 endif()
