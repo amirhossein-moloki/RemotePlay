@@ -29,6 +29,7 @@ private:
 #ifdef _WIN32
     XINPUT_STATE m_lastGamepadState[XUSER_MAX_COUNT] = { 0 };
     bool m_gamepadConnected[XUSER_MAX_COUNT] = { false };
+    HWND m_hwnd = nullptr;
 #endif
 
     template<typename T>

@@ -11,14 +11,14 @@ namespace {
 const DesignTokens kTokens{};
 
 #ifdef _WIN32
-constexpr ImVec4 kSurfaceBase = ImVec4(0.07f, 0.08f, 0.10f, 1.00f);
-constexpr ImVec4 kSurfaceCard = ImVec4(0.11f, 0.13f, 0.16f, 1.00f);
-constexpr ImVec4 kTextPrimary = ImVec4(0.93f, 0.95f, 0.98f, 1.00f);
-constexpr ImVec4 kTextMuted = ImVec4(0.63f, 0.70f, 0.78f, 1.00f);
-constexpr ImVec4 kAccent = ImVec4(0.20f, 0.56f, 0.95f, 1.00f);
-constexpr ImVec4 kSuccess = ImVec4(0.24f, 0.72f, 0.46f, 1.00f);
-constexpr ImVec4 kWarning = ImVec4(0.95f, 0.62f, 0.25f, 1.00f);
-constexpr ImVec4 kError = ImVec4(0.91f, 0.36f, 0.46f, 1.00f);
+constexpr ImVec4 kSurfaceBase = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
+constexpr ImVec4 kSurfaceCard = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+constexpr ImVec4 kTextPrimary = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+constexpr ImVec4 kTextMuted = ImVec4(0.70f, 0.70f, 0.70f, 1.00f);
+constexpr ImVec4 kAccent = ImVec4(0.00f, 0.47f, 0.83f, 1.00f);
+constexpr ImVec4 kSuccess = ImVec4(0.13f, 0.59f, 0.13f, 1.00f);
+constexpr ImVec4 kWarning = ImVec4(1.00f, 0.73f, 0.00f, 1.00f);
+constexpr ImVec4 kError = ImVec4(0.75f, 0.00f, 0.00f, 1.00f);
 
 ImVec4 SeverityColor(Severity severity) {
     switch (severity) {

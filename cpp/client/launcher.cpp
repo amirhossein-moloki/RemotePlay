@@ -14,10 +14,10 @@ void Launcher::Render(LauncherConfig& config, const std::vector<Network::Interfa
     const auto validation = UI::ValidateLauncherConfig(config, interfaces);
     const bool hasErrors = UI::HasBlockingErrors(validation);
 
-    ImGui::SetNextWindowPos(ImVec2(80, 60), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(640, 720), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
 
-    if (ImGui::Begin("Parsec-Lite", nullptr, ImGuiWindowFlags_NoCollapse)) {
+    if (ImGui::Begin("Parsec-Lite", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar)) {
         ImGui::TextColored(ImVec4(0.20f, 0.56f, 0.95f, 1.00f), "Parsec-Lite");
         ImGui::SameLine();
         ImGui::TextDisabled("LAN streaming control center");
