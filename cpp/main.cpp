@@ -554,6 +554,7 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
 #else
 void RunHost(const std::string& ip) {}
 void RunClient(const std::string& localIp, const std::string& hostIp) {}
+void RunLauncher() {}
 #endif
 
 int main(int argc, char* argv[]) {

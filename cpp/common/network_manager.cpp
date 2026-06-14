@@ -1,5 +1,6 @@
 #include "network_manager.hpp"
 #include <iostream>
+#include <cstring>
 
 #ifdef _WIN32
 #include <iphlpapi.h>

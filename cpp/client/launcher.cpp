@@ -1,10 +1,14 @@
 #include "launcher.hpp"
+#ifdef _WIN32
 #include "third_party/imgui/imgui.h"
+#endif
 #include <vector>
+#include <cstring>
 
 namespace Client {
 
 void Launcher::Render(LauncherConfig& config, const std::vector<Network::InterfaceInfo>& interfaces) {
+#ifdef _WIN32
     ImGui::SetNextWindowPos(ImVec2(100, 100), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(400, 500), ImGuiCond_FirstUseEver);
 
@@ -68,6 +72,7 @@ void Launcher::Render(LauncherConfig& config, const std::vector<Network::Interfa
         ImGui::PopStyleColor(3);
     }
     ImGui::End();
+#endif
 }
 
 } // namespace Client
