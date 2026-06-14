@@ -69,6 +69,7 @@ if(WIN32)
     # Search for FFmpeg
     find_path(AVCODEC_INCLUDE_DIR NAMES libavcodec/avcodec.h
         PATHS
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/ffmpeg/include"
         "C:/ffmpeg/include"
         "C:/ffmpeg-shared/include"
         "C:/vcpkg/installed/x64-windows/include"
@@ -77,6 +78,7 @@ if(WIN32)
     )
     find_library(AVCODEC_LIBRARY NAMES avcodec
         PATHS
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/ffmpeg/lib"
         "C:/ffmpeg/lib"
         "C:/ffmpeg-shared/lib"
         "C:/vcpkg/installed/x64-windows/lib"
@@ -85,6 +87,7 @@ if(WIN32)
     )
     find_library(AVUTIL_LIBRARY NAMES avutil
         PATHS
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/ffmpeg/lib"
         "C:/ffmpeg/lib"
         "C:/ffmpeg-shared/lib"
         "C:/vcpkg/installed/x64-windows/lib"
@@ -106,6 +109,7 @@ if(WIN32)
     # Search for ViGEmClient
     find_path(VIGEM_INCLUDE_DIR NAMES ViGEm/Client.h
         PATHS
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/ViGEmClient/include"
         "C:/ViGEmClient/include"
         "C:/vcpkg/installed/x64-windows/include"
         ENV VIGEM_DIR
@@ -113,6 +117,7 @@ if(WIN32)
     )
     find_library(VIGEM_LIBRARY NAMES ViGEmClient
         PATHS
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/ViGEmClient/lib"
         "C:/ViGEmClient/lib"
         "C:/vcpkg/installed/x64-windows/lib"
         ENV VIGEM_DIR
@@ -139,7 +144,7 @@ else()
 endif()
 
 # Include modern UI (NexusDash)
-option(BUILD_NEXUSDASH "Build the modern Qt 6 UI" OFF)
+option(BUILD_NEXUSDASH "Build the modern Qt 6 UI" ON)
 
 if(BUILD_NEXUSDASH)
     find_package(Qt6 COMPONENTS Core REQUIRED)

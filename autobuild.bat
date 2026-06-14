@@ -2,150 +2,119 @@
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-:MENU
-cls
 echo ======================================================
-echo    Parsec-lite: Automated Build ^& Setup
+echo    Parsec-lite: Unified Modern Build ^& Setup
 echo ======================================================
 echo.
-echo [1] Build C++ Production Version
-echo [2] Build Modern Qt 6 Version
-echo [3] Exit
-echo.
-set /p choice="Select an option [1-3]: "
 
-if "%choice%"=="1" goto :BUILD_CPP
-if "%choice%"=="2" goto :BUILD_QT
-if "%choice%"=="3" goto :FINISH
-goto :MENU
-
-:BUILD_CPP
-cls
-echo [1/3] Checking for Build Tools (CMake)...
+:: 1. Check for basic tools
+echo [*] Checking for CMake...
 cmake --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [^!] CMake was not found. Please install CMake from https://cmake.org/
-    goto :PAUSE_FINISH
-)
-echo [+] CMake found.
-echo.
-
-echo [2/3] Checking for C++ Dependencies (FFmpeg ^& ViGEm)...
-ffmpeg -version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [^!] FFmpeg was not found in PATH. It is required for hardware encoding.
-) else (
-    echo [+] FFmpeg found.
-)
-echo [*] Note: Ensure ViGEmBus driver is installed for controller support.
-echo.
-
-echo [3/3] Building C++ Version (Production)...
-if not exist CMakeLists.txt (
-    echo [^!] ERROR: CMakeLists.txt not found in the current directory.
-    goto :PAUSE_FINISH
+    echo [^!] ERROR: CMake not found. Please install CMake from https://cmake.org/
+    goto :FAIL
 )
 
-if not exist build (
-    mkdir build
-)
-
-cd build
-
-echo [*] Configuring project with CMake...
-cmake ..
-if %errorlevel% neq 0 (
-    echo [^!] ERROR: CMake configuration failed.
-    cd ..
-    goto :PAUSE_FINISH
-)
-
-echo [*] Compiling the project (Release mode)...
-cmake --build . --config Release
-if %errorlevel% neq 0 (
-    echo [^!] ERROR: Build failed. Please check the compiler error messages above.
-    cd ..
-    goto :PAUSE_FINISH
-)
-
-echo.
-echo ======================================================
-echo [+] SUCCESS: Parsec-lite built and ready!
-echo.
-
-set FINAL_EXE_PATH=
-if exist Release\parsec-lite.exe (
-    set FINAL_EXE_PATH=build\Release\parsec-lite.exe
-) else if exist parsec-lite.exe (
-    set FINAL_EXE_PATH=build\parsec-lite.exe
-)
-
-cd ..
-
-if defined FINAL_EXE_PATH (
-    echo [BUILD OUTPUT]
-    echo Binary Location: %FINAL_EXE_PATH%
-    echo.
-    echo Usage:
-    echo   Host mode:   %FINAL_EXE_PATH% --host
-    echo   Client mode: %FINAL_EXE_PATH% --client ^<HOST_IP^>
-) else (
-    echo [^!] ERROR: Executable file not found in build directory.
-    echo Check build/Release/ or build/ for parsec-lite.exe
-)
-echo ======================================================
-goto :PAUSE_FINISH
-
-:PAUSE_FINISH
-echo.
-echo Press any key to return to menu or exit...
-pause >nul
-goto :MENU
-
-:BUILD_QT
-cls
-echo [1/2] Checking for Qt 6 Environment...
-echo [*] Ensure Qt 6.7+ is installed and in your PATH.
+echo [*] Checking for Qt 6...
 where qmake >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [^!] Qt 6 (qmake) was not found in PATH.
-    echo [^!] Please ensure Qt is installed and the bin directory is in your PATH.
-    goto :PAUSE_FINISH
+    echo [^!] WARNING: Qt 6 (qmake) not found in PATH.
+    echo [^!] The modern UI (NexusDash) requires Qt 6.7+.
+    echo [^!] If you continue, the build might fail if Qt is not found by CMake.
+    pause
 )
-cmake --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [^!] CMake was not found.
-    goto :PAUSE_FINISH
-)
-echo [+] Qt 6 environment and CMake found.
 
-echo [2/2] Building Modern UI (NexusDash)...
-if not exist build (
-    mkdir build
+:: 2. Automated Dependency Management
+if not exist deps mkdir deps
+
+:: --- FFmpeg ---
+if not exist deps\ffmpeg (
+    echo [*] FFmpeg not found. Downloading...
+    powershell -Command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip'; Invoke-WebRequest -Uri $url -OutFile 'deps\ffmpeg.zip' }"
+    if %errorlevel% neq 0 (
+        echo [^!] ERROR: Failed to download FFmpeg.
+        goto :FAIL
+    )
+    echo [*] Extracting FFmpeg...
+    powershell -Command "Expand-Archive -Path 'deps\ffmpeg.zip' -DestinationPath 'deps\ffmpeg_tmp' -Force"
+    :: Move contents to deps\ffmpeg
+    for /d %%i in (deps\ffmpeg_tmp\ffmpeg-*) do (
+        move "%%i" deps\ffmpeg
+    )
+    rmdir /s /q deps\ffmpeg_tmp
+    del deps\ffmpeg.zip
+    echo [+] FFmpeg setup complete.
+) else (
+    echo [+] FFmpeg already present in deps/.
 )
+
+:: --- ViGEmClient ---
+if not exist deps\ViGEmClient (
+    echo [*] ViGEmClient not found. Downloading...
+    powershell -Command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $url = 'https://github.com/ViGEm/ViGEmClient/releases/download/v1.17.333/ViGEmClient_v1.17.333.zip'; Invoke-WebRequest -Uri $url -OutFile 'deps\ViGEmClient.zip' }"
+    if %errorlevel% neq 0 (
+        echo [^!] ERROR: Failed to download ViGEmClient.
+        goto :FAIL
+    )
+    echo [*] Extracting ViGEmClient...
+    powershell -Command "Expand-Archive -Path 'deps\ViGEmClient.zip' -DestinationPath 'deps\ViGEmClient' -Force"
+    del deps\ViGEmClient.zip
+    echo [+] ViGEmClient setup complete.
+) else (
+    echo [+] ViGEmClient already present in deps/.
+)
+
+:: 3. Build Process
+echo.
+echo [*] Starting Unified Build (Core + Modern UI)...
+if not exist build mkdir build
 cd build
+
+echo [*] Configuring with CMake...
 cmake .. -DBUILD_NEXUSDASH=ON
 if %errorlevel% neq 0 (
     echo [^!] ERROR: CMake configuration failed.
-    cd ..
-    goto :PAUSE_FINISH
+    goto :FAIL_CD
 )
 
-echo [*] Compiling NexusDash...
-cmake --build . --target appNexusDash --config Release
+echo [*] Compiling (Release mode)...
+cmake --build . --config Release
 if %errorlevel% neq 0 (
-    echo [^!] ERROR: Build failed.
-    cd ..
-    goto :PAUSE_FINISH
+    echo [^!] ERROR: Build failed. Check the error messages above.
+    goto :FAIL_CD
 )
 
+:: 4. Deployment (Copy DLLs to output directory)
+echo.
+echo [*] Deploying runtime dependencies...
+set OUT_DIR=Release
+if not exist %OUT_DIR% set OUT_DIR=.
+
+:: FFmpeg DLLs
+if exist ..\deps\ffmpeg\bin\*.dll (
+    echo [*] Copying FFmpeg DLLs...
+    copy /y ..\deps\ffmpeg\bin\*.dll "%OUT_DIR%\" >nul
+)
+
+:: ViGEmClient DLL
+if exist ..\deps\ViGEmClient\lib\x64\ViGEmClient.dll (
+    echo [*] Copying ViGEmClient DLL...
+    copy /y ..\deps\ViGEmClient\lib\x64\ViGEmClient.dll "%OUT_DIR%\" >nul
+)
+
+cd ..
 echo.
 echo ======================================================
-echo [+] SUCCESS: Modern UI built!
-echo Binary Location: build\NexusDash\Release\appNexusDash.exe
+echo [+] SUCCESS: Parsec-Lite and NexusDash built!
+echo Binary: build\%OUT_DIR%\parsec-lite.exe
 echo ======================================================
-cd ..
-goto :PAUSE_FINISH
+pause
+exit /b 0
 
-:FINISH
-exit
+:FAIL_CD
+cd ..
+:FAIL
+echo.
+echo [^!] Build process stopped due to errors.
+pause
+exit /b 1
