@@ -23,6 +23,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <shellscalingapi.h>
+#include "third_party/imgui/imgui.h"
 
 #pragma comment(lib, "Shcore.lib")
 
