@@ -129,7 +129,7 @@ private:
 
     Stats calculateStats(SampleBuffer& buf) {
         std::lock_guard<std::mutex> lock(buf.mutex);
-        size_t n = std::min((size_t)buf.count, MAX_SAMPLES);
+        size_t n = (std::min)((size_t)buf.count, MAX_SAMPLES);
         if (n == 0) return {};
 
         std::vector<double> sorted(buf.samples.begin(), buf.samples.begin() + n);

@@ -48,7 +48,7 @@ void Overlay::Render() {
         static int frames = 0;
         static float fps = 0;
         frames++;
-        float currentTime = ImGui::GetTime();
+        float currentTime = (float)ImGui::GetTime();
         if (currentTime - lastTime >= 1.0f) {
             fps = (float)frames / (currentTime - lastTime);
             frames = 0;
