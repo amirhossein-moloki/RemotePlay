@@ -53,7 +53,7 @@ void Overlay::Render() {
         ImGui::Text("Bitrate: %.2f Mbps", bitrate.latest / 1000.0f);
 
         ImGui::Separator();
-        if (ImGui::Button("Close Overlay")) m_visible = false;
+        if (ImGui::Button("Close Overlay", ImVec2(-1, 0))) m_visible = false;
     }
     ImGui::End();
 }
