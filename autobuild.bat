@@ -1,5 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
+cd /d "%~dp0"
 
 :MENU
 cls
@@ -21,7 +22,7 @@ cls
 echo [1/3] Checking for Build Tools (CMake)...
 cmake --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [!] CMake was not found. Please install CMake from https://cmake.org/
+    echo [^!] CMake was not found. Please install CMake from https://cmake.org/
     goto :PAUSE_FINISH
 )
 echo [+] CMake found.
@@ -30,7 +31,7 @@ echo.
 echo [2/3] Checking for C++ Dependencies (FFmpeg ^& ViGEm)...
 ffmpeg -version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [!] FFmpeg was not found in PATH. It is required for hardware encoding.
+    echo [^!] FFmpeg was not found in PATH. It is required for hardware encoding.
 ) else (
     echo [+] FFmpeg found.
 )
@@ -39,7 +40,7 @@ echo.
 
 echo [3/3] Building C++ Version (Production)...
 if not exist CMakeLists.txt (
-    echo [!] ERROR: CMakeLists.txt not found in the current directory.
+    echo [^!] ERROR: CMakeLists.txt not found in the current directory.
     goto :PAUSE_FINISH
 )
 
@@ -52,7 +53,7 @@ cd build
 echo [*] Configuring project with CMake...
 cmake ..
 if %errorlevel% neq 0 (
-    echo [!] ERROR: CMake configuration failed.
+    echo [^!] ERROR: CMake configuration failed.
     cd ..
     goto :PAUSE_FINISH
 )
@@ -60,7 +61,7 @@ if %errorlevel% neq 0 (
 echo [*] Compiling the project (Release mode)...
 cmake --build . --config Release
 if %errorlevel% neq 0 (
-    echo [!] ERROR: Build failed. Please check the compiler error messages above.
+    echo [^!] ERROR: Build failed. Please check the compiler error messages above.
     cd ..
     goto :PAUSE_FINISH
 )
@@ -87,7 +88,7 @@ if defined FINAL_EXE_PATH (
     echo   Host mode:   %FINAL_EXE_PATH% --host
     echo   Client mode: %FINAL_EXE_PATH% --client ^<HOST_IP^>
 ) else (
-    echo [!] ERROR: Executable file not found in build directory.
+    echo [^!] ERROR: Executable file not found in build directory.
     echo Check build/Release/ or build/ for parsec-lite.exe
 )
 echo ======================================================
