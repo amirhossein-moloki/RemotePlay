@@ -16,6 +16,8 @@ qt_add_executable(appNexusDash
     src/services/SystemService.cpp src/services/SystemService.hpp
 )
 
+target_include_directories(appNexusDash PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
+
 qt_add_qml_module(appNexusDash
     URI NexusDash
     VERSION 1.0
@@ -44,6 +46,7 @@ target_link_libraries(appNexusDash PRIVATE
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2
+    ParsecLiteCore
 )
 
 include(FeatureSummary)
