@@ -67,9 +67,30 @@ target_include_directories(parsec-lite PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cpp)
 
 if(WIN32)
     # Search for FFmpeg
-    find_path(AVCODEC_INCLUDE_DIR NAMES libavcodec/avcodec.h)
-    find_library(AVCODEC_LIBRARY NAMES avcodec)
-    find_library(AVUTIL_LIBRARY NAMES avutil)
+    find_path(AVCODEC_INCLUDE_DIR NAMES libavcodec/avcodec.h
+        PATHS
+        "C:/ffmpeg/include"
+        "C:/ffmpeg-shared/include"
+        "C:/vcpkg/installed/x64-windows/include"
+        ENV FFMPEG_DIR
+        PATH_SUFFIXES include
+    )
+    find_library(AVCODEC_LIBRARY NAMES avcodec
+        PATHS
+        "C:/ffmpeg/lib"
+        "C:/ffmpeg-shared/lib"
+        "C:/vcpkg/installed/x64-windows/lib"
+        ENV FFMPEG_DIR
+        PATH_SUFFIXES lib bin
+    )
+    find_library(AVUTIL_LIBRARY NAMES avutil
+        PATHS
+        "C:/ffmpeg/lib"
+        "C:/ffmpeg-shared/lib"
+        "C:/vcpkg/installed/x64-windows/lib"
+        ENV FFMPEG_DIR
+        PATH_SUFFIXES lib bin
+    )
 
     if(AVCODEC_INCLUDE_DIR AND AVCODEC_LIBRARY)
         target_include_directories(ParsecLiteCore PRIVATE ${AVCODEC_INCLUDE_DIR})
@@ -83,8 +104,20 @@ if(WIN32)
     endif()
 
     # Search for ViGEmClient
-    find_path(VIGEM_INCLUDE_DIR NAMES ViGEm/Client.h)
-    find_library(VIGEM_LIBRARY NAMES ViGEmClient)
+    find_path(VIGEM_INCLUDE_DIR NAMES ViGEm/Client.h
+        PATHS
+        "C:/ViGEmClient/include"
+        "C:/vcpkg/installed/x64-windows/include"
+        ENV VIGEM_DIR
+        PATH_SUFFIXES include
+    )
+    find_library(VIGEM_LIBRARY NAMES ViGEmClient
+        PATHS
+        "C:/ViGEmClient/lib"
+        "C:/vcpkg/installed/x64-windows/lib"
+        ENV VIGEM_DIR
+        PATH_SUFFIXES lib
+    )
 
     if(VIGEM_INCLUDE_DIR AND VIGEM_LIBRARY)
         target_include_directories(ParsecLiteCore PRIVATE ${VIGEM_INCLUDE_DIR})
