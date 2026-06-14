@@ -22,6 +22,15 @@ if exist "%BUILD_DIR%\NexusDash\Release\appNexusDash.exe" (
     set FOUND_EXE=1
 )
 
+echo [2.5/4] Copying ParsecLiteCore.dll...
+if exist "%BUILD_DIR%\Release\ParsecLiteCore.dll" (
+    copy /Y "%BUILD_DIR%\Release\ParsecLiteCore.dll" "%DIST_DIR%\"
+) else if exist "%BUILD_DIR%\ParsecLiteCore.dll" (
+    copy /Y "%BUILD_DIR%\ParsecLiteCore.dll" "%DIST_DIR%\"
+) else (
+    echo WARNING: ParsecLiteCore.dll not found in build directory.
+)
+
 if %FOUND_EXE%==0 (
     echo WARNING: No executables found in build directory.
     echo Ensure you have built the project in Release mode.
