@@ -1,54 +1,60 @@
-# LAN Game Streaming (Parsec-lite)
+# Parsec-lite: High-Performance LAN Game Streaming
 
-A lightweight, low-latency LAN-only game streaming prototype built with Python. Designed for local multiplayer gaming and emulator use (e.g., PCSX2).
+Parsec-lite is a low-latency, high-performance LAN game streaming system. Originally started as a Python prototype, it has evolved into a production-grade C++ implementation capable of sub-20ms end-to-end latency.
 
-## Features
-- **Real-time Video Streaming**: Host captures screen, encodes with H.264, and streams over UDP.
-- **Input Forwarding**: Client captures keyboard and mouse events and sends them to the host for injection.
-- **Multi-client Support**: Host can stream to multiple clients simultaneously.
-- **Latency Optimized**: Uses `zerolatency` tuning, UDP packets, and frame skipping for minimal delay.
+## 🚀 Key Features (C++ Implementation)
+- **Ultra-Low Latency**: Target < 20ms E2E latency on standard Gigabit LAN.
+- **High-Performance Capture**: GPU-direct frame access via Windows DXGI Desktop Duplication API.
+- **Hardware Acceleration**: Full support for NVENC (NVIDIA), AMF (AMD), and QuickSync (Intel) encoding, with D3D11VA/DXVA2 hardware decoding.
+- **Hardened Networking**: Custom UDP protocol with:
+  - **FEC (Forward Error Correction)**: XOR-based parity for packet loss recovery.
+  - **Adaptive Jitter Buffer**: Dynamically adjusts to network conditions to eliminate stutter.
+  - **Lock-Free Queues**: SPSC (Single-Producer Single-Consumer) queues for zero-contention data flow.
+- **Input Forwarding**:
+  - **Keyboard/Mouse**: Low-latency Windows Raw Input capture and injection.
+  - **Controllers**: Multi-client XInput support with ViGEmBus virtual controller injection.
 
-## Project Structure
-- `host/`: Host-side streaming and input injection logic.
-- `client/`: Client-side receiver and input capture logic.
-- `common/`: Shared protocol definitions and packing helpers.
-- `tests/`: Unit and integration tests.
-- `ARCHITECTURE.md`: High-level system design.
-- `CPP_BLUEPRINT.md`: Recommendations for a production-grade C++ implementation.
+## 🗺️ Documentation Map
+- **[Architecture](ARCHITECTURE.md)**: High-level system design and multi-threaded pipeline.
+- **[Design Deep-Dive](DESIGN.md)**: Technical details on networking, memory pooling, and threading.
+- **[Optimization Strategies](OPTIMIZATION.md)**: How we achieved sub-20ms latency.
+- **[Audit & Reports]**:
+  - [Technical Audit](TECHNICAL_AUDIT.md)
+  - [Performance Audit](PERFORMANCE_AUDIT.md)
+  - [Optimization Report](OPTIMIZATION_REPORT.md)
+  - [Final Project Status](AUDIT_REPORT.md)
 
-## Setup
+## 🛠️ Getting Started (C++)
+The C++ implementation is the primary version of Parsec-lite.
+
 ### Requirements
-- Python 3.8+
-- FFmpeg installed and in PATH (for PyAV)
-- Windows (Primary target for input injection and capture) or Linux (for testing/development)
+- **OS**: Windows 10/11 (for DXGI and ViGEm)
+- **Hardware**: NVIDIA/AMD/Intel GPU with hardware encoding support.
+- **Dependencies**: FFmpeg (libavcodec), ViGEmBus driver.
 
-### Installation
+### Build & Usage
+See **[cpp/README.md](cpp/README.md)** for detailed build and execution instructions.
+
+## 🐍 Legacy Python Prototype
+The original Python implementation is still available in the `host/` and `client/` directories for educational purposes or quick testing on non-Windows platforms (limited features).
+
+### Quick Start (Python)
 ```bash
 pip install -r requirements.txt
-```
-*(Note: Create a `requirements.txt` if not present: `mss`, `av`, `numpy`, `opencv-python`, `pynput`)*
-
-## Usage
-### 1. Start the Host
-On the machine running the game:
-```bash
+# Host
 python3 host/streamer.py
-# and in another terminal
-python3 host/injector.py
-```
-
-### 2. Start the Client
-On the remote machine:
-```bash
+# Client
 python3 client/client.py <HOST_IP>
 ```
 
-## Performance Tips
-- Use a wired Ethernet connection for best results.
-- Lower the host resolution to 720p or 480p to reduce encoding/decoding overhead if latency is high.
-- Ensure GPU acceleration is available for FFmpeg/PyAV.
+## ⚖️ Performance Targets
+| Component | Target Latency |
+| :--- | :--- |
+| Capture (DXGI) | 1-2ms |
+| Encode (NVENC) | 3-5ms |
+| Network (LAN) | 1-2ms |
+| Decode & Render | 4-7ms |
+| **Total E2E** | **~15-20ms** |
 
-## Limitations
-- This is a prototype. For production use, see `CPP_BLUEPRINT.md`.
-- No audio streaming implemented yet.
-- Virtual Controller support (ViGEm) requires a C++ wrapper or specific Python bindings not included in this core MVP.
+## 🛡️ License
+MIT

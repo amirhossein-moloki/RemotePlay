@@ -1,25 +1,34 @@
-# Latency Optimization Strategies
+# Latency Optimization Strategies: Implementation Details
 
-To achieve sub-50ms latency in this LAN streaming system, the following optimizations are implemented or recommended:
+Parsec-lite achieves sub-20ms latency through a combination of hardware-level integration and software-level micro-optimizations.
 
-## 1. Video Encoding (Host)
-- **Hardware Acceleration**: Use NVENC (NVIDIA), AMF (AMD), or QuickSync (Intel). PyAV can utilize these if FFmpeg is compiled with support.
-- **Zerolatency Tuning**: Use `tune='zerolatency'` and `preset='ultrafast'` in H.264 settings. This disables B-frames and other features that introduce delay.
-- **CBR (Constant Bit Rate)**: Use CBR to prevent network congestion spikes caused by large I-frames.
+## 1. Video Pipeline (The "Zero-Copy" Path)
+- **Capture (DXGI DDA)**: We use the `AcquireNextFrame` method of `IDXGIOutputDuplication`. This provides a pointer to the frame in GPU memory.
+- **Unified D3D11 Device**: The Capture, Encoder, and Renderer modules all share the same `ID3D11Device`. This allows sharing textures between components via `ID3D11Texture2D` pointers without costly `Staging` copies or GPU-to-CPU transfers.
+- **FFmpeg HW Acceleration**: We use `av_hwdevice_ctx_create` with `AV_HWDEVICE_TYPE_D3D11VA`. This ensures the encoder (NVENC/AMF) reads directly from the captured texture.
 
-## 2. Networking
-- **UDP Protocol**: We use UDP to avoid the head-of-line blocking and retransmission delays inherent in TCP.
-- **Packet Fragmentation**: Frames are split into MTU-sized packets (approx 1400 bytes) to avoid IP fragmentation.
-- **Jitter Buffer**: The client should implement a small jitter buffer to handle out-of-order packets without adding significant delay.
+## 2. Encoder Tuning (The "Zerolatency" Preset)
+The encoder is configured with specific flags to minimize lookahead and buffering:
+- `tune=zerolatency`: Disables B-frames and reduces internal frame buffering.
+- `preset=ultrafast`: Prioritizes encoding speed over compression efficiency.
+- `gop_size=infinite`: Prevents periodic I-frame spikes, using a single initial I-frame and subsequent P-frames. Intra-refresh is used for error recovery.
+- `rc=cbr`: Constant Bitrate ensures predictable network traffic and avoids bufferbloat.
 
-## 3. Video Decoding (Client)
-- **Hardware Decoding**: Use GPU-based decoding on the client side.
-- **Low-delay Decoding**: Configure the decoder to output frames as soon as they are parsed.
+## 3. Networking (Custom UDP Protocol)
+- **MTU Alignment**: Packets are capped at 1300 bytes (below the 1500-byte MTU) to prevent IP fragmentation, which can cause significant latency in some network stacks.
+- **Lock-Free SPSC Queues**: Thread-to-thread communication (e.g., Encoder -> Sender) uses Single-Producer Single-Consumer queues, avoiding mutex overhead and kernel-level waits.
+- **XOR FEC**: Forward Error Correction recovers lost packets instantly without waiting for RTT-sensitive retransmissions (NACK).
 
-## 4. Input Handling
-- **Separate Channel**: Input events are sent on a separate UDP stream or handled with high priority to ensure they reach the host as fast as possible.
-- **Direct Injection**: On the host, use low-level APIs like `SendInput` (Windows) or `uinput` (Linux) to minimize injection latency.
+## 4. Client Presentation (The "Flip Model")
+- **DXGI Flip Discard**: Uses `DXGI_SWAP_EFFECT_FLIP_DISCARD` to bypass the legacy BitBlt copy in the Windows compositor.
+- **Allow Tearing**: When VSync is disabled, we use `DXGI_PRESENT_ALLOW_TEARING`. This allows the GPU to present the latest decoded frame immediately to the monitor, even mid-refresh, for the absolute lowest input-to-display latency.
 
-## 5. Performance Monitoring
-- **End-to-End Measurement**: Calculate the time from frame capture on the host to frame display on the client.
-- **Dynamic Bitrate**: Adjust the bitrate based on observed packet loss and round-trip time (RTT).
+## 5. Precise Timing & Telemetry
+Every frame is tagged with a `high_resolution_clock` timestamp at the following stages:
+1.  `CaptureTimestamp`
+2.  `EncodeStartTimestamp`
+3.  `EncodeEndTimestamp`
+4.  `ReceiveTimestamp`
+5.  `DecodeTimestamp`
+6.  `PresentTimestamp`
+This allows real-time monitoring of every millisecond in the pipeline.

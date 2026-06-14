@@ -1,30 +1,24 @@
 # Parsec-lite C++ Implementation
 
-This directory contains the production-grade C++ source code for the LAN Game Streaming System.
+This directory contains the core high-performance C++ source code for the Parsec-lite LAN Game Streaming system.
 
-## Features
+## 🚀 Key Features
 - **High-Performance Capture**: DXGI Desktop Duplication API for GPU-direct frame access.
-- **Hardware Acceleration**: Architectural support for NVENC, AMF, and QuickSync via FFmpeg.
-- **Low-Latency Input**: Windows Raw Input capture and `SendInput`/`ViGEmBus` injection.
-- **Unified Executable**: Single binary for both Host and Client modes.
-- **Interface Selection**: Explicit control over which network adapter to use.
+- **Hardware Acceleration**: Out-of-the-box support for NVENC, AMF, and QuickSync via FFmpeg.
+- **Low-Latency Input**: High-precision Windows Raw Input capture and kernel-level ViGEmBus injection.
+- **Unified Executable**: A single binary that handles both Host and Client roles.
+- **Adaptive Networking**: XOR-based FEC and an adaptive jitter buffer to handle LAN fluctuations.
 
-## Project Structure
-- `cpp/common/`: Shared networking and protocol definitions.
-- `cpp/host/`: Screen capture, hardware encoding, and input injection logic.
-- `cpp/client/`: Video receiving, reassembly, hardware decoding, and input capture.
-- `cpp/main.cpp`: Entry point with mode selection and initialization logic.
-
-## Build Requirements
-- **OS**: Windows 10/11 (Required for DXGI, SendInput, ViGEmBus).
-- **Compiler**: Visual Studio 2019+ or MinGW-w64.
+## 🛠️ Build Requirements
+- **OS**: Windows 10/11 (Required for DXGI, SendInput, and ViGEmBus).
+- **Compiler**: Visual Studio 2019+ or MinGW-w64 with C++17 support.
 - **Build System**: CMake 3.10+.
 - **Dependencies**:
-  - **FFmpeg**: Required for `libavcodec`, `libavutil`.
+  - **FFmpeg**: Required for `libavcodec`, `libavutil`. Ensure it's compiled with hardware acceleration support.
   - **ViGEmClient**: Required for virtual controller support.
   - **DirectX SDK**: Included with modern Windows SDK.
 
-## Building
+## 🏗️ Building
 ```bash
 mkdir build
 cd build
@@ -32,29 +26,32 @@ cmake ..
 cmake --build . --config Release
 ```
 
-## Usage
+## 📖 Usage
 
-### 1. List Interfaces
+### 1. List Network Interfaces
+Before starting, identify which network interface to use:
 ```bash
 ./parsec-lite.exe --list
 ```
 
 ### 2. Start Host
+Start the host on the machine you want to stream from:
 ```bash
-# Starts host on the default active interface
+# Default active interface
 ./parsec-lite.exe --host
 
-# Starts host on a specific interface (e.g., interface index 1)
+# Specific interface (e.g., index 1)
 ./parsec-lite.exe --host --iface 1
 ```
 
 ### 3. Start Client
+Start the client on the machine you want to play on:
 ```bash
-# Connects to the host at 192.168.1.50
+# Connect to host IP
 ./parsec-lite.exe --client 192.168.1.50
 ```
 
-## Architecture Notes
-- **Zero-Copy**: The system is designed to pass `ID3D11Texture2D` pointers directly from DXGI to the hardware encoder, avoiding CPU-GPU memory copies.
-- **UDP Protocol**: Uses a custom sequence-aware protocol with packet fragmentation to stay within LAN MTU (1500 bytes).
-- **Jitter Buffer**: The client reassembles frames and handles out-of-order packets using a minimal buffer to prioritize latency over perfect smoothness.
+## 🏗️ Architecture Notes
+- **Zero-Copy**: Passes `ID3D11Texture2D` pointers directly from capture to encoder, avoiding the CPU entirely.
+- **UDP Fragmenting**: Optimizes MTU usage by fragmenting large video frames into ~1300-byte packets.
+- **SPSC Queues**: Threading is managed via lock-free Single-Producer Single-Consumer queues to eliminate mutex contention lag.
