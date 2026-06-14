@@ -1,9 +1,11 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include "core/AppEngine.hpp"
+#include "common/parsec_lite_api.h"
 
 int main(int argc, char *argv[])
 {
+    Parsec_Initialize();
     QGuiApplication app(argc, argv);
 
     app.setOrganizationName("NexusDash");
@@ -23,5 +25,7 @@ int main(int argc, char *argv[])
 
     engine.load(url);
 
-    return app.exec();
+    int result = app.exec();
+    Parsec_Shutdown();
+    return result;
 }

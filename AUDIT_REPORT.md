@@ -1,34 +1,89 @@
-# UI/UX Audit Report: Parsec-Lite
+# Parsec-Lite Engineering Audit & Architecture Report
 
-## 1. Window Layouts & Navigation
-| Issue | Severity | Description | Impact | Recommended Solution |
-| :--- | :--- | :--- | :--- | :--- |
-| **Absolute Positioning** | Medium | Windows use `ImGuiCond_FirstUseEver` with hardcoded coordinates. | UI may be cut off on smaller screens or misplaced on multi-monitor setups. | Use relative positioning or a modern Windowing system (WinUI 3) that handles layout scaling. |
-| **Floating Window Proliferation** | Medium | Launcher and Telemetry are separate floating windows with no parent container. | Increases visual clutter and makes the app feel like a "debugging tool" rather than a product. | Consolidate into a single Dashboard window with a Sidebar navigation. |
-| **Lack of Responsive Design** | High | UI components use absolute pixel spacing. | Poor usability on 4K monitors or handheld devices (Steam Deck). | Implement a Flexbox or Grid-based layout system. |
+## 1. Module Breakdown
 
-## 2. Forms & Input Controls
-| Issue | Severity | Description | Impact | Recommended Solution |
-| :--- | :--- | :--- | :--- | :--- |
-| **Missing Input Validation** | Critical | "Host IP Address" accepts any string without format checking. | App crashes or hangs if an invalid IP is entered. | Implement Regex validation and real-time "Format Error" feedback. |
-| **Manual Bitrate Entry** | Medium | Bitrate uses a slider (1000-20000) with no text input. | Difficult to set specific values (e.g., exactly 8500 kbps). | Add a numeric input field alongside the slider. |
-| **Implicit Mode Switching** | Medium | Radio buttons for Host/Client mode don't change the UI context drastically enough. | Users may start a session in the wrong mode. | Use a clear "Card-based" selection or dedicated tabs for Host vs. Client. |
+### Core Engine (ParsecLiteCore)
+- **Responsibilities**:
+  - Desktop Capture (DXGI Desktop Duplication)
+  - Hardware Video Encoding (FFmpeg / NVENC / AMF / QSV)
+  - Hardware Video Decoding (D3D11VA)
+  - Network Management (Custom UDP Protocol, FEC, Jitter Buffer)
+  - Input Injection (ViGEm for Gamepads, WinAPI for Keyboard/Mouse)
+  - Session Management (Lifecycle control, Telemetry aggregation)
+  - Global Configuration & Logging
 
-## 3. Telemetry & Data Visualization
-| Issue | Severity | Description | Impact | Recommended Solution |
-| :--- | :--- | :--- | :--- | :--- |
-| **Text-Heavy Overlay** | High | Telemetry is a wall of text (ms, FPS, %). | Difficult to process during high-action gameplay. | Use sparklines for latency and color-coded gauges for packet loss. |
-| **Static Thresholds** | Medium | Loss and Latency don't change color based on health. | Users don't notice performance degradation until it's unplayable. | Implement "Green/Yellow/Red" state indicators (e.g., Red for >5% loss). |
+### UI Application (appNexusDash)
+- **Responsibilities**:
+  - Modern Dashboard Interface (Qt 6 / QML)
+  - Real-time Telemetry Visualization
+  - System Monitoring (CPU, Memory, Uptime)
+  - Persistent Settings Management (Dark Mode, Bitrate, FPS)
+  - Mode Selection (Host vs Client)
 
-## 4. Accessibility
-| Issue | Severity | Description | Impact | Recommended Solution |
-| :--- | :--- | :--- | :--- | :--- |
-| **No Screen Reader Support** | High | Dear ImGui lacks native MSAA/UIA support. | Blind or low-vision users cannot use the application. | Migrate to WinUI 3 or WPF which provides full accessibility tree support. |
-| **Poor Contrast** | Medium | Green text on dark gray (`0.3f, 0.8f, 0.2f`). | Hard to read for users with color vision deficiencies. | Follow WCAG 2.1 contrast ratios (min 4.5:1). |
-| **Keyboard Navigation** | Medium | Limited tab-order control. | Power users cannot navigate efficiently. | Implement a standard focus-ring and logical Tab sequence. |
+### Shared Components
+- **Common Protocol**: Binary packet definitions for Video, FEC, Input, and Feedback.
+- **Utilities**: Lock-free queues, Safe queues, Profiler, Logger, and Config system.
 
-## 5. Technical Implementation
-| Issue | Severity | Description | Impact | Recommended Solution |
-| :--- | :--- | :--- | :--- | :--- |
-| **Tight Coupling** | High | UI code directly modifies global config and triggers networking. | Difficult to test UI independently of the streaming core. | Use an MVVM (Model-View-ViewModel) pattern. |
-| **UI Blocking Risk** | High | Launcher loop runs in the same thread as D3D11 initialization. | If network discovery hangs, the UI freezes. | Run UI and Core Logic on separate threads with a message queue. |
+## 2. Communication Method
+- **Method**: Shared Library (DLL) / C-API.
+- **Details**: `appNexusDash` links against `ParsecLiteCore.dll` and communicates via a stable C-style API defined in `parsec_lite_api.h`. The UI drives the engine state by calling API functions and pulls telemetry on a timer.
+
+## 3. Dependency Graph
+
+### Compile-time Dependencies
+- **appNexusDash** → `ParsecLiteCore`
+- **appNexusDash** → `Qt6` (Core, Gui, Qml, Quick, QuickControls2)
+- **ParsecLiteCore** → `FFmpeg` (libavcodec, libavutil, libswscale)
+- **ParsecLiteCore** → `ViGEmClient`
+- **ParsecLiteCore** → `Windows SDK` (D3D11, DXGI, XInput, Win32)
+
+### Runtime Dependencies
+- **appNexusDash.exe** requires `ParsecLiteCore.dll`, `Qt6*.dll`, `avcodec-*.dll`, `avutil-*.dll`, `swscale-*.dll`, `ViGEmClient.dll`.
+- **parsec-lite.exe** (CLI) requires `ParsecLiteCore.dll` and third-party DLLs.
+
+## 4. Build Flow
+1. **CMake Configuration**: Detects Qt, FFmpeg, and ViGEmClient. Sets up output directory to `dist/app`.
+2. **Compilation**: Builds `ParsecLiteCore` (DLL), `parsec-lite` (CLI), and `appNexusDash` (UI).
+3. **Post-Build Automation**:
+   - `windeployqt` is invoked on `appNexusDash.exe` to bundle Qt plugins and DLLs.
+   - FFmpeg and ViGEmClient DLLs are copied from `deps/` to `dist/app`.
+   - `ParsecLiteCore.dll` is placed alongside the executables.
+
+---
+
+# Broken & Missing Features (Audit Results)
+
+| Feature | Status | Correction Applied |
+| :--- | :--- | :--- |
+| **UI Telemetry** | Broken (Mocked) | Replaced mock data with real `Profiler` telemetry via `Parsec_GetTelemetry`. |
+| **Dark Mode Persistence** | Missing | Implemented persistence using the `Config` system in `ThemeService`. |
+| **Core/UI Separation** | Poor | Extracted streaming logic from CLI `main.cpp` into `SessionManager` in Core. |
+| **System Metrics** | Mocked | Implemented real Memory usage tracking via `GlobalMemoryStatusEx`. |
+| **Build Automation** | Missing | Redesigned CMake to produce a complete `dist/` folder automatically. |
+| **Input Feedback** | Incomplete | Added profiling for input network latency and injection timing. |
+
+---
+
+# Final Build & Deployment
+
+## Unified Build Command
+```powershell
+mkdir build; cd build
+cmake .. -DBUILD_NEXUSDASH=ON -DCMAKE_PREFIX_PATH=<PATH_TO_QT>
+cmake --build . --config Release
+```
+
+## Final Runtime Structure (dist/app/)
+```text
+dist/
+└── app/
+    ├── appNexusDash.exe     (Qt UI)
+    ├── parsec-lite.exe      (CLI Tool)
+    ├── ParsecLiteCore.dll   (Shared Core)
+    ├── Qt6Core.dll          (and other Qt DLLs)
+    ├── avcodec-60.dll       (and other FFmpeg DLLs)
+    ├── ViGEmClient.dll
+    ├── platforms/           (Qt Platform Plugins)
+    ├── qml/                 (Qt QML Plugins)
+    └── config.ini           (Persistent Settings)
+```
