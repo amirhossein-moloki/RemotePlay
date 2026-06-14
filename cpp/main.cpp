@@ -580,12 +580,11 @@ int main(int argc, char* argv[]) {
     Config::getInstance().load("config.ini");
 
     std::vector<std::string> args(argv, argv + argc);
-    if (args.size() < 2) { ShowUsage(); return 1; }
 
     auto interfaces = Network::NetworkManager::EnumerateInterfaces();
     std::string selectedIp = "127.0.0.1";
 
-    if (args[1] == "--list") {
+    if (args.size() > 1 && args[1] == "--list") {
         for (size_t i = 0; i < interfaces.size(); ++i) {
             std::cout << "[" << i << "] " << interfaces[i].name << " (" << interfaces[i].ip << ")" << std::endl;
         }
@@ -601,9 +600,9 @@ int main(int argc, char* argv[]) {
 
     if (args.size() == 1) {
         RunLauncher();
-    } else if (args[1] == "--host") {
+    } else if (args.size() > 1 && args[1] == "--host") {
         RunHost(selectedIp);
-    } else if (args[1] == "--client" && args.size() > 2) {
+    } else if (args.size() > 2 && args[1] == "--client") {
         RunClient(selectedIp, args[2]);
     } else {
         ShowUsage();
