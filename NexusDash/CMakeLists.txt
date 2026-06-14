@@ -50,4 +50,4 @@ target_link_libraries(appNexusDash PRIVATE
 )
 
 include(FeatureSummary)
-show_feature_summary()
+feature_summary(WHAT ALL)
