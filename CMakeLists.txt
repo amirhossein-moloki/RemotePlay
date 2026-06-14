@@ -3,9 +3,6 @@ project(ParsecLite)
 
 set(CMAKE_CXX_STANDARD 17)
 
-# Set up include directories
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/cpp)
-
 # Sources
 set(COMMON_SOURCES
     cpp/common/network_manager.cpp
@@ -49,9 +46,41 @@ add_executable(parsec-lite
     ${CLIENT_SOURCES}
 )
 
-# Dependencies
+# Set up include directories
+target_include_directories(parsec-lite PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cpp)
+
+# --- Dependency Discovery ---
+
 if(WIN32)
-    target_link_libraries(parsec-lite ws2_32 iphlpapi d3d11 dxgi xinput ViGEmClient)
+    # Search for FFmpeg
+    find_path(AVCODEC_INCLUDE_DIR NAMES libavcodec/avcodec.h)
+    find_library(AVCODEC_LIBRARY NAMES avcodec)
+    find_library(AVUTIL_LIBRARY NAMES avutil)
+
+    if(AVCODEC_INCLUDE_DIR AND AVCODEC_LIBRARY)
+        target_include_directories(parsec-lite PRIVATE ${AVCODEC_INCLUDE_DIR})
+        target_link_libraries(parsec-lite PRIVATE ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY})
+    else()
+        message(WARNING "FFmpeg not found. Ensure it's in your PATH or CMAKE_PREFIX_PATH. Hardware encoding/decoding will likely fail to compile.")
+        # Fallback to linking by name
+        target_link_libraries(parsec-lite PRIVATE avcodec avutil)
+    endif()
+
+    # Search for ViGEmClient
+    find_path(VIGEM_INCLUDE_DIR NAMES ViGEm/Client.h)
+    find_library(VIGEM_LIBRARY NAMES ViGEmClient)
+
+    if(VIGEM_INCLUDE_DIR AND VIGEM_LIBRARY)
+        target_include_directories(parsec-lite PRIVATE ${VIGEM_INCLUDE_DIR})
+        target_link_libraries(parsec-lite PRIVATE ${VIGEM_LIBRARY})
+    else()
+        message(WARNING "ViGEmClient not found. Controller support will likely fail to compile.")
+        # Fallback to linking by name
+        target_link_libraries(parsec-lite PRIVATE ViGEmClient)
+    endif()
+
+    # System libraries
+    target_link_libraries(parsec-lite PRIVATE ws2_32 iphlpapi d3d11 dxgi xinput)
 else()
-    target_link_libraries(parsec-lite pthread)
+    target_link_libraries(parsec-lite PRIVATE pthread)
 endif()
