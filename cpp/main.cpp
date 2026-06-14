@@ -29,11 +29,39 @@
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-static WNDPROC g_OriginalWndProc = nullptr;
-static LRESULT CALLBACK SubclassedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+static LRESULT CALLBACK WindowProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
         return true;
-    return CallWindowProc(g_OriginalWndProc, hWnd, msg, wParam, lParam);
+
+    switch (msg) {
+        case WM_SIZE:
+            return 0;
+        case WM_SYSCOMMAND:
+            if ((wParam & 0xfff0) == SC_KEYMENU) // Disable ALT menu
+                return 0;
+            break;
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
+    }
+    return DefWindowProc(hWnd, msg, wParam, lParam);
+}
+
+HWND CreateAppWindow(const char* title, int width, int height) {
+    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WindowProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "ParsecLiteClass", NULL };
+    RegisterClassEx(&wc);
+
+    // Center window on screen
+    int screenW = GetSystemMetrics(SM_CXSCREEN);
+    int screenH = GetSystemMetrics(SM_CYSCREEN);
+    int posX = (screenW - width) / 2;
+    int posY = (screenH - height) / 2;
+
+    HWND hwnd = CreateWindow(wc.lpszClassName, title, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, posX, posY, width, height, NULL, NULL, wc.hInstance, NULL);
+
+    ShowWindow(hwnd, SW_SHOWDEFAULT);
+    UpdateWindow(hwnd);
+    return hwnd;
 }
 
 void ShowFatalError(const std::string& title, const std::string& message) {
@@ -424,9 +452,7 @@ void RunLauncher() {
     if (!interfaces.empty()) config.selectedIp = interfaces[0].ip;
 
     Client::RendererD3D11 renderer;
-    HWND hwnd = GetConsoleWindow();
-
-    g_OriginalWndProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)SubclassedWndProc);
+    HWND hwnd = CreateAppWindow("Parsec-Lite Launcher", 1280, 720);
 
     if (!renderer.Initialize(hwnd, 1280, 720)) {
         ShowFatalError("Launcher Error", "Failed to initialize D3D11 Renderer.");
@@ -453,8 +479,8 @@ void RunLauncher() {
         renderer.EndFrame();
     }
 
-    SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)g_OriginalWndProc);
     renderer.Shutdown();
+    DestroyWindow(hwnd);
 
     if (config.isHost) {
         RunHost(config.selectedIp);
@@ -475,9 +501,7 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
     Client::JitterBuffer jitterBuffer(3);
     Client::DecoderHW decoder;
     Client::RendererD3D11 renderer;
-    HWND hwnd = GetConsoleWindow();
-
-    g_OriginalWndProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)SubclassedWndProc);
+    HWND hwnd = CreateAppWindow("Parsec-Lite Client", 1920, 1080);
 
     if (!renderer.Initialize(hwnd, 1920, 1080)) {
         ShowFatalError("Client Error", "Failed to initialize Renderer");
@@ -488,12 +512,10 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
         net.SendTo(data.data(), data.size(), hostIp, 5005);
     });
 
-    // We need a message loop for Raw Input
-    // In a real app, this would be part of the main window loop
     inputCap.RegisterDevices(hwnd);
 
     if (!decoder.Initialize(renderer.GetDevice())) {
-        ShowFatalError("Client Error", "Failed to initialize Hardware Decoder. Ensure FFmpeg is installed and your GPU supports hardware decoding.");
+        ShowFatalError("Client Error", "Failed to initialize Hardware Decoder.");
         return;
     }
 
@@ -540,7 +562,7 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
     std::thread inputThread = std::thread([&]() {
         while (running) {
             inputCap.PollGamepads();
-            std::this_thread::sleep_for(std::chrono::milliseconds(4)); // ~250Hz polling for sub-5ms latency
+            std::this_thread::sleep_for(std::chrono::milliseconds(4));
         }
     });
 
@@ -568,7 +590,6 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
     net.SendTo(&handshake, 1, hostIp, 5005);
 
     while (running) {
-        // Handle Windows messages for Raw Input
         MSG msg;
         while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) running = false;
@@ -612,12 +633,13 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
         renderer.EndFrame();
     }
 
-    SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)g_OriginalWndProc);
     running = false;
     if (netThread.joinable()) netThread.join();
     if (feedbackThread.joinable()) feedbackThread.join();
     if (inputThread.joinable()) inputThread.join();
     if (watchdogThread.joinable()) watchdogThread.join();
+    renderer.Shutdown();
+    DestroyWindow(hwnd);
 }
 #else
 void RunHost(const std::string& ip) {}

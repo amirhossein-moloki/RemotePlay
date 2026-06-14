@@ -10,6 +10,7 @@ namespace Client {
 InputCapture::InputCapture(InputCallback callback) : m_callback(callback) {}
 
 bool InputCapture::RegisterDevices(HWND hwnd) {
+    m_hwnd = hwnd;
     RAWINPUTDEVICE rid[2];
 
     // Mouse
@@ -41,15 +42,26 @@ void InputCapture::HandleRawInput(LPARAM lParam) {
     } else if (raw->header.dwType == RIM_TYPEMOUSE) {
         Protocol::InputHeader header = { (uint8_t)Protocol::PacketType::Input, (uint8_t)Protocol::InputType::MouseMove };
         Protocol::MouseMoveEvent mm = { 0 };
-        mm.x = raw->data.mouse.lLastX;
-        mm.y = raw->data.mouse.lLastY;
         mm.isRelative = !(raw->data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE);
 
-        if (!mm.isRelative) {
-            // For absolute moves, we should ideally know the screen size
-            // but for now we'll pass it as is and host will handle mapping
-            mm.screenWidth = GetSystemMetrics(SM_CXSCREEN);
-            mm.screenHeight = GetSystemMetrics(SM_CYSCREEN);
+        if (mm.isRelative) {
+            mm.x = raw->data.mouse.lLastX;
+            mm.y = raw->data.mouse.lLastY;
+        } else {
+            // Convert absolute coordinates from Raw Input (0-65535) to client window pixels
+            // then map them to host screen size. However, Raw Input absolute is often for the whole virtual desktop.
+            // Better approach: use GetCursorPos and ScreenToClient for standard windowed mode
+            POINT pt;
+            GetCursorPos(&pt);
+            ScreenToClient(m_hwnd, &pt);
+
+            RECT rect;
+            GetClientRect(m_hwnd, &rect);
+
+            mm.x = pt.x;
+            mm.y = pt.y;
+            mm.screenWidth = rect.right - rect.left;
+            mm.screenHeight = rect.bottom - rect.top;
         }
         SendPacket(header, mm);
     }
