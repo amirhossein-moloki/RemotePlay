@@ -1,7 +1,5 @@
 # Parsec-lite: High-Performance LAN Game Streaming
 
-[راهنمای فارسی (Persian Guide)](README_FA.md)
-
 Parsec-lite is a low-latency, high-performance LAN game streaming system. It is a production-grade C++ implementation capable of sub-20ms end-to-end latency.
 
 ## ⚡ Quick Start
@@ -28,16 +26,6 @@ cmake --build . --config Release
 - **Input Forwarding**:
   - **Keyboard/Mouse**: Low-latency Windows Raw Input capture and injection.
   - **Controllers**: Multi-client XInput support with ViGEmBus virtual controller injection.
-
-## 🗺️ Documentation Map
-- **[Architecture](ARCHITECTURE.md)**: High-level system design and multi-threaded pipeline.
-- **[Design Deep-Dive](DESIGN.md)**: Technical details on networking, memory pooling, and threading.
-- **[Optimization Strategies](OPTIMIZATION.md)**: How we achieved sub-20ms latency.
-- **[Audit & Reports]**:
-  - [Technical Audit](TECHNICAL_AUDIT.md)
-  - [Performance Audit](PERFORMANCE_AUDIT.md)
-  - [Optimization Report](OPTIMIZATION_REPORT.md)
-  - [Final Project Status](AUDIT_REPORT.md)
 
 ## 🛠️ Requirements
 - **OS**: Windows 10/11 (for DXGI and ViGEm)
