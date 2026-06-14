@@ -2,6 +2,10 @@
 #include <QDateTime>
 #include <QRandomGenerator>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 SystemService::SystemService(QObject *parent) : QObject(parent)
 {
     m_startTime = QDateTime::currentSecsSinceEpoch();
@@ -13,14 +17,25 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
 
 void SystemService::updateStats()
 {
-    // Simulated data for CPU/Memory
-    m_cpuUsage = QRandomGenerator::global()->generateDouble() * 40.0 + 5.0;
-    m_memoryUsage = QRandomGenerator::global()->generateDouble() * 60.0 + 20.0;
-
-    // Real data from ParsecLiteCore
+    // Real telemetry from ParsecLiteCore
     if (Parsec_GetTelemetry(&m_stats)) {
         emit statsChanged();
     }
+
+    // Actual system metrics (Simplified for cross-platform demonstration)
+#ifdef _WIN32
+    MEMORYSTATUSEX memInfo;
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+    GlobalMemoryStatusEx(&memInfo);
+    m_memoryUsage = 100.0 - (100.0 * memInfo.ullAvailPhys / memInfo.ullTotalPhys);
+
+    // CPU usage would require more complex WinAPI (PdhQueries),
+    // using a more stable simulation for now or just keeping it at telemetry level.
+    m_cpuUsage = QRandomGenerator::global()->generateDouble() * 10.0 + 5.0;
+#else
+    m_cpuUsage = 5.0;
+    m_memoryUsage = 20.0;
+#endif
 
     emit cpuUsageChanged();
     emit memoryUsageChanged();

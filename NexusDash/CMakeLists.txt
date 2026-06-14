@@ -34,11 +34,7 @@ qt_add_qml_module(appNexusDash
         qml/pages/DashboardPage.qml
         qml/pages/SettingsPage.qml
         qml/pages/AboutPage.qml
-    RESOURCES
 )
-
-# Qt for Android/iOS/WebAssembly might require different settings,
-# but for Desktop (Windows/macOS/Linux) this is standard.
 
 target_link_libraries(appNexusDash PRIVATE
     Qt6::Core
