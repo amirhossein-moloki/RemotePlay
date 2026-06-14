@@ -1,5 +1,0 @@
-mss
-numpy
-av
-opencv-python
-pynput
