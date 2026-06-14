@@ -106,18 +106,25 @@ goto :MENU
 cls
 echo [1/2] Checking for Qt 6 Environment...
 echo [*] Ensure Qt 6.7+ is installed and in your PATH.
+where qmake >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [^!] Qt 6 (qmake) was not found in PATH.
+    echo [^!] Please ensure Qt is installed and the bin directory is in your PATH.
+    goto :PAUSE_FINISH
+)
 cmake --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo [^!] CMake was not found.
     goto :PAUSE_FINISH
 )
+echo [+] Qt 6 environment and CMake found.
 
 echo [2/2] Building Modern UI (NexusDash)...
 if not exist build (
     mkdir build
 )
 cd build
-cmake ..
+cmake .. -DBUILD_NEXUSDASH=ON
 if %errorlevel% neq 0 (
     echo [^!] ERROR: CMake configuration failed.
     cd ..
