@@ -1,6 +1,30 @@
 # Parsec-lite: High-Performance LAN Game Streaming
 
+[راهنمای فارسی (Persian Guide)](README_FA.md)
+
 Parsec-lite is a low-latency, high-performance LAN game streaming system. Originally started as a Python prototype, it has evolved into a production-grade C++ implementation capable of sub-20ms end-to-end latency.
+
+## ⚡ Quick Start
+
+### C++ Production Version (Recommended)
+```bash
+mkdir build && cd build
+cmake ..
+cmake --build . --config Release
+# Host
+./parsec-lite.exe --host
+# Client
+./parsec-lite.exe --client <HOST_IP>
+```
+
+### Python Prototype
+```bash
+pip install -r requirements.txt
+# Host
+python3 host/streamer.py
+# Client
+python3 client/client.py <HOST_IP>
+```
 
 ## 🚀 Key Features (C++ Implementation)
 - **Ultra-Low Latency**: Target < 20ms E2E latency on standard Gigabit LAN.
