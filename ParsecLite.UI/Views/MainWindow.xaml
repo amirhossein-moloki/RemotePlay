@@ -1,0 +1,55 @@
+<Window x:Class="ParsecLite.UI.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2000/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2000/xaml"
+        xmlns:vm="clr-namespace:ParsecLite.UI.ViewModels"
+        Title="Parsec-Lite Dashboard" Height="600" Width="900"
+        Background="#202020" Foreground="White">
+    <Window.DataContext>
+        <vm:MainViewModel/>
+    </Window.DataContext>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="240"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Sidebar Navigation -->
+        <StackPanel Grid.Column="0" Background="#2B2B2B">
+            <TextBlock Text="PARSEC-LITE" FontSize="20" FontWeight="Bold" Margin="20,30" Foreground="#0078D4"/>
+            <Button Content="Dashboard" Style="{StaticResource NavButton}"/>
+            <Button Content="Host" Style="{StaticResource NavButton}"/>
+            <Button Content="Connect" Style="{StaticResource NavButton}"/>
+            <Button Content="Settings" Style="{StaticResource NavButton}"/>
+        </StackPanel>
+
+        <!-- Main Content Area -->
+        <Grid Grid.Column="1" Margin="24">
+            <StackPanel>
+                <TextBlock Text="System Status" FontSize="28" FontWeight="Bold" Margin="0,0,0,20"/>
+
+                <Border CornerRadius="8" Background="#2B2B2B" Padding="20" Margin="0,0,0,20">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="12" Height="12" Fill="#6BB05D" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <TextBlock Text="{Binding Status}" VerticalAlignment="Center" FontSize="16"/>
+                    </StackPanel>
+                </Border>
+
+                <UniformGrid Columns="2">
+                    <Border Style="{StaticResource CardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Latency" Foreground="#A1A1A1"/>
+                            <TextBlock Text="{Binding Latency, StringFormat={}{0} ms}" FontSize="36" FontWeight="Bold"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource CardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Framerate" Foreground="#A1A1A1"/>
+                            <TextBlock Text="{Binding Fps, StringFormat={}{0} FPS}" FontSize="36" FontWeight="Bold"/>
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
