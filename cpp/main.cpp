@@ -456,7 +456,10 @@ void RunLauncher() {
     std::string modernUiPaths[] = {
         dir + "\\appNexusDash.exe",
         dir + "\\NexusDash\\appNexusDash.exe",
-        dir + "\\..\\NexusDash\\Release\\appNexusDash.exe"
+        dir + "\\NexusDash\\Release\\appNexusDash.exe",
+        dir + "\\NexusDash\\Debug\\appNexusDash.exe",
+        dir + "\\..\\NexusDash\\Release\\appNexusDash.exe",
+        dir + "\\..\\NexusDash\\Debug\\appNexusDash.exe"
     };
 
     bool launched = false;
