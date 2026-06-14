@@ -1,3 +1,4 @@
+#define NOMINMAX
 #include <iostream>
 #include <string>
 #include <vector>
@@ -21,6 +22,12 @@
 
 #ifdef _WIN32
 #include <windows.h>
+
+// Forward declarations
+void RunHost(const std::string& ip);
+void RunClient(const std::string& localIp, const std::string& hostIp);
+void RunLauncher();
+
 #include "host/capture_dxgi.hpp"
 #include "host/encoder_hw.hpp"
 #include "host/input_injector.hpp"
@@ -110,7 +117,7 @@ void RunHost(const std::string& ip) {
 
     uint32_t packetsReceived = 0;
 
-    std::thread captureThread([&]() {
+    std::thread captureThread = std::thread([&]() {
         while (ctx.running) {
             ID3D11Texture2D* tex = nullptr;
             uint64_t captureTs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
@@ -130,7 +137,7 @@ void RunHost(const std::string& ip) {
         }
     });
 
-    std::thread encoderThread([&]() {
+    std::thread encoderThread = std::thread([&]() {
         while (ctx.running) {
             CapturedFrame cf = {nullptr, 0};
             if (ctx.captureQueue.pop(cf)) {
@@ -170,7 +177,7 @@ void RunHost(const std::string& ip) {
         }
     });
 
-    std::thread packetizerThread([&]() {
+    std::thread packetizerThread = std::thread([&]() {
         uint32_t frameId = 0;
         std::vector<Host::EncodedPacket> frames;
 
@@ -178,103 +185,114 @@ void RunHost(const std::string& ip) {
             if (ctx.encodeQueue.pop(frames)) {
                 ScopeTimer timer("Packetizer_Total");
                 for (auto& frame : frames) {
-                uint16_t totalFrags = (uint16_t)((frame.packet->size + Protocol::MAX_UDP_PAYLOAD - 1) / Protocol::MAX_UDP_PAYLOAD);
+                    uint16_t totalFrags = (uint16_t)((frame.packet->size + Protocol::MAX_UDP_PAYLOAD - 1) / Protocol::MAX_UDP_PAYLOAD);
 
-                // Use a fixed-size array on stack to avoid vector allocations
-                PacketPool::Packet* fragmentPtrs[1024];
-                if (totalFrags > 1024) continue;
-
-                for (uint16_t i = 0; i < totalFrags; ++i) {
-                    auto udpPkt = ctx.udpPool.acquire();
-                    if (!udpPkt) {
-                        for (uint16_t j = 0; j < i; ++j) ctx.udpPool.release(std::unique_ptr<PacketPool::Packet>(fragmentPtrs[j]));
-                        goto next_frame;
+                    // Use a fixed-size array on stack to avoid vector allocations
+                    PacketPool::Packet* fragmentPtrs[1024];
+                    if (totalFrags > 1024) {
+                        ctx.packetPool.release(std::move(frame.packet));
+                        continue;
                     }
-                    Protocol::VideoHeader* vh = (Protocol::VideoHeader*)udpPkt->data.data();
-                    vh->type = (uint8_t)Protocol::PacketType::Video;
-                    vh->frameId = frameId;
-                    vh->fragmentIndex = i;
-                    vh->totalFragments = totalFrags;
-                    vh->packetSequence = ctx.globalPacketSequence++;
-                    vh->captureTimestamp = frame.captureTimestamp;
-                    vh->encodeStartTimestamp = frame.encodeStartTimestamp;
-                    vh->encodeEndTimestamp = frame.encodeEndTimestamp;
-                    vh->flags = frame.isKeyframe ? 0x01 : 0x00;
-                    vh->dataSize = (uint16_t)std::min((uint32_t)Protocol::MAX_UDP_PAYLOAD, (uint32_t)(frame.packet->size - i * Protocol::MAX_UDP_PAYLOAD));
 
-                    memcpy(udpPkt->data.data() + sizeof(Protocol::VideoHeader),
-                           frame.packet->data.data() + (i * Protocol::MAX_UDP_PAYLOAD), vh->dataSize);
-                    udpPkt->size = sizeof(Protocol::VideoHeader) + vh->dataSize;
-                    fragmentPtrs[i] = udpPkt.release(); // Ownership moved to fragmentPtrs for now
-                }
-
-                std::lock_guard<std::mutex> lock(ctx.clientsMutex);
-                for (const auto& client : ctx.clients) {
-                    for (size_t i = 0; i < totalFrags; ++i) {
-                        // Calculate FEC before pushing the source packet to the send queue
-                        // to avoid race condition with the sender thread.
-                        const int FEC_GROUP_SIZE = 5;
-                        size_t groupStart = (i / FEC_GROUP_SIZE) * FEC_GROUP_SIZE;
-                        bool isLastInGroup = ((i + 1) % FEC_GROUP_SIZE == 0 || i == totalFrags - 1);
-
-                        auto sendPkt = ctx.udpPool.acquire();
-                        if (sendPkt) {
-                            sendPkt->size = fragmentPtrs[i]->size;
-                            memcpy(sendPkt->data.data(), fragmentPtrs[i]->data.data(), fragmentPtrs[i]->size);
-                            ctx.sendQueue.push({std::move(sendPkt), client.first, client.second});
+                    bool fragmentingFailed = false;
+                    for (uint16_t i = 0; i < totalFrags; ++i) {
+                        auto udpPkt = ctx.udpPool.acquire();
+                        if (!udpPkt) {
+                            for (uint16_t j = 0; j < i; ++j) ctx.udpPool.release(std::unique_ptr<PacketPool::Packet>(fragmentPtrs[j]));
+                            fragmentingFailed = true;
+                            break;
                         }
+                        Protocol::VideoHeader* vh = (Protocol::VideoHeader*)udpPkt->data.data();
+                        vh->type = (uint8_t)Protocol::PacketType::Video;
+                        vh->frameId = frameId;
+                        vh->fragmentIndex = i;
+                        vh->totalFragments = totalFrags;
+                        vh->packetSequence = ctx.globalPacketSequence++;
+                        vh->captureTimestamp = frame.captureTimestamp;
+                        vh->encodeStartTimestamp = frame.encodeStartTimestamp;
+                        vh->encodeEndTimestamp = frame.encodeEndTimestamp;
+                        vh->flags = frame.isKeyframe ? 0x01 : 0x00;
+                        vh->dataSize = (uint16_t)std::min((uint32_t)Protocol::MAX_UDP_PAYLOAD, (uint32_t)(frame.packet->size - i * Protocol::MAX_UDP_PAYLOAD));
 
-                        if (isLastInGroup) {
-                            uint16_t count = (uint16_t)(i - groupStart + 1);
-                            if (count > 1) {
-                                auto fecPkt = ctx.udpPool.acquire();
-                                if (fecPkt) {
-                                    Protocol::FECHeader* fh = (Protocol::FECHeader*)fecPkt->data.data();
-                                    fh->type = (uint8_t)Protocol::PacketType::FEC;
-                                    fh->frameId = frameId;
-                                    fh->fragmentStart = (uint16_t)groupStart;
-                                    fh->fragmentCount = count;
-                                    fh->packetSequence = ctx.globalPacketSequence++;
+                        memcpy(udpPkt->data.data() + sizeof(Protocol::VideoHeader),
+                               frame.packet->data.data() + (i * Protocol::MAX_UDP_PAYLOAD), vh->dataSize);
+                        udpPkt->size = sizeof(Protocol::VideoHeader) + vh->dataSize;
+                        fragmentPtrs[i] = udpPkt.release(); // Ownership moved to fragmentPtrs for now
+                    }
 
-                                    uint16_t maxPayloadSize = 0;
-                                    for (size_t j = 0; j < count; ++j) {
-                                        maxPayloadSize = std::max(maxPayloadSize, ((Protocol::VideoHeader*)fragmentPtrs[groupStart+j]->data.data())->dataSize);
-                                    }
-                                    fh->dataSize = maxPayloadSize;
+                    if (fragmentingFailed) {
+                        ctx.packetPool.release(std::move(frame.packet));
+                        continue;
+                    }
 
-                                    uint8_t* fecPayload = fecPkt->data.data() + sizeof(Protocol::FECHeader);
-                                    memset(fecPayload, 0, maxPayloadSize);
+                    {
+                        std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+                        for (const auto& client : ctx.clients) {
+                            for (size_t i = 0; i < totalFrags; ++i) {
+                                // Calculate FEC before pushing the source packet to the send queue
+                                // to avoid race condition with the sender thread.
+                                const int FEC_GROUP_SIZE = 5;
+                                size_t groupStart = (i / FEC_GROUP_SIZE) * FEC_GROUP_SIZE;
+                                bool isLastInGroup = ((i + 1) % FEC_GROUP_SIZE == 0 || i == totalFrags - 1);
 
-                                    for (size_t j = 0; j < count; ++j) {
-                                        Protocol::VideoHeader* vh = (Protocol::VideoHeader*)fragmentPtrs[groupStart+j]->data.data();
-                                        uint8_t* fragPayload = fragmentPtrs[groupStart+j]->data.data() + sizeof(Protocol::VideoHeader);
+                                auto sendPkt = ctx.udpPool.acquire();
+                                if (sendPkt) {
+                                    sendPkt->size = fragmentPtrs[i]->size;
+                                    memcpy(sendPkt->data.data(), fragmentPtrs[i]->data.data(), fragmentPtrs[i]->size);
+                                    ctx.sendQueue.push({std::move(sendPkt), client.first, client.second});
+                                }
 
-                                        for (size_t k = 0; k < vh->dataSize; ++k) {
-                                            fecPayload[k] ^= fragPayload[k];
+                                if (isLastInGroup) {
+                                    uint16_t count = (uint16_t)(i - groupStart + 1);
+                                    if (count > 1) {
+                                        auto fecPkt = ctx.udpPool.acquire();
+                                        if (fecPkt) {
+                                            Protocol::FECHeader* fh = (Protocol::FECHeader*)fecPkt->data.data();
+                                            fh->type = (uint8_t)Protocol::PacketType::FEC;
+                                            fh->frameId = frameId;
+                                            fh->fragmentStart = (uint16_t)groupStart;
+                                            fh->fragmentCount = count;
+                                            fh->packetSequence = ctx.globalPacketSequence++;
+
+                                            uint16_t maxPayloadSize = 0;
+                                            for (size_t j = 0; j < count; ++j) {
+                                                maxPayloadSize = std::max(maxPayloadSize, ((Protocol::VideoHeader*)fragmentPtrs[groupStart+j]->data.data())->dataSize);
+                                            }
+                                            fh->dataSize = maxPayloadSize;
+
+                                            uint8_t* fecPayload = fecPkt->data.data() + sizeof(Protocol::FECHeader);
+                                            memset(fecPayload, 0, maxPayloadSize);
+
+                                            for (size_t j = 0; j < count; ++j) {
+                                                Protocol::VideoHeader* vh = (Protocol::VideoHeader*)fragmentPtrs[groupStart+j]->data.data();
+                                                uint8_t* fragPayload = fragmentPtrs[groupStart+j]->data.data() + sizeof(Protocol::VideoHeader);
+
+                                                for (size_t k = 0; k < vh->dataSize; ++k) {
+                                                    fecPayload[k] ^= fragPayload[k];
+                                                }
+                                            }
+                                            fecPkt->size = sizeof(Protocol::FECHeader) + fh->dataSize;
+                                            ctx.sendQueue.push({std::move(fecPkt), client.first, client.second});
                                         }
                                     }
-                                    fecPkt->size = sizeof(Protocol::FECHeader) + fh->dataSize;
-                                    ctx.sendQueue.push({std::move(fecPkt), client.first, client.second});
                                 }
                             }
                         }
                     }
-                }
 
-                for (size_t i = 0; i < totalFrags; ++i) {
-                    ctx.udpPool.release(std::unique_ptr<PacketPool::Packet>(fragmentPtrs[i]));
+                    for (size_t i = 0; i < totalFrags; ++i) {
+                        ctx.udpPool.release(std::unique_ptr<PacketPool::Packet>(fragmentPtrs[i]));
+                    }
+                    ctx.packetPool.release(std::move(frame.packet));
                 }
-            next_frame:
-                ctx.packetPool.release(std::move(frame.packet));
-            }
-            frameId++;
-        } else {
+                frameId++;
+            } else {
             std::this_thread::sleep_for(std::chrono::microseconds(100));
         }
     }
 });
 
-    std::thread senderThread([&]() {
+    std::thread senderThread = std::thread([&]() {
         const size_t MAX_BATCH = 64;
         Network::NetworkManager::BatchItem batch[MAX_BATCH];
         OutgoingPacket ops[MAX_BATCH];
@@ -303,7 +321,7 @@ void RunHost(const std::string& ip) {
         }
     });
 
-    std::thread receiverThread([&]() {
+    std::thread receiverThread = std::thread([&]() {
         uint8_t buf[2048];
         std::string senderIp;
         uint16_t senderPort;
@@ -434,7 +452,7 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
 
     std::atomic<uint32_t> lastFrameId{0};
 
-    std::thread netThread([&]() {
+    std::thread netThread = std::thread([&]() {
         uint8_t buf[65535];
         std::string senderIp;
         uint16_t senderPort;
@@ -458,7 +476,7 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
         }
     });
 
-    std::thread feedbackThread([&]() {
+    std::thread feedbackThread = std::thread([&]() {
         while (running) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
             Protocol::FeedbackHeader fb;
@@ -470,14 +488,14 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
         }
     });
 
-    std::thread inputThread([&]() {
+    std::thread inputThread = std::thread([&]() {
         while (running) {
             inputCap.PollGamepads();
             std::this_thread::sleep_for(std::chrono::milliseconds(4)); // ~250Hz polling for sub-5ms latency
         }
     });
 
-    std::thread watchdogThread([&]() {
+    std::thread watchdogThread = std::thread([&]() {
         uint32_t lastProcessedFrame = 0;
         int timeoutCount = 0;
         while (running) {
