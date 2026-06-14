@@ -29,6 +29,7 @@ set(CLIENT_SOURCES
     cpp/client/input_capture.cpp
     cpp/client/jitter_buffer.cpp
     cpp/client/renderer_d3d11.cpp
+    cpp/client/ui_system.cpp
     cpp/client/overlay.cpp
     cpp/client/launcher.cpp
     cpp/third_party/imgui/imgui.cpp
