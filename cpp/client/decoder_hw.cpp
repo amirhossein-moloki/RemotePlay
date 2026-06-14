@@ -88,7 +88,10 @@ void DecoderHW::Shutdown() {
 struct DecoderHW::InternalData {};
 DecoderHW::DecoderHW() : m_internal(nullptr) {}
 DecoderHW::~DecoderHW() {}
-bool DecoderHW::Initialize(void* p) { return false; }
+bool DecoderHW::Initialize(void* p) {
+    LOG_ERROR("Decoder", "FFmpeg support not compiled in. Hardware decoding is disabled.");
+    return false;
+}
 bool DecoderHW::DecodeFrame(const uint8_t* d, size_t s, void** o) { return false; }
 void DecoderHW::Shutdown() {}
 #endif

@@ -23,6 +23,11 @@
 #ifdef _WIN32
 #include <windows.h>
 
+void ShowFatalError(const std::string& title, const std::string& message) {
+    LOG_ERROR(title, message);
+    MessageBoxA(NULL, message.c_str(), title.c_str(), MB_OK | MB_ICONERROR);
+}
+
 // Forward declarations
 void RunHost(const std::string& ip);
 void RunClient(const std::string& localIp, const std::string& hostIp);
@@ -101,15 +106,15 @@ void RunHost(const std::string& ip) {
     }
 
     if (!ctx.net.Bind(ip, 5005)) {
-        LOG_ERROR("Host", "Failed to bind network to " + ip);
+        ShowFatalError("Host Error", "Failed to bind network to " + ip + ". Ensure the IP is correct and port 5005 is not in use.");
         return;
     }
     if (!ctx.capture.Initialize()) {
-        LOG_ERROR("Host", "Failed to initialize DXGI capture");
+        ShowFatalError("Host Error", "Failed to initialize DXGI capture. This usually means the system does not support DXGI Desktop Duplication.");
         return;
     }
     if (!ctx.encoder.Initialize(1920, 1080, fps, ctx.currentBitrate, ctx.capture.GetDevice())) {
-        LOG_ERROR("Host", "Failed to initialize Hardware Encoder");
+        ShowFatalError("Host Error", "Failed to initialize Hardware Encoder. Ensure FFmpeg is installed and your GPU supports hardware encoding.");
         return;
     }
 
@@ -388,7 +393,10 @@ void RunLauncher() {
 
     Client::RendererD3D11 renderer;
     HWND hwnd = GetConsoleWindow();
-    if (!renderer.Initialize(hwnd, 1280, 720)) return;
+    if (!renderer.Initialize(hwnd, 1280, 720)) {
+        ShowFatalError("Launcher Error", "Failed to initialize D3D11 Renderer.");
+        return;
+    }
 
     bool sessionStarted = false;
 
@@ -422,7 +430,10 @@ void RunLauncher() {
 void RunClient(const std::string& localIp, const std::string& hostIp) {
     std::atomic<bool> running{true};
     Network::NetworkManager net;
-    if (!net.Bind(localIp, 0)) return;
+    if (!net.Bind(localIp, 0)) {
+        ShowFatalError("Client Error", "Failed to bind local network interface " + localIp);
+        return;
+    }
 
     Client::Receiver receiver;
     Client::JitterBuffer jitterBuffer(3);
@@ -431,7 +442,7 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
     HWND hwnd = GetConsoleWindow();
 
     if (!renderer.Initialize(hwnd, 1920, 1080)) {
-        LOG_ERROR("Client", "Failed to initialize Renderer");
+        ShowFatalError("Client Error", "Failed to initialize Renderer");
         return;
     }
 
@@ -444,7 +455,7 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
     inputCap.RegisterDevices(hwnd);
 
     if (!decoder.Initialize(renderer.GetDevice())) {
-        LOG_ERROR("Client", "Failed to initialize Decoder");
+        ShowFatalError("Client Error", "Failed to initialize Hardware Decoder. Ensure FFmpeg is installed and your GPU supports hardware decoding.");
         return;
     }
 
