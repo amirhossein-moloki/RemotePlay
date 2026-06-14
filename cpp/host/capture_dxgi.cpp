@@ -24,7 +24,7 @@ bool CaptureDXGI::Initialize() {
     dxgiDevice->Release();
 
     IDXGIOutput* dxgiOutput = nullptr;
-    dxgiAdapter->GetOutput(0, &dxgiOutput);
+    dxgiAdapter->EnumOutputs(0, &dxgiOutput);
     dxgiAdapter->Release();
 
     IDXGIOutput1* dxgiOutput1 = nullptr;

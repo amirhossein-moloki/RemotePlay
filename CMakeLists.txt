@@ -60,10 +60,9 @@ if(WIN32)
     if(AVCODEC_INCLUDE_DIR AND AVCODEC_LIBRARY)
         target_include_directories(parsec-lite PRIVATE ${AVCODEC_INCLUDE_DIR})
         target_link_libraries(parsec-lite PRIVATE ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY})
+        target_compile_definitions(parsec-lite PRIVATE PARSEC_LITE_ENABLE_FFMPEG)
     else()
-        message(WARNING "FFmpeg not found. Ensure it's in your PATH or CMAKE_PREFIX_PATH. Hardware encoding/decoding will likely fail to compile.")
-        # Fallback to linking by name
-        target_link_libraries(parsec-lite PRIVATE avcodec avutil)
+        message(WARNING "FFmpeg not found. Ensure it's in your PATH or CMAKE_PREFIX_PATH. Hardware encoding/decoding will be disabled.")
     endif()
 
     # Search for ViGEmClient
@@ -73,10 +72,9 @@ if(WIN32)
     if(VIGEM_INCLUDE_DIR AND VIGEM_LIBRARY)
         target_include_directories(parsec-lite PRIVATE ${VIGEM_INCLUDE_DIR})
         target_link_libraries(parsec-lite PRIVATE ${VIGEM_LIBRARY})
+        target_compile_definitions(parsec-lite PRIVATE PARSEC_LITE_ENABLE_VIGEM)
     else()
-        message(WARNING "ViGEmClient not found. Controller support will likely fail to compile.")
-        # Fallback to linking by name
-        target_link_libraries(parsec-lite PRIVATE ViGEmClient)
+        message(WARNING "ViGEmClient not found. Controller support will be disabled.")
     endif()
 
     # System libraries

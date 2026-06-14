@@ -2,7 +2,7 @@
 #include <iostream>
 #include "../common/logger.hpp"
 
-#ifdef _WIN32
+#ifdef PARSEC_LITE_ENABLE_FFMPEG
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/hwcontext.h>
@@ -12,7 +12,7 @@ extern "C" {
 
 namespace Client {
 
-#ifdef _WIN32
+#ifdef PARSEC_LITE_ENABLE_FFMPEG
 struct DecoderHW::InternalData {
     AVCodecContext* codecCtx = nullptr;
     AVBufferRef* hwDeviceCtx = nullptr;

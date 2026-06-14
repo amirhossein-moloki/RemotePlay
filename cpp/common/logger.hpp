@@ -12,10 +12,10 @@
 #include <filesystem>
 
 enum class LogLevel {
-    DEBUG,
-    INFO,
-    WARN,
-    ERROR
+    LL_DEBUG,
+    LL_INFO,
+    LL_WARN,
+    LL_ERROR
 };
 
 class Logger {
@@ -100,10 +100,10 @@ private:
 
     const char* levelToString(LogLevel level) {
         switch (level) {
-            case LogLevel::DEBUG: return "DEBUG";
-            case LogLevel::INFO:  return "INFO ";
-            case LogLevel::WARN:  return "WARN ";
-            case LogLevel::ERROR: return "ERROR";
+            case LogLevel::LL_DEBUG: return "DEBUG";
+            case LogLevel::LL_INFO:  return "INFO ";
+            case LogLevel::LL_WARN:  return "WARN ";
+            case LogLevel::LL_ERROR: return "ERROR";
             default: return "UNKNOWN";
         }
     }
@@ -116,7 +116,7 @@ private:
     std::mutex m_mutex;
 };
 
-#define LOG_DEBUG(mod, msg) Logger::getInstance().log(LogLevel::DEBUG, mod, msg)
-#define LOG_INFO(mod, msg)  Logger::getInstance().log(LogLevel::INFO, mod, msg)
-#define LOG_WARN(mod, msg)  Logger::getInstance().log(LogLevel::WARN, mod, msg)
-#define LOG_ERROR(mod, msg) Logger::getInstance().log(LogLevel::ERROR, mod, msg)
+#define LOG_DEBUG(mod, msg) Logger::getInstance().log(LogLevel::LL_DEBUG, mod, msg)
+#define LOG_INFO(mod, msg)  Logger::getInstance().log(LogLevel::LL_INFO, mod, msg)
+#define LOG_WARN(mod, msg)  Logger::getInstance().log(LogLevel::LL_WARN, mod, msg)
+#define LOG_ERROR(mod, msg) Logger::getInstance().log(LogLevel::LL_ERROR, mod, msg)

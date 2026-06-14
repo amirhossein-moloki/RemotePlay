@@ -8,7 +8,7 @@
 namespace Host {
 
 InputInjector::InputInjector() {
-#ifdef _WIN32
+#ifdef PARSEC_LITE_ENABLE_VIGEM
     m_vigem = vigem_alloc();
     if (m_vigem) {
         VIGEM_ERROR err = vigem_connect(m_vigem);
@@ -22,7 +22,7 @@ InputInjector::InputInjector() {
 }
 
 InputInjector::~InputInjector() {
-#ifdef _WIN32
+#ifdef PARSEC_LITE_ENABLE_VIGEM
     if (m_vigem) {
         for (auto& pair : m_targets) {
             vigem_target_remove(m_vigem, pair.second);
@@ -75,7 +75,7 @@ void InputInjector::InjectMouseButton(const Protocol::MouseButtonEvent& ev) {
 }
 
 void InputInjector::HandleGamepadStatus(const std::string& clientIp, const Protocol::GamepadStatusEvent& ev) {
-#ifdef _WIN32
+#ifdef PARSEC_LITE_ENABLE_VIGEM
     if (!m_vigem) return;
 
     auto key = std::make_pair(clientIp, ev.gamepadId);
@@ -104,7 +104,7 @@ void InputInjector::HandleGamepadStatus(const std::string& clientIp, const Proto
 }
 
 void InputInjector::InjectGamepad(const std::string& clientIp, const Protocol::GamepadState& ev) {
-#ifdef _WIN32
+#ifdef PARSEC_LITE_ENABLE_VIGEM
     if (!m_vigem) return;
 
     auto it = m_targets.find(std::make_pair(clientIp, ev.gamepadId));
