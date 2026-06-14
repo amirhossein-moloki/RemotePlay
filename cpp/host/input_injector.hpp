@@ -8,6 +8,9 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#endif
+
+#ifdef PARSEC_LITE_ENABLE_VIGEM
 #include <ViGEm/Client.h>
 #endif
 
@@ -26,7 +29,7 @@ public:
     void InjectGamepad(const std::string& clientIp, const Protocol::GamepadState& ev);
 
 private:
-#ifdef _WIN32
+#ifdef PARSEC_LITE_ENABLE_VIGEM
     PVIGEM_CLIENT m_vigem = nullptr;
     // Map (clientIp, clientGamepadId) -> host virtual target
     std::map<std::pair<std::string, uint8_t>, PVIGEM_TARGET> m_targets;

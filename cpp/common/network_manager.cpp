@@ -18,7 +18,9 @@ std::vector<InterfaceInfo> NetworkManager::EnumerateInterfaces() {
         for (PIP_ADAPTER_ADDRESSES pCurrAddresses = pAddresses; pCurrAddresses != NULL; pCurrAddresses = pCurrAddresses->Next) {
             InterfaceInfo info;
             std::wstring wname = pCurrAddresses->FriendlyName;
-            info.name = std::string(wname.begin(), wname.end());
+            int size_needed = WideCharToMultiByte(CP_UTF8, 0, wname.c_str(), (int)wname.size(), NULL, 0, NULL, NULL);
+            info.name.resize(size_needed);
+            WideCharToMultiByte(CP_UTF8, 0, wname.c_str(), (int)wname.size(), &info.name[0], size_needed, NULL, NULL);
             info.isActive = (pCurrAddresses->OperStatus == IfOperStatusUp);
 
             for (PIP_ADAPTER_UNICAST_ADDRESS pUnicast = pCurrAddresses->FirstUnicastAddress; pUnicast != NULL; pUnicast = pUnicast->Next) {
