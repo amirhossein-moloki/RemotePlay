@@ -3,6 +3,10 @@ project(ParsecLite)
 
 set(CMAKE_CXX_STANDARD 17)
 
+if(MSVC)
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+endif()
+
 # Sources
 set(COMMON_SOURCES
     cpp/common/network_manager.cpp
