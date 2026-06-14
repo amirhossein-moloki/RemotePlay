@@ -10,6 +10,7 @@
 #include <iomanip>
 #include <atomic>
 #include <array>
+#include <memory>
 
 /**
  * Optimized Profiler for high-performance pipelines.

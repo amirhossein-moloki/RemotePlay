@@ -19,6 +19,13 @@ set(HOST_SOURCES
     cpp/host/input_injector.cpp
 )
 
+if(WIN32)
+    set(IMGUI_SOURCES
+        cpp/third_party/imgui/imgui_impl_win32.cpp
+        cpp/third_party/imgui/imgui_impl_d3d11.cpp
+    )
+endif()
+
 set(CLIENT_SOURCES
     cpp/client/receiver.cpp
     cpp/client/decoder_hw.cpp
@@ -31,8 +38,7 @@ set(CLIENT_SOURCES
     cpp/third_party/imgui/imgui_draw.cpp
     cpp/third_party/imgui/imgui_tables.cpp
     cpp/third_party/imgui/imgui_widgets.cpp
-    cpp/third_party/imgui/imgui_impl_win32.cpp
-    cpp/third_party/imgui/imgui_impl_d3d11.cpp
+    ${IMGUI_SOURCES}
 )
 
 # Executable

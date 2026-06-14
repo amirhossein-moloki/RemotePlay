@@ -1,5 +1,7 @@
 #include "overlay.hpp"
+#ifdef _WIN32
 #include "third_party/imgui/imgui.h"
+#endif
 #include "common/profiler.hpp"
 #include <iomanip>
 #include <sstream>
@@ -9,6 +11,7 @@ namespace Client {
 bool Overlay::m_visible = true;
 
 void Overlay::Render() {
+#ifdef _WIN32
     if (!m_visible) return;
 
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
@@ -56,6 +59,7 @@ void Overlay::Render() {
         if (ImGui::Button("Close Overlay", ImVec2(-1, 0))) m_visible = false;
     }
     ImGui::End();
+#endif
 }
 
 } // namespace Client
