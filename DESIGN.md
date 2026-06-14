@@ -1,99 +1,46 @@
-# LAN Game Streaming System Design (Parsec-lite C++)
+# Parsec-lite Technical Design
 
-## 1. High-Level Architecture
+## 1. High-Performance Streaming Design
+The C++ implementation is designed for maximum throughput and minimum latency by focusing on three pillars: **Zero-Copy GPU Path**, **Lock-Free Concurrency**, and **Zero-Allocation Hot Paths**.
 
-The system is designed as a single Windows executable that can operate in either **Host** or **Client** mode. It enables low-latency desktop/application streaming over a LAN with input back-channeling.
+### 1.1. Zero-Copy GPU Path
+- **Host**: Captured DXGI textures (`ID3D11Texture2D`) are passed directly to the hardware encoder (NVENC/AMF) via FFmpeg's `hwcontext_d3d11va`. No staging or CPU copies occur.
+- **Client**: Decoded frames stay in GPU memory and are presented using a Shared Device context between the decoder and the D3D11 renderer.
 
-```text
-+-----------------------------------------------------------------------+
-|                         Unified Executable (.exe)                     |
-|                                                                       |
-|      +---------------------------------------------------------+      |
-|      |                  UI / Mode Selection (ImGui)            |      |
-|      +---------------------------------------------------------+      |
-|             |                                     |                   |
-|      [ HOST MODE ]                         [ CLIENT MODE ]            |
-|             |                                     |                   |
-|  +-----------------------+           +-----------------------------+  |
-|  | Capture (DXGI DDA)    |           | Receiver (UDP + Jitter Buf) |  |
-|  +-----------------------+           +-----------------------------+  |
-|  | Encoder (NVENC/AMF)   |           | Decoder (DXVA2/D3D11VA)     |  |
-|  +-----------------------+           +-----------------------------+  |
-|  | Streamer (UDP)        |<---Vid----| Renderer (SDL2/D3D11)       |  |
-|  +-----------------------+           +-----------------------------+  |
-|  | Injector (ViGEm/Input)|<---Inp----| Input Capture (RawInput)    |  |
-|  +-----------------------+           +-----------------------------+  |
-|             |                                     |                   |
-+-------------|-------------------------------------|-------------------+
-              |           [ LAN NETWORK ]           |
-              +-------------------------------------+
-```
+### 1.2. Lock-Free Concurrency
+To avoid OS-level thread contention and context switching:
+- **SPSC Queues**: We use custom Single-Producer Single-Consumer ring buffers for cross-thread communication (e.g., Capture -> Encoder, Encoder -> Packetizer).
+- **Atomic State**: Connection management and telemetry use atomic variables to avoid heavy mutex locks.
 
-## 2. Module Breakdown
+### 1.3. Zero-Allocation Hot Paths
+- **Memory Pooling**: The `PacketPool` and `FrameDataPool` pre-allocate all necessary memory on startup.
+- **Fragment Management**: No `std::vector` resizing or `new`/`delete` calls occur while streaming is active.
 
-### 2.1. Common Modules
-- **NetworkManager**: Handles network interface enumeration, explicit IP binding, and UDP socket abstraction.
-- **SessionManager**: Manages the discovery (UDP Broadcast), handshake, and capability negotiation.
-- **Protocol**: Defines the binary structures for video fragments and input events.
+## 2. Hardened Networking Layer
 
-### 2.2. Host Modules
-- **CaptureModule (DXGI)**: Uses Desktop Duplication API to capture desktop frames directly into GPU textures.
-- **EncoderModule**: Abstraction layer for hardware encoders (NVENC, AMF, QuickSync). Performs zero-copy encoding from DXGI textures.
-- **StreamingServer**: Packetizes encoded bitstreams and broadcasts them to connected clients.
-- **InputInjectorHost**: Injects keyboard/mouse events via `SendInput` and gamepad events via `ViGEmBus`.
+### 2.1. UDP Protocol & Fragmentation
+Frames are fragmented to 1300 bytes to stay safely within the standard LAN MTU (1500 bytes), preventing IP-layer fragmentation. Each packet includes a global sequence number for jitter calculation.
 
-### 2.3. Client Modules
-- **ReceiverModule**: Reassembles UDP fragments into full frames. Implements a minimal jitter buffer to handle network variance.
-- **DecoderModule**: Leverages hardware decoders (e.g., via FFmpeg or Media Foundation) to decode H.264 bitstream.
-- **InputCaptureClient**: Captures local keyboard, mouse, and XInput/DirectInput gamepad events.
-- **UIModule**: Handles startup mode selection and network interface selection.
+### 2.2. Forward Error Correction (FEC)
+We implement XOR-based parity. For every $N$ fragments (default 5), an additional parity packet is sent.
+- $P = F_1 \oplus F_2 \oplus F_3 \oplus F_4 \oplus F_5$
+- If $F_3$ is lost, it is recovered as $F_3 = P \oplus F_1 \oplus F_2 \oplus F_4 \oplus F_5$.
+- This eliminates the need for NACK/Retransmission cycles, which would add massive latency spikes.
 
-## 3. Recommended C++ Stack
-- **Framework**: Standard C++17/20.
-- **Networking**: Winsock2 (Direct Socket API) for maximum control.
-- **Graphics/Capture**: DXGI (Desktop Duplication), D3D11 for texture management.
-- **Encoding/Decoding**: FFmpeg (libavcodec) with hardware acceleration or vendor SDKs directly (NVENC/AMF).
-- **UI**: Dear ImGui for a lightweight, overlay-capable interface.
-- **Input Injection**: ViGEmClient SDK.
-- **Input Capture**: Windows Raw Input API or SDL2.
+### 2.3. Adaptive Jitter Buffer
+The client tracks the inter-arrival time of packets. It uses an Exponentially Weighted Moving Average (EWMA) to estimate network jitter.
+- **Residence Time**: Frames are held for a calculated minimal time to absorb jitter.
+- **Catch-up**: If the buffer grows too deep (due to a network stall), the client drops older incomplete frames and skips to the latest I-frame to restore low latency.
 
-## 4. UDP Protocol Design (Binary Optimized)
+## 3. Input System
 
-### 4.1. Video Packet (Type 0x01)
-| Offset | Size | Name | Description |
-|--------|------|------|-------------|
-| 0 | 1 | Type | 0x01 for Video |
-| 1 | 4 | SeqID | Frame sequence number |
-| 5 | 2 | FragIdx | Fragment index in current frame |
-| 7 | 2 | TotalFrags | Total fragments in current frame |
-| 9 | 8 | Timestamp | Capture timestamp (microseconds) |
-| 17 | 1 | Flags | Bit 0: Keyframe, Bit 1-7: Reserved |
-| 18 | 2 | DataSize | Size of the following payload |
-| 20 | N | Payload | Encoded H.264 data fragment |
+### 3.1. Windows Raw Input
+The client uses `RegisterRawInputDevices` to capture high-precision mouse and keyboard data. This avoids the lag and filtering inherent in the standard Windows message loop.
 
-### 4.2. Input Packet (Type 0x02)
-| Offset | Size | Name | Description |
-|--------|------|------|-------------|
-| 0 | 1 | Type | 0x02 for Input |
-| 1 | 1 | SubType | 1: KB, 2: Mouse, 3: Gamepad |
-| 2 | N | Payload | Serialized event (e.g., VK code, Mouse X/Y, Gamepad state) |
+### 3.2. Virtual Controller Injection
+The host uses the **ViGEmBus** driver. When a client connects, it is assigned a virtual Xbox 360 controller. XInput state is sent over UDP and injected into the target OS at the kernel level.
 
-## 5. Implementation Roadmap
-
-### Phase 1: MVP (Minimum Viable Product)
-- Unified CLI-based executable.
-- Winsock2 UDP transport for raw frames (no encoding yet).
-- Basic `SendInput` keyboard forwarding.
-- Manual IP entry for connection.
-
-### Phase 2: Performance Optimization
-- DXGI Desktop Duplication integration.
-- Hardware-accelerated H.264 encoding (NVENC).
-- UDP packet fragmentation and reassembly.
-- ViGEmBus integration for virtual controllers.
-
-### Phase 3: Advanced Features
-- ImGui-based GUI for interface selection and mode switching.
-- Automatic Host discovery via UDP broadcast.
-- Adaptive bitrate based on RTT.
-- Periodic Intra-Refresh for better error resilience.
+## 4. Performance Metrics (LAN Target)
+- **Target FPS**: 60 / 120 / 144
+- **Target Bitrate**: 20 - 50 Mbps
+- **Target Latency**: 10-20ms

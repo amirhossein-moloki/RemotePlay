@@ -1,58 +1,43 @@
-# Production C++ Design Blueprint for LAN Game Streaming
+# Parsec-lite: Core Technical Pillars (C++ Reference)
 
-For a production-grade system like Parsec, C++ is the recommended language to achieve sub-16ms (one frame at 60fps) latency. Below is the architectural blueprint.
+This document serves as the technical reference for the core components of the Parsec-lite C++ implementation. These pillars are the foundation of our low-latency performance.
 
-## 1. High-Performance Screen Capture (Windows)
-Use the **Windows Desktop Duplication API (DDA)**. It provides direct access to the desktop frame in GPU memory (as a `ID3D11Texture2D`).
+## 1. High-Performance Screen Capture
+**Implementation**: `cpp/host/capture_dxgi.cpp`
+- Uses **Windows Desktop Duplication API (DDA)**.
+- Frame acquisition is synchronized with the GPU, providing direct access to the desktop's `ID3D11Texture2D`.
+- Avoids expensive CPU-side `BitBlt` operations.
 
-```cpp
-// Pseudocode for DDA Capture
-IDXGIOutputDuplication* desc;
-DXGI_OUTDUPL_FRAME_INFO frameInfo;
-IDXGIResource* desktopResource;
-desc->AcquireNextFrame(0, &frameInfo, &desktopResource);
-// Map desktopResource to a D3D11 Texture
-```
-
-## 2. Hardware Video Encoding
-Use **NVIDIA NVENC SDK**, **AMD AMF**, or **Intel QuickSync**.
-- **Crucial**: Perform "Zero-Copy" by passing the D3D11 texture pointer directly to the encoder. This avoids CPU-GPU memory transfers.
+## 2. Hardware Video Encoding (Zero-Copy)
+**Implementation**: `cpp/host/encoder_hw.cpp`
+- Leverages **FFmpeg libavcodec** with `D3D11VA` hardware context.
+- **The Secret Sauce**: The `ID3D11Texture2D` from the Capture module is shared directly with the encoder. No data is copied to the CPU or re-uploaded to the GPU.
 - **Settings**:
-    - Rate Control: CBR (Constant Bitrate)
-    - Preset: P1 (Lowest Latency)
-    - Tuning: Ultra Low Latency
-    - B-Frames: 0
-    - GOP: Infinite (use periodic intra-refresh if needed)
+    - Mode: CBR (Constant Bitrate)
+    - Profile: High / Main
+    - Tune: `zerolatency`
+    - B-Frames: 0 (Disabled to eliminate GOP delay)
 
-## 3. Networking (UDP/ENet)
-Standard sockets or a library like **ENet** or **GameNetworkingSockets (Valve)**.
-- **Protocol**: Custom UDP protocol.
-- **Forward Error Correction (FEC)**: Highly recommended for LAN to recover from occasional packet loss without retransmission.
-- **MTU Management**: Ensure packets are < 1500 bytes to avoid fragmentation.
+## 3. Custom UDP Protocol & FEC
+**Implementation**: `cpp/common/protocol.hpp`, `cpp/client/receiver.cpp`
+- Standard UDP is used to avoid TCP's head-of-line blocking.
+- **Packetization**: Frames are split into ~1300-byte fragments.
+- **XOR FEC**: For every 5 video packets, we generate 1 parity packet. This allows recovery of any single lost packet per group with zero additional latency (unlike retransmission).
 
-## 4. Input Injection (Host)
-Use **ViGEmBus** for virtual gamepad support (Xbox 360 / DualShock 4).
-For Keyboard/Mouse: Use `SendInput` API, or a kernel-level driver for bypass-resistant games.
+## 4. Virtual Controller Injection
+**Implementation**: `cpp/host/input_injector.cpp`
+- Uses the **ViGEmClient SDK** to talk to the **ViGEmBus** kernel driver.
+- Supports emulating Xbox 360 and DualShock 4 controllers.
+- Multi-client mapping: Each unique client IP + ID is mapped to a distinct virtual controller slot on the host.
 
-```cpp
-// ViGEm example
-PVIGEM_CLIENT client = vigem_alloc();
-PVIGEM_TARGET pad = vigem_target_x360_alloc();
-vigem_connect(client);
-vigem_target_add(client, pad);
-// Send report
-vigem_target_x360_update(client, pad, report);
-```
+## 5. Client Rendering & Flip Model
+**Implementation**: `cpp/client/renderer_d3d11.cpp`
+- Uses **Direct3D 11** for presentation.
+- **DXGI Flip Model**: Employs `DXGI_SWAP_EFFECT_FLIP_DISCARD`.
+- **Tearing Support**: When VSync is off, we use `DXGI_PRESENT_ALLOW_TEARING` to deliver frames to the monitor as fast as they are decoded, bypassing the Windows DWM compositor's extra frame of lag.
 
-## 5. Client Rendering
-Use **SDL2** with **Direct3D 11** or **Vulkan** backend.
-- Use **FFmpeg (libavcodec)** with hardware acceleration enabled (`dxva2` or `d3d11va`).
-- Goal: Decode directly into a texture and render with the GPU.
-
-## 6. Latency Pipeline
-1. **Capture**: 1-2ms (DDA)
-2. **Encode**: 2-5ms (NVENC)
-3. **Network**: 1-2ms (LAN)
-4. **Decode**: 2-5ms (D3D11VA)
-5. **Render**: 1ms (Present)
-**Total Target**: ~7ms to 15ms.
+## 6. Jitter Buffer & Frame Pacing
+**Implementation**: `cpp/client/jitter_buffer.cpp`
+- Reorders out-of-order UDP packets.
+- Implements an **Adaptive Depth** algorithm.
+- Uses EWMA (Exponentially Weighted Moving Average) to track network variance and adjust the target residence time (1ms to 10ms) dynamically.

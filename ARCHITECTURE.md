@@ -1,56 +1,64 @@
-# LAN Game Streaming System Architecture (Parsec-lite)
+# Parsec-lite System Architecture
 
 ## Overview
-This system allows for low-latency game streaming over a Local Area Network (LAN). It consists of a Host (the machine running the game) and one or more Clients (the machines receiving the stream and sending inputs).
+Parsec-lite is a high-performance, low-latency game streaming system designed for LAN environments. It follows a multi-threaded, pipelined architecture to minimize end-to-end delay.
 
 ## Architecture Diagram
 
 ```text
-+---------------------+                       +---------------------+
-|       HOST          |                       |       CLIENT        |
-|                     |                       |                     |
-|  +---------------+  |       Video (UDP)     |  +---------------+  |
-|  |  Screen Cap   |-------------------------->|    Receiver   |  |
-|  +---------------+  |      (Broadcast)      |  +---------------+  |
-|         |           |                       |  +---------------+  |
-|  +---------------+  |                       |         |           |
-|  |    Encoder    |  |                       |  +---------------+  |
-|  +---------------+  |                       |  |    Decoder    |  |
-|         |           |                       |  +---------------+  |
-|  +---------------+  |                       |         |           |
-|  |   Streamer    |  |                       |  +---------------+  |
-|  +---------------+  |                       |  |    Renderer   |  |
-|                     |                       |  +---------------+  |
-|  +---------------+  |       Input (UDP)     |  +---------------+  |
-|  | Input Injector |<--------------------------| Input Capture |  |
-|  +---------------+  |                       |  +---------------+  |
-|                     |                       |                     |
-+---------------------+                       +---------------------+
+[ HOST SIDE ]                                     [ CLIENT SIDE ]
++---------------------+                           +---------------------+
+|  Capture (DXGI DDA) |                           |  UDP Socket Receiver|
++----------|----------+                           +----------|----------+
+           v                                                 v
++---------------------+                           +---------------------+
+|  Encode (NVENC/AMF) |                           |  FEC Recovery &     |
++----------|----------+                           |  Reassembly         |
+           v                                      +----------|----------+
++---------------------+                                      v
+|  Packetizer & FEC   |                           +---------------------+
++----------|----------+                           |  Adaptive Jitter    |
+           v                                      |  Buffer             |
++---------------------+                           +----------|----------+
+|  UDP Sender Thread  | -------- [LAN] -------->             v
++---------------------+                           +---------------------+
+           ^                                      |  Decode (D3D11VA)   |
+           |                                      +----------|----------+
+           |           [ Input Back-channel ]                v
++---------------------+                           +---------------------+
+|  Input Injector     | <------------------------ |  Input Capture      |
+|  (SendInput/ViGEm)  |                           |  (RawInput/XInput)  |
++---------------------+                           +---------------------+
 ```
 
-## Module Breakdown
+## Multi-threaded Pipeline
 
-### Host Modules
-1. **Screen Capture**: Uses `mss` for fast cross-platform screen grabbing.
-2. **Video Encoder**: Encodes frames into H.264 using `PyAV` (FFmpeg) with `zerolatency` tuning.
-3. **Streaming Server**: Manages a set of connected clients and broadcasts video packets via UDP.
-4. **Input Injector**: Listens for input events and uses `pynput` to simulate keyboard and mouse actions.
+### Host Pipeline
+1.  **Capture Thread**: Uses Windows Desktop Duplication API (DXGI) to capture frames directly into GPU textures. Operates at the target frame rate (e.g., 60 FPS).
+2.  **Encoder Thread**: Consumes captured textures and uses hardware-accelerated encoders (NVENC/AMF/QSV) via FFmpeg. Employs "Zero-Copy" to avoid CPU-GPU transfers.
+3.  **Packetizer Thread**: Fragments encoded bitstreams into MTU-sized UDP packets (1300 bytes). Generates XOR-based FEC (Forward Error Correction) packets (1 parity packet per 5 fragments).
+4.  **Sender Thread**: Manages the UDP socket and broadcasts packets to all connected clients using a lock-free SPSC queue.
 
-### Client Modules
-1. **Receiver**: Reassembles fragmented UDP packets and maintains a sequence-aware buffer to handle jitter and drop stale frames.
-2. **Video Decoder**: Decodes H.264 bitstream using `PyAV`.
-3. **Renderer**: Displays frames using `OpenCV`'s `imshow`.
-4. **Input Capture**: Uses `pynput` to capture keyboard and mouse events (clicks, scrolls, moves).
+### Client Pipeline
+1.  **Receiver Thread**: Listens for incoming UDP packets.
+2.  **Reassembly & FEC**: Uses an O(1) `FixedRingBuffer` to track fragments. If a packet is lost, it attempts recovery using FEC parity.
+3.  **Jitter Buffer**: An adaptive buffer that handles network variance. It calculates moving average jitter (EWMA) and maintains a minimal residence time to ensure smooth playback with minimal delay.
+4.  **Decoder Thread**: Uses D3D11VA/DXVA2 hardware decoding to process H.264 bitstream directly into textures.
+5.  **Render Thread**: Presents the decoded textures to the screen using a DXGI Flip Model swap chain with tearing support for minimum latency.
 
-## Network Protocol
-- **Video Packet**: `[Type:1][Sequence:4][FragIdx:2][TotalFrags:2][PayloadSize:2][Data...]`
-- **Input Packet**: `[Type:1][InputType:1][Payload...]`
-  - Input types include: Key Press/Release, Mouse Move/Click/Scroll.
+## Networking Protocol (Hardened UDP)
 
-## Multi-client Support
-The host maintains a list of clients who have sent a `CONNECT` packet. Every encoded frame is split into UDP packets and sent to every registered client address. Stale clients are not currently pruned in this prototype but would be in a production system.
+### Video Packet (Type 0x01)
+- **Header (40 bytes)**: Includes `frameId`, `fragmentIndex`, `totalFragments`, `packetSequence`, `timestamp`, and `flags` (e.g., Keyframe).
+- **Payload**: Raw H.264 fragment.
 
-## Future Improvements
-- **Audio Streaming**: Add Opus-encoded audio stream.
-- **ViGEm Integration**: Support virtual Xbox controllers for better game compatibility.
-- **Congestion Control**: Implement adaptive bitrate based on RTT and loss.
+### FEC Packet (Type 0x05)
+- **Header**: Includes `frameId`, `fragmentStart`, `fragmentCount`, and `dataSize`.
+- **Payload**: XOR parity of the fragment group.
+
+### Input Packet (Type 0x02)
+- Supports Keyboard (RawInput), Mouse (Absolute/Relative), and Gamepad (XInput) data with delta-compression.
+
+## Synchronization & Memory
+- **Lock-Free Queues**: Hot paths use Single-Producer Single-Consumer (SPSC) queues to eliminate mutex contention.
+- **Memory Pooling**: Pre-allocated pools for `Packet` and `FrameData` objects prevent runtime heap allocations during streaming.
