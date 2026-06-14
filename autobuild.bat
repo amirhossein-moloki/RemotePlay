@@ -7,7 +7,7 @@ echo    Parsec-lite: Unified Modern Build ^& Setup
 echo ======================================================
 echo.
 
-:: 1. Check for basic tools
+REM 1. Check for basic tools
 echo [*] Checking for CMake...
 cmake --version >nul 2>&1
 if %errorlevel% neq 0 (
@@ -24,10 +24,10 @@ if %errorlevel% neq 0 (
     pause
 )
 
-:: 2. Automated Dependency Management
+REM 2. Automated Dependency Management
 if not exist deps mkdir deps
 
-:: --- FFmpeg ---
+REM --- FFmpeg ---
 if not exist deps\ffmpeg (
     echo [*] FFmpeg not found. Downloading...
     powershell -Command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip'; Invoke-WebRequest -Uri $url -OutFile 'deps\ffmpeg.zip' }"
@@ -37,7 +37,7 @@ if not exist deps\ffmpeg (
     )
     echo [*] Extracting FFmpeg...
     powershell -Command "Expand-Archive -Path 'deps\ffmpeg.zip' -DestinationPath 'deps\ffmpeg_tmp' -Force"
-    :: Move contents to deps\ffmpeg
+    REM Move contents to deps\ffmpeg
     for /d %%i in (deps\ffmpeg_tmp\ffmpeg-*) do (
         move "%%i" deps\ffmpeg
     )
@@ -48,7 +48,7 @@ if not exist deps\ffmpeg (
     echo [+] FFmpeg already present in deps/.
 )
 
-:: --- ViGEmClient ---
+REM --- ViGEmClient ---
 if not exist deps\ViGEmClient (
     echo [*] ViGEmClient not found. Downloading...
     powershell -Command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $url = 'https://github.com/ViGEm/ViGEmClient/releases/download/v1.17.333/ViGEmClient_v1.17.333.zip'; Invoke-WebRequest -Uri $url -OutFile 'deps\ViGEmClient.zip' }"
@@ -64,7 +64,7 @@ if not exist deps\ViGEmClient (
     echo [+] ViGEmClient already present in deps/.
 )
 
-:: 3. Build Process
+REM 3. Build Process
 echo.
 echo [*] Starting Unified Build (Core + Modern UI)...
 if not exist build mkdir build
@@ -84,19 +84,19 @@ if %errorlevel% neq 0 (
     goto :FAIL_CD
 )
 
-:: 4. Deployment (Copy DLLs to output directory)
+REM 4. Deployment (Copy DLLs to output directory)
 echo.
 echo [*] Deploying runtime dependencies...
 set OUT_DIR=Release
 if not exist %OUT_DIR% set OUT_DIR=.
 
-:: FFmpeg DLLs
+REM FFmpeg DLLs
 if exist ..\deps\ffmpeg\bin\*.dll (
     echo [*] Copying FFmpeg DLLs...
     copy /y ..\deps\ffmpeg\bin\*.dll "%OUT_DIR%\" >nul
 )
 
-:: ViGEmClient DLL
+REM ViGEmClient DLL
 if exist ..\deps\ViGEmClient\lib\x64\ViGEmClient.dll (
     echo [*] Copying ViGEmClient DLL...
     copy /y ..\deps\ViGEmClient\lib\x64\ViGEmClient.dll "%OUT_DIR%\" >nul
