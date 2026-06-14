@@ -22,10 +22,36 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <shellscalingapi.h>
+
+#pragma comment(lib, "Shcore.lib")
+
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+static WNDPROC g_OriginalWndProc = nullptr;
+static LRESULT CALLBACK SubclassedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
+        return true;
+    return CallWindowProc(g_OriginalWndProc, hWnd, msg, wParam, lParam);
+}
 
 void ShowFatalError(const std::string& title, const std::string& message) {
     LOG_ERROR(title, message);
     MessageBoxA(NULL, message.c_str(), title.c_str(), MB_OK | MB_ICONERROR);
+}
+
+bool IsUserAdmin() {
+    BOOL isAdmin = FALSE;
+    PSID adminGroup = NULL;
+    SID_IDENTIFIER_AUTHORITY ntAuthority = SECURITY_NT_AUTHORITY;
+    if (AllocateAndInitializeSid(&ntAuthority, 2, SECURITY_BUILTIN_DOMAIN_RID,
+        DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &adminGroup)) {
+        if (!CheckTokenMembership(NULL, adminGroup, &isAdmin)) {
+            isAdmin = FALSE;
+        }
+        FreeSid(adminGroup);
+    }
+    return isAdmin == TRUE;
 }
 
 // Forward declarations
@@ -88,6 +114,11 @@ struct HostContext {
 };
 
 void RunHost(const std::string& ip) {
+    if (!IsUserAdmin()) {
+        LOG_WARN("Host", "Not running as administrator. DXGI capture and input injection may fail.");
+        MessageBoxA(NULL, "Parsec-Lite is not running as administrator. Hosting typically requires admin privileges for desktop capture and virtual controller support.", "Admin Privileges Recommended", MB_OK | MB_ICONWARNING);
+    }
+
     auto& config = Config::getInstance();
     int bitrate = config.getInt("host.bitrate", 5000);
     int fps = config.getInt("host.fps", 60);
@@ -393,6 +424,9 @@ void RunLauncher() {
 
     Client::RendererD3D11 renderer;
     HWND hwnd = GetConsoleWindow();
+
+    g_OriginalWndProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)SubclassedWndProc);
+
     if (!renderer.Initialize(hwnd, 1280, 720)) {
         ShowFatalError("Launcher Error", "Failed to initialize D3D11 Renderer.");
         return;
@@ -418,6 +452,7 @@ void RunLauncher() {
         renderer.EndFrame();
     }
 
+    SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)g_OriginalWndProc);
     renderer.Shutdown();
 
     if (config.isHost) {
@@ -440,6 +475,8 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
     Client::DecoderHW decoder;
     Client::RendererD3D11 renderer;
     HWND hwnd = GetConsoleWindow();
+
+    g_OriginalWndProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)SubclassedWndProc);
 
     if (!renderer.Initialize(hwnd, 1920, 1080)) {
         ShowFatalError("Client Error", "Failed to initialize Renderer");
@@ -574,6 +611,7 @@ void RunClient(const std::string& localIp, const std::string& hostIp) {
         renderer.EndFrame();
     }
 
+    SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)g_OriginalWndProc);
     running = false;
     if (netThread.joinable()) netThread.join();
     if (feedbackThread.joinable()) feedbackThread.join();
@@ -587,6 +625,9 @@ void RunLauncher() {}
 #endif
 
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
+#endif
     Logger::getInstance().init("parsec-lite.log");
     Config::getInstance().load("config.ini");
 

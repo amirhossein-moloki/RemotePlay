@@ -2,6 +2,7 @@
 
 #ifdef _WIN32
 #include <iostream>
+#include <sstream>
 #include "../common/logger.hpp"
 
 namespace Host {
@@ -34,7 +35,16 @@ bool CaptureDXGI::Initialize() {
     hr = dxgiOutput1->DuplicateOutput(m_device, &m_dupl);
     dxgiOutput1->Release();
 
-    if (FAILED(hr)) return false;
+    if (FAILED(hr)) {
+        std::stringstream ss;
+        ss << "0x" << std::hex << hr;
+        if (hr == DXGI_ERROR_ACCESS_DENIED) {
+            LOG_ERROR("Capture", "DXGI DuplicateOutput failed: Access Denied (0x" + ss.str() + "). Try running as administrator.");
+        } else {
+            LOG_ERROR("Capture", "DXGI DuplicateOutput failed with HR: 0x" + ss.str());
+        }
+        return false;
+    }
     return true;
 }
 
