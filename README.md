@@ -64,6 +64,45 @@ cmake --build . --config Release
 
 ---
 
+## 🛠 Troubleshooting / عیب‌یابی (Common Issues)
+
+If you encounter issues during build or execution, check these common solutions:
+
+### 🟢 1) Qt Not Found (CMake error)
+**Problem:** `Qt6Config.cmake not found`
+**Solution:** Specify the Qt path in the CMake command:
+```powershell
+cmake .. -DBUILD_NEXUSDASH=ON -DCMAKE_PREFIX_PATH=C:\Qt\6.x.x\msvc2022_64
+```
+
+### 🟢 2) DLLs Not Found
+**Problem:** `Qt6Core.dll` or `ParsecLiteCore.dll` not found.
+**Solution:**
+- Ensure `ParsecLiteCore.dll` is in the same folder as the `.exe`.
+- Run `windeployqt` for the NexusDash UI:
+```powershell
+windeployqt.exe appNexusDash.exe --qmldir <project_path>/NexusDash/qml
+```
+
+### 🟢 3) Path Issues
+**Problem:** Program fails to start even if DLLs are present.
+**Solution:** Always run the executable from its own directory (e.g., `build/Release/`) to ensure relative paths are resolved correctly.
+
+### 🟢 ۴) مشکل پیدا نشدن Qt در CMake
+**مشکل:** خطای `Qt6Config.cmake not found`
+**راه حل:** مسیر نصب Qt را به دستور CMake اضافه کنید:
+```powershell
+cmake .. -DBUILD_NEXUSDASH=ON -DCMAKE_PREFIX_PATH=E:\Qt\6.11.1\msvc2022_64
+```
+
+### 🟢 ۵) مشکل DLLها (اجرا نشدن برنامه)
+**مشکل:** خطای پیدا نشدن `Qt6Core.dll` یا `ParsecLiteCore.dll`
+**راه حل:**
+- مطمئن شوید `ParsecLiteCore.dll` کنار فایل `.exe` کپی شده است.
+- برای برنامه‌ی NexusDash، از ابزار `windeployqt` استفاده کنید تا تمام وابستگی‌های Qt کپی شوند.
+
+---
+
 ## 📦 Running the App (For End-Users)
 
 If you are just using Parsec-Lite and don't want to build it yourself:
