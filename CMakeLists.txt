@@ -68,6 +68,10 @@ add_executable(parsec-lite
 )
 target_link_libraries(parsec-lite PRIVATE ParsecLiteCore)
 
+if(MSVC)
+    target_link_options(parsec-lite PRIVATE "/MANIFESTUAC:NO")
+endif()
+
 # Set up include directories
 target_include_directories(ParsecLiteCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp)
 target_include_directories(parsec-lite PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cpp)
