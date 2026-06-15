@@ -23,6 +23,13 @@ std::vector<InterfaceInfo> NetworkManager::EnumerateInterfaces() {
             WideCharToMultiByte(CP_UTF8, 0, wname.c_str(), (int)wname.size(), &info.name[0], size_needed, NULL, NULL);
             info.isActive = (pCurrAddresses->OperStatus == IfOperStatusUp);
 
+            switch (pCurrAddresses->IfType) {
+                case IF_TYPE_ETHERNET_CSMACD: info.type = "Ethernet"; break;
+                case IF_TYPE_IEEE80211: info.type = "Wi-Fi"; break;
+                case IF_TYPE_SOFTWARE_LOOPBACK: info.type = "Loopback"; break;
+                default: info.type = "Virtual / Other"; break;
+            }
+
             for (PIP_ADAPTER_UNICAST_ADDRESS pUnicast = pCurrAddresses->FirstUnicastAddress; pUnicast != NULL; pUnicast = pUnicast->Next) {
                 if (pUnicast->Address.lpSockaddr->sa_family == AF_INET) {
                     char buf[INET_ADDRSTRLEN];

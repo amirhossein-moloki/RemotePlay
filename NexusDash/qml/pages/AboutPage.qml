@@ -11,69 +11,104 @@ Item {
         anchors.margins: Theme.spacingLarge
         spacing: Theme.spacingLarge
 
-        Text {
-            text: "About NexusDash"
-            font.family: Theme.fontFamily
-            font.pixelSize: 28
-            font.weight: Font.Bold
-            color: Theme.textPrimary
-        }
-
         NexusCard {
             Layout.fillWidth: true
-            Layout.preferredHeight: 300
+            Layout.preferredHeight: 450
 
-            Column {
+            ColumnLayout {
                 anchors.centerIn: parent
-                spacing: Theme.spacingLarge
-                width: parent.width * 0.8
+                spacing: Theme.spacingHuge
+                width: parent.width * 0.7
 
                 Rectangle {
-                    width: 80; height: 80; radius: 20
-                    color: Theme.accent
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: 100; height: 100; radius: 24
+                    color: Theme.primary
+                    Layout.alignment: Qt.AlignHCenter
+
                     Text {
                         anchors.centerIn: parent
                         text: "N"
                         color: "white"
                         font.bold: true
-                        font.pixelSize: 40
+                        font.pixelSize: 48
+                    }
+
+                    // Glow effect
+                    layer.enabled: true
+                    layer.effect: ShaderEffect {
+                        // In a real environment, we'd use a DropShadow or similar
+                    }
+                }
+
+                Column {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSmall
+                    Text {
+                        text: "NexusDash Professional"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 32
+                        font.weight: Font.Bold
+                        color: Theme.textPrimary
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+                    Text {
+                        text: "Version 1.0.0 Stable Build"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 14
+                        color: Theme.accent
+                        anchors.horizontalCenter: parent.horizontalCenter
                     }
                 }
 
                 Text {
-                    text: "NexusDash v1.0.0"
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 24
-                    font.weight: Font.DemiBold
-                    color: Theme.textPrimary
-                    anchors.horizontalCenter: parent.horizontalCenter
-                }
-
-                Text {
-                    text: "A modern, high-performance dashboard template built with Qt 6 and C++. Designed for scalability, ease of use, and a premium user experience."
+                    text: "A commercial-grade LAN streaming orchestrator powered by the ParsecLite Core Engine. Engineered for ultra-low latency, professional monitoring, and enterprise-level stability."
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
                     color: Theme.textSecondary
                     wrapMode: Text.WordWrap
-                    width: parent.width
+                    Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
+                    lineHeight: 1.4
                 }
 
-                NexusButton {
-                    text: "Check for Updates"
-                    primary: false
-                    anchors.horizontalCenter: parent.horizontalCenter
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    spacing: Theme.spacingMedium
+
+                    NexusButton {
+                        text: "Documentation"
+                        primary: true
+                    }
+
+                    NexusButton {
+                        text: "Check for Updates"
+                        primary: false
+                    }
                 }
             }
         }
 
-        Text {
-            text: "© 2025 NexusDash Systems Inc."
-            font.family: Theme.fontFamily
-            font.pixelSize: 12
-            color: Theme.textSecondary
-            Layout.alignment: Qt.AlignHCenter
+        Item { Layout.fillHeight: true }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spacingTiny
+
+            Text {
+                text: "© 2025 NexusDash Systems Inc. All rights reserved."
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                color: Theme.textSecondary
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            Text {
+                text: "ParsecLite Core v2.4.5-stable | D3D11 | NVENC | FFmpeg 6.0"
+                font.family: Theme.fontFamily
+                font.pixelSize: 10
+                color: Qt.rgba(1,1,1,0.2)
+                Layout.alignment: Qt.AlignHCenter
+            }
         }
     }
 }

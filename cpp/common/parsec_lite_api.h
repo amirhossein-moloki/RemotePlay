@@ -41,4 +41,7 @@ PARSEC_API void Parsec_StopSession();
 PARSEC_API bool Parsec_GetTelemetry(ParsecTelemetry* outTelemetry);
 PARSEC_API void Parsec_Shutdown();
 
+typedef void (*ParsecLogCallback)(const char* level, const char* module, const char* message, const char* timestamp);
+PARSEC_API void Parsec_SetLogCallback(ParsecLogCallback callback);
+
 }

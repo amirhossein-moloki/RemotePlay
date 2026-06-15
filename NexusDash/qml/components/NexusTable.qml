@@ -16,14 +16,13 @@ Item {
         // Header
         Rectangle {
             Layout.fillWidth: true
-            height: 40
-            color: Theme.surfaceSecondary
-            radius: Theme.radiusSmall
+            height: 48
+            color: Theme.panel
 
             Row {
                 anchors.fill: parent
-                anchors.leftMargin: Theme.spacingMedium
-                anchors.rightMargin: Theme.spacingMedium
+                anchors.leftMargin: Theme.spacingLarge
+                anchors.rightMargin: Theme.spacingLarge
                 spacing: Theme.spacingMedium
 
                 Repeater {
@@ -40,6 +39,13 @@ Item {
                     }
                 }
             }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: Theme.border
+            }
         }
 
         // Body
@@ -48,35 +54,54 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
+            boundsBehavior: Flickable.StopAtBounds
 
             delegate: Item {
                 width: listView.width
-                height: 48
+                height: 56
 
                 Rectangle {
                     anchors.fill: parent
-                    color: index % 2 === 0 ? "transparent" : Qt.rgba(Theme.surfaceSecondary.r, Theme.surfaceSecondary.g, Theme.surfaceSecondary.b, 0.3)
+                    color: itemMouseArea.containsMouse ? Qt.rgba(1,1,1,0.03) : "transparent"
+                    Behavior on color { ColorAnimation { duration: 100 } }
                 }
 
                 Row {
                     anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingMedium
-                    anchors.rightMargin: Theme.spacingMedium
+                    anchors.leftMargin: Theme.spacingLarge
+                    anchors.rightMargin: Theme.spacingLarge
                     spacing: Theme.spacingMedium
 
                     Repeater {
                         model: root.columns
-                        Text {
+                        Item {
                             width: modelData.width
-                            text: model[modelData.role] || ""
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 14
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
                             height: parent.height
-                            elide: Text.ElideRight
+
+                            Text {
+                                anchors.fill: parent
+                                text: model[modelData.role] || ""
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 14
+                                color: {
+                                    if (modelData.role === "level") {
+                                        if (text === "ERROR") return Theme.danger;
+                                        if (text === "WARN") return Theme.warning;
+                                        if (text === "INFO") return Theme.success;
+                                    }
+                                    return Theme.textPrimary;
+                                }
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                            }
                         }
                     }
+                }
+
+                MouseArea {
+                    id: itemMouseArea
+                    anchors.fill: parent
+                    hoverEnabled: true
                 }
 
                 Rectangle {
@@ -84,7 +109,7 @@ Item {
                     width: parent.width
                     height: 1
                     color: Theme.border
-                    opacity: 0.5
+                    opacity: 0.3
                 }
             }
         }

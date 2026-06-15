@@ -11,43 +11,46 @@ Item {
 
     signal clicked()
 
-    height: 48
+    height: 52
     width: parent.width
 
     Rectangle {
         anchors.fill: parent
-        anchors.margins: Theme.spacingTiny
+        anchors.leftMargin: Theme.spacingSmall
+        anchors.rightMargin: Theme.spacingSmall
         radius: Theme.radiusMedium
-        color: root.active ? Theme.surfaceSecondary : "transparent"
+        color: root.active ? Qt.rgba(1,1,1,0.08) : (itemMouseArea.containsMouse ? Qt.rgba(1,1,1,0.04) : "transparent")
+
+        Behavior on color { ColorAnimation { duration: 150 } }
 
         MouseArea {
+            id: itemMouseArea
             anchors.fill: parent
             hoverEnabled: true
             onClicked: root.clicked()
             cursorShape: Qt.PointingHandCursor
-
-            onEntered: if(!root.active) parent.color = Qt.rgba(Theme.surfaceSecondary.r, Theme.surfaceSecondary.g, Theme.surfaceSecondary.b, 0.5)
-            onExited: if(!root.active) parent.color = "transparent"
         }
 
         Row {
             anchors.verticalCenter: parent.verticalCenter
             anchors.left: parent.left
-            anchors.leftMargin: Theme.spacingMedium
+            anchors.leftMargin: root.collapsed ? (parent.width - 24) / 2 : Theme.spacingMedium
             spacing: Theme.spacingMedium
 
-            // Icon Placeholder
-            Rectangle {
-                width: 20
-                height: 20
-                radius: 4
+            Text {
+                text: root.icon
+                font.family: "Material Design Icons" // Or placeholder icon font
+                font.pixelSize: 20
                 color: root.active ? Theme.accent : Theme.textSecondary
+                width: 24
+                horizontalAlignment: Text.AlignHCenter
 
-                Text {
+                // Temporary fallback if font not loaded
+                Rectangle {
+                    visible: parent.text === ""
+                    width: 12; height: 12; radius: 6
+                    color: parent.color
                     anchors.centerIn: parent
-                    text: root.icon
-                    color: "#FFFFFF"
-                    font.pixelSize: 12
                 }
             }
 
@@ -59,14 +62,17 @@ Item {
                 font.weight: root.active ? Font.Medium : Font.Normal
                 color: root.active ? Theme.textPrimary : Theme.textSecondary
                 anchors.verticalCenter: parent.verticalCenter
+
+                opacity: root.collapsed ? 0 : 1
+                Behavior on opacity { NumberAnimation { duration: 200 } }
             }
         }
 
-        // Active Indicator
+        // Active Indicator (Fluent Style)
         Rectangle {
             width: 3
-            height: 20
-            radius: 2
+            height: 16
+            radius: 1.5
             color: Theme.accent
             visible: root.active
             anchors.left: parent.left

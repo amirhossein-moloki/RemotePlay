@@ -25,6 +25,7 @@ namespace Network {
 struct InterfaceInfo {
     std::string name;
     std::string ip;
+    std::string type;
     bool isActive;
 };
 

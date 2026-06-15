@@ -27,4 +27,16 @@ PARSEC_API void Parsec_Shutdown() {
     SessionManager::getInstance().stopSession();
 }
 
+static ParsecLogCallback g_logCallback = nullptr;
+static void InternalLogCallback(LogLevel level, const char* module, const char* message, const char* timestamp) {
+    if (g_logCallback) {
+        g_logCallback(Logger::levelToString(level), module, message, timestamp);
+    }
+}
+
+PARSEC_API void Parsec_SetLogCallback(ParsecLogCallback callback) {
+    g_logCallback = callback;
+    Logger::getInstance().setCallback(InternalLogCallback);
+}
+
 }

@@ -33,6 +33,13 @@ public:
         openFile();
     }
 
+    typedef void (*LogCallback)(LogLevel level, const char* module, const char* message, const char* timestamp);
+
+    void setCallback(LogCallback callback) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_callback = callback;
+    }
+
     void log(LogLevel level, const std::string& module, const std::string& message) {
         auto now = std::chrono::system_clock::now();
         auto now_time = std::chrono::system_clock::to_time_t(now);
@@ -56,6 +63,11 @@ public:
         std::string logLine = ss.str();
 
         std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_callback) {
+            std::stringstream ts;
+            ts << std::put_time(&timeinfo, "%Y-%m-%d %H:%M:%S") << "." << std::setfill('0') << std::setw(3) << now_ms.count();
+            m_callback(level, module.c_str(), message.c_str(), ts.str().c_str());
+        }
         std::cout << logLine;
         if (m_file.is_open()) {
             m_file << logLine;
@@ -98,7 +110,7 @@ private:
         openFile();
     }
 
-    const char* levelToString(LogLevel level) {
+    static const char* levelToString(LogLevel level) {
         switch (level) {
             case LogLevel::LL_DEBUG: return "DEBUG";
             case LogLevel::LL_INFO:  return "INFO ";
@@ -114,6 +126,7 @@ private:
     size_t m_currentFileSize = 0;
     int m_maxFiles = 3;
     std::mutex m_mutex;
+    LogCallback m_callback = nullptr;
 };
 
 #define LOG_DEBUG(mod, msg) Logger::getInstance().log(LogLevel::LL_DEBUG, mod, msg)

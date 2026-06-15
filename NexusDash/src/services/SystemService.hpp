@@ -14,8 +14,10 @@ class SystemService : public QObject
     Q_PROPERTY(double e2eLatency READ e2eLatency NOTIFY statsChanged)
     Q_PROPERTY(double fps READ fps NOTIFY statsChanged)
     Q_PROPERTY(double bitrate READ bitrate NOTIFY statsChanged)
-    Q_PROPERTY(QStringList networkInterfaces READ networkInterfaces NOTIFY networkInterfacesChanged)
+    Q_PROPERTY(QVariantList networkInterfaces READ networkInterfaces NOTIFY networkInterfacesChanged)
     Q_PROPERTY(bool isSessionActive READ isSessionActive NOTIFY sessionStateChanged)
+    Q_PROPERTY(QString connectionState READ connectionState NOTIFY sessionStateChanged)
+    Q_PROPERTY(QVariantList logs READ logs NOTIFY logsChanged)
 
 public:
     explicit SystemService(QObject *parent = nullptr);
@@ -38,18 +40,24 @@ signals:
     void statsChanged();
     void networkInterfacesChanged();
     void sessionStateChanged();
+    void logsChanged();
 
 public:
-    QStringList networkInterfaces() const { return m_networkInterfaces; }
+    QVariantList networkInterfaces() const { return m_networkInterfaces; }
     bool isSessionActive() const { return m_isSessionActive; }
+    QString connectionState() const;
+    QVariantList logs() const { return m_logs; }
 
 private:
     void updateStats();
+    static void onLogReceived(const char* level, const char* module, const char* message, const char* timestamp);
 
     double m_cpuUsage = 0.0;
     double m_memoryUsage = 0.0;
     bool m_isSessionActive = false;
-    QStringList m_networkInterfaces;
+    bool m_isHosting = false;
+    QVariantList m_networkInterfaces;
+    QVariantList m_logs;
     ParsecTelemetry m_stats = {};
     QTimer *m_timer;
     qint64 m_startTime;
