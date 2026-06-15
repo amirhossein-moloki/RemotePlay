@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import "../theme"
+import NexusDash
 
 Rectangle {
     id: root
@@ -75,7 +75,7 @@ Rectangle {
                         font.pixelSize: 10
                         font.weight: Font.Black
                         color: Theme.accent
-                        letterSpacing: 1
+                        font.letterSpacing: 1
                     }
                 }
             }
