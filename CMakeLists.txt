@@ -86,10 +86,12 @@ if(WIN32)
 
         # Copy FFmpeg DLLs to output
         file(GLOB FFMPEG_DLLS "${FFMPEG_DIR}/bin/*.dll")
-        add_custom_command(TARGET ParsecLiteCore POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_DLLS} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
-            COMMENT "Copying FFmpeg DLLs to output"
-        )
+        if(FFMPEG_DLLS)
+            add_custom_command(TARGET ParsecLiteCore POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_DLLS} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+                COMMENT "Copying FFmpeg DLLs to output"
+            )
+        endif()
     endif()
 
     # Search for ViGEmClient
@@ -106,10 +108,12 @@ if(WIN32)
         target_compile_definitions(parsec-lite PRIVATE PARSEC_LITE_ENABLE_VIGEM)
 
         # Copy ViGEm DLL to output
-        add_custom_command(TARGET ParsecLiteCore POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VIGEM_DIR}/lib/x64/ViGEmClient.dll" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
-            COMMENT "Copying ViGEmClient DLL to output"
-        )
+        if(EXISTS "${VIGEM_DIR}/lib/x64/ViGEmClient.dll")
+            add_custom_command(TARGET ParsecLiteCore POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VIGEM_DIR}/lib/x64/ViGEmClient.dll" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+                COMMENT "Copying ViGEmClient DLL to output"
+            )
+        endif()
     endif()
 
     target_link_libraries(ParsecLiteCore PRIVATE ws2_32 iphlpapi d3d11 dxgi xinput)
