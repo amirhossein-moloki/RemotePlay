@@ -12,6 +12,27 @@ Rectangle {
     property alias title: titleText.text
     default property alias content: container.data
 
+    // Premium Shadow
+    Rectangle {
+        anchors.fill: parent
+        anchors.topMargin: 4
+        z: -1
+        radius: parent.radius
+        color: "#000000"
+        opacity: 0.2
+    }
+
+    // Glass-like Highlight
+    Rectangle {
+        anchors.fill: parent
+        radius: parent.radius
+        color: "white"
+        opacity: 0.02
+        z: 1
+        visible: true
+        anchors.margins: 1
+    }
+
     Column {
         anchors.fill: parent
         anchors.margins: Theme.spacingMedium
