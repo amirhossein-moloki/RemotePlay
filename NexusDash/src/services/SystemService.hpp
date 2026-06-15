@@ -94,6 +94,8 @@ public:
     double bitrate() const { return m_stats.bitrateMbps; }
     double lossRate() const { return m_stats.lossRate; }
     double rtt() const { return m_stats.rtt; }
+    QStringList networkInterfaces() const { return m_networkInterfaces; }
+    bool isSessionActive() const { return m_isSessionActive; }
 
     QAbstractListModel* logModel() const { return m_logModel; }
 
