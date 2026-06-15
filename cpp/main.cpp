@@ -78,7 +78,26 @@ int main(int argc, char* argv[]) {
         config.isHost = false;
         strcpy(config.selectedIp, selectedIp.c_str());
         strcpy(config.hostIp, args[2].c_str());
+
+        // Create a window for the client
+        WNDCLASSA wc = { 0 };
+        wc.lpfnWndProc = DefWindowProcA;
+        wc.hInstance = GetModuleHandleA(NULL);
+        wc.lpszClassName = "ParsecLiteClientCLI";
+        RegisterClassA(&wc);
+        HWND hwnd = CreateWindowExA(0, wc.lpszClassName, "Parsec-Lite Client", WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 1280, 720, NULL, NULL, wc.hInstance, NULL);
+        config.windowHandle = hwnd;
+
         Parsec_StartSession(config);
+
+        MSG msg;
+        while (GetMessageA(&msg, NULL, 0, 0)) {
+            TranslateMessage(&msg);
+            DispatchMessageA(&msg);
+        }
+        Parsec_StopSession();
+        Parsec_Shutdown();
+        return 0;
     } else {
         ShowUsage();
         return 0;

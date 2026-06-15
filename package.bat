@@ -35,12 +35,22 @@ if %FOUND_EXE%==0 (
 )
 
 echo [3/4] Copying FFmpeg DLLs...
-if exist "%DEPS_DIR%\ffmpeg\bin" (
+set FFMPEG_DLL_FOUND=0
+if exist "%DEPS_DIR%\ffmpeg\bin\*.dll" (
     copy /Y "%DEPS_DIR%\ffmpeg\bin\*.dll" "%DIST_DIR%\"
-) else if exist "%DEPS_DIR%\ffmpeg\lib" (
+    set FFMPEG_DLL_FOUND=1
+)
+if exist "%DEPS_DIR%\ffmpeg\lib\*.dll" (
     copy /Y "%DEPS_DIR%\ffmpeg\lib\*.dll" "%DIST_DIR%\"
-) else (
-    echo WARNING: FFmpeg DLLs not found in %DEPS_DIR%\ffmpeg\bin or %DEPS_DIR%\ffmpeg\lib
+    set FFMPEG_DLL_FOUND=1
+)
+if exist "%DEPS_DIR%\ffmpeg\*.dll" (
+    copy /Y "%DEPS_DIR%\ffmpeg\*.dll" "%DIST_DIR%\"
+    set FFMPEG_DLL_FOUND=1
+)
+
+if %FFMPEG_DLL_FOUND%==0 (
+    echo WARNING: FFmpeg DLLs not found in %DEPS_DIR%\ffmpeg (bin, lib, or root).
 )
 
 echo [4/4] Copying ViGEmClient DLL...

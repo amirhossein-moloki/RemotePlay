@@ -67,15 +67,15 @@ bool SessionManager::getTelemetry(ParsecTelemetry* outTelemetry) {
     if (!outTelemetry) return false;
 
     auto& profiler = Profiler::getInstance();
-    outTelemetry->e2eLatency = (float)profiler.getStats("EndToEnd_Latency").p99 / 1000.0f;
-    outTelemetry->captureTime = (float)profiler.getStats("Capture_Time").avg / 1000.0f;
-    outTelemetry->encodeTime = (float)profiler.getStats("Encode_Time").avg / 1000.0f;
-    outTelemetry->networkTime = (float)profiler.getStats("Network_Latency").avg / 1000.0f;
-    outTelemetry->decodeTime = (float)profiler.getStats("Decode_Time").avg / 1000.0f;
-    outTelemetry->fps = (float)profiler.getStats("FPS").latest; // Needs to be recorded
+    outTelemetry->e2eLatency = (float)profiler.getStats("EndToEnd_Latency").p99 / 1000.0f; // us to ms
+    outTelemetry->captureTime = (float)profiler.getStats("Capture_Time").avg / 1000.0f; // us to ms
+    outTelemetry->encodeTime = (float)profiler.getStats("Encode_Time").avg / 1000.0f; // us to ms
+    outTelemetry->networkTime = (float)profiler.getStats("Network_Latency").avg / 1000.0f; // us to ms
+    outTelemetry->decodeTime = (float)profiler.getStats("Decode_Time").avg / 1000.0f; // us to ms
+    outTelemetry->fps = (float)profiler.getStats("FPS").latest;
     outTelemetry->lossRate = (float)profiler.getStats("Network_LossRate").latest;
     outTelemetry->rtt = (float)profiler.getStats("Network_RTT").latest;
-    outTelemetry->bitrateMbps = (float)profiler.getStats("Host_Bitrate").latest / 1000.0f;
+    outTelemetry->bitrateMbps = (float)profiler.getStats("Host_Bitrate").latest;
 
     return true;
 }
@@ -101,7 +101,19 @@ void SessionManager::runHost(ParsecConfig config) {
 
     if (!ctx.net.Bind(config.selectedIp, 5005)) return;
     if (!ctx.capture.Initialize()) return;
-    if (!ctx.encoder.Initialize(1920, 1080, config.fps, config.bitrate, ctx.capture.GetDevice())) return;
+
+    // Resolve resolution from capture
+    int width = 1920, height = 1080;
+    ID3D11Texture2D* testTex = nullptr;
+    if (ctx.capture.AcquireFrame(&testTex)) {
+        D3D11_TEXTURE2D_DESC desc;
+        testTex->GetDesc(&desc);
+        width = desc.Width;
+        height = desc.Height;
+        ctx.capture.ReleaseFrame();
+    }
+
+    if (!ctx.encoder.Initialize(width, height, config.fps, config.bitrate, ctx.capture.GetDevice())) return;
 
     std::thread captureThread = std::thread([&]() {
         uint32_t frameCount = 0;
@@ -131,6 +143,7 @@ void SessionManager::runHost(ParsecConfig config) {
     });
 
     std::thread encoderThread = std::thread([&]() {
+        Profiler::getInstance().recordValue("Host_Bitrate", (double)config.bitrate / 1000.0);
         while (m_running) {
             CapturedFrame cf = {nullptr, 0};
             if (ctx.captureQueue.pop(cf)) {
@@ -266,14 +279,22 @@ void SessionManager::runClient(ParsecConfig config) {
     Client::Receiver receiver;
     Client::JitterBuffer jitterBuffer(3);
     Client::DecoderHW decoder;
+    Client::RendererD3D11 renderer;
 
-    // We need a window for the client. In ParsecLiteCore, this might be tricky
-    // because it doesn't own the window. For now, we assume a headless or
-    // externally managed window context if we want to render.
-    // However, the Core API should probably handle the data stream.
+    bool useRenderer = (config.windowHandle != nullptr);
+    if (useRenderer) {
+        if (!renderer.Initialize((HWND)config.windowHandle, 1920, 1080)) {
+            LOG_ERROR("Session", "Failed to initialize renderer");
+            useRenderer = false;
+        } else if (!decoder.Initialize(renderer.GetDevice())) {
+            LOG_ERROR("Session", "Failed to initialize decoder");
+            useRenderer = false;
+        }
+    } else {
+        decoder.Initialize(nullptr);
+    }
 
     std::atomic<uint32_t> lastFrameId{0};
-
     std::thread netThread = std::thread([&]() {
         uint8_t buf[65535];
         std::string senderIp;
@@ -284,8 +305,6 @@ void SessionManager::runClient(ParsecConfig config) {
                 Protocol::PacketType type = (Protocol::PacketType)buf[0];
                 if (type == Protocol::PacketType::Video && len >= (int)sizeof(Protocol::VideoHeader)) {
                     Protocol::VideoHeader* vh = (Protocol::VideoHeader*)buf;
-                    uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-                    Profiler::getInstance().recordTime("EndToEnd_Latency", (double)(now - vh->captureTimestamp));
                     receiver.ProcessPacket(*vh, buf + sizeof(Protocol::VideoHeader));
                     lastFrameId = std::max((uint32_t)lastFrameId, vh->frameId);
                 }
@@ -303,9 +322,21 @@ void SessionManager::runClient(ParsecConfig config) {
 
         auto frame = jitterBuffer.PopFrame();
         if (frame) {
-            uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-            Profiler::getInstance().recordTime("EndToEnd_Latency", (double)(now - frame->captureTimestamp));
-            // In a real client, we would decode and present here.
+            uint64_t decodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            void* outTexture = nullptr;
+            if (decoder.DecodeFrame(frame->buffer.data(), frame->totalSize, &outTexture)) {
+                uint64_t decodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                Profiler::getInstance().recordTime("Decode_Time", (double)(decodeEnd - decodeStart));
+
+                uint64_t now = decodeEnd;
+                Profiler::getInstance().recordTime("EndToEnd_Latency", (double)(now - frame->captureTimestamp));
+
+                if (useRenderer && outTexture) {
+                    renderer.NewFrame();
+                    renderer.Render((ID3D11Texture2D*)outTexture);
+                    renderer.EndFrame();
+                }
+            }
             receiver.ReturnToPool(std::move(frame));
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));

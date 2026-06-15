@@ -83,14 +83,17 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
                 frames_ctx->sw_format = AV_PIX_FMT_NV12;
                 frames_ctx->width = width;
                 frames_ctx->height = height;
-                frames_ctx->initial_pool_size = 1;
+                frames_ctx->initial_pool_size = 0; // Use 0 for wrapped textures
 
                 if (av_hwframe_ctx_init(frames_ref) >= 0) {
                     m_internal->codecCtx->hw_frames_ctx = av_buffer_ref(frames_ref);
                     m_internal->codecCtx->pix_fmt = AV_PIX_FMT_D3D11;
+                } else {
+                    LOG_ERROR("Encoder", "Failed to initialize HW frames context.");
                 }
                 av_buffer_unref(&frames_ref);
             } else {
+                LOG_ERROR("Encoder", "Failed to initialize HW device context.");
                 av_buffer_unref(&device_ref);
             }
         }
@@ -118,9 +121,8 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
         m_internal->frame->data[0] = (uint8_t*)texturePtr;
         m_internal->frame->format = AV_PIX_FMT_D3D11;
     } else {
-        // Fallback or non-HW path (not recommended for 20ms target)
-        m_internal->frame->data[0] = (uint8_t*)texturePtr;
-        m_internal->frame->format = AV_PIX_FMT_NV12;
+        LOG_ERROR("Encoder", "Non-HW path not supported for D3D11 textures. Ensure HW Context is initialized.");
+        return false;
     }
 
     m_internal->frame->width = m_internal->codecCtx->width;
