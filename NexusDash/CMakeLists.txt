@@ -47,6 +47,10 @@ target_link_libraries(appNexusDash PRIVATE
     ParsecLiteCore
 )
 
+if(MSVC)
+    target_link_options(appNexusDash PRIVATE "/MANIFESTUAC:NO")
+endif()
+
 include(FeatureSummary)
 feature_summary(WHAT ALL)
 
