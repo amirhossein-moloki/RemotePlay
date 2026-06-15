@@ -28,7 +28,7 @@ ScrollView {
 
             NexusCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 350
+                Layout.preferredHeight: 450
                 title: "Start Hosting"
                 ColumnLayout {
                     anchors.fill: parent
@@ -73,7 +73,7 @@ ScrollView {
 
             NexusCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 350
+                Layout.preferredHeight: 450
                 title: "Connect to Host"
                 ColumnLayout {
                     anchors.fill: parent
@@ -136,7 +136,7 @@ ScrollView {
 
             NexusCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 350
+                Layout.preferredHeight: 450
                 title: "Performance Info"
                 ColumnLayout {
                     anchors.fill: parent
