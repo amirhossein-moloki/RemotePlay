@@ -1,10 +1,13 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls
 import "../theme"
 import "../components"
 
 Item {
     id: root
+
+    readonly property bool isActive: backend.system.isSessionActive
 
     ColumnLayout {
         anchors.fill: parent
@@ -12,11 +15,127 @@ Item {
         spacing: Theme.spacingLarge
 
         Text {
-            text: "Dashboard"
+            text: root.isActive ? "Live Session" : "Dashboard"
             font.family: Theme.fontFamily
             font.pixelSize: 28
             font.weight: Font.Bold
             color: Theme.textPrimary
+        }
+
+        GridLayout {
+            Layout.fillWidth: true
+            columns: 3
+            columnSpacing: Theme.spacingMedium
+            rowSpacing: Theme.spacingMedium
+            visible: !root.isActive
+
+            NexusCard {
+                Layout.fillWidth: true
+                height: 160
+                title: "Start Hosting"
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
+
+                    Text {
+                        text: "Share your screen on the network"
+                        color: Theme.textSecondary
+                        font.pixelSize: 12
+                    }
+
+                    ComboBox {
+                        id: interfaceCombo
+                        Layout.fillWidth: true
+                        model: backend.system.networkInterfaces
+                        flat: true
+                    }
+
+                    NexusButton {
+                        text: "Launch Host"
+                        Layout.fillWidth: true
+                        onClicked: backend.system.startHost(interfaceCombo.currentText, 5000, 60)
+                    }
+                }
+            }
+
+            NexusCard {
+                Layout.fillWidth: true
+                height: 160
+                title: "Connect to Host"
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
+
+                    NexusInput {
+                        id: hostIpInput
+                        placeholderText: "Host IP (e.g. 192.168.1.5)"
+                        Layout.fillWidth: true
+                    }
+
+                    NexusButton {
+                        text: "Join Session"
+                        Layout.fillWidth: true
+                        onClicked: backend.system.startClient(hostIpInput.text, 5000, 60)
+                    }
+                }
+            }
+
+            NexusCard {
+                Layout.fillWidth: true
+                height: 160
+                title: "Performance Info"
+                Column {
+                    anchors.centerIn: parent
+                    Text { text: "Target: 60 FPS"; color: Theme.textPrimary; font.bold: true }
+                    Text { text: "Bitrate: 5.0 Mbps"; color: Theme.textSecondary }
+                    Text { text: "Low Latency: Enabled"; color: "#10B981" }
+                }
+            }
+        }
+
+        GridLayout {
+            Layout.fillWidth: true
+            columns: 3
+            columnSpacing: Theme.spacingMedium
+            rowSpacing: Theme.spacingMedium
+            visible: root.isActive
+
+            NexusCard {
+                Layout.fillWidth: true
+                height: 140
+                title: "Latency"
+                Text {
+                    anchors.centerIn: parent
+                    text: backend.system.e2eLatency.toFixed(1) + " ms"
+                    font.pixelSize: 32; font.bold: true; color: Theme.accent
+                }
+            }
+
+            NexusCard {
+                Layout.fillWidth: true
+                height: 140
+                title: "Bitrate"
+                Text {
+                    anchors.centerIn: parent
+                    text: backend.system.bitrate.toFixed(1) + " Mbps"
+                    font.pixelSize: 32; font.bold: true; color: "#10B981"
+                }
+            }
+
+            NexusCard {
+                Layout.fillWidth: true
+                height: 140
+                title: "Control"
+                NexusButton {
+                    anchors.centerIn: parent
+                    text: "Stop Session"
+                    onClicked: backend.system.stopSession()
+                }
+            }
         }
 
         GridLayout {
