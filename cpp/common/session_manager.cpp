@@ -35,10 +35,12 @@ struct OutgoingPacket {
     uint16_t targetPort;
 };
 
+#ifdef _WIN32
 struct CapturedFrame {
     ID3D11Texture2D* texture;
     uint64_t captureTimestamp;
 };
+#endif
 
 void SessionManager::startSession(ParsecConfig config) {
     if (m_running) stopSession();
