@@ -20,6 +20,7 @@ struct ParsecConfig {
     int fps;
     bool isHost;
     bool useHardwareEncoding;
+    void* windowHandle; // HWND on Windows
 };
 
 struct ParsecTelemetry {

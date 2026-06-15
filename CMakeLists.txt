@@ -58,8 +58,13 @@ add_library(ParsecLiteCore SHARED
 target_compile_definitions(ParsecLiteCore PRIVATE PARSEC_LITE_EXPORT)
 
 # Executable
+if(WIN32)
+    set(MANIFEST_FILE "${CMAKE_CURRENT_SOURCE_DIR}/parsec-lite.manifest")
+endif()
+
 add_executable(parsec-lite
     cpp/main.cpp
+    ${MANIFEST_FILE}
 )
 target_link_libraries(parsec-lite PRIVATE ParsecLiteCore)
 
@@ -90,6 +95,7 @@ if(WIN32)
         file(GLOB FFMPEG_DLLS
             "${FFMPEG_DIR}/bin/*.dll"
             "${FFMPEG_DIR}/lib/*.dll"
+            "${FFMPEG_DIR}/*.dll"
         )
         if(FFMPEG_DLLS)
             add_custom_command(TARGET ParsecLiteCore POST_BUILD
@@ -97,7 +103,7 @@ if(WIN32)
                 COMMENT "Copying FFmpeg DLLs to output"
             )
         else()
-            message(WARNING "FFmpeg DLLs (avcodec-*.dll, etc.) not found in ${FFMPEG_DIR}/bin or ${FFMPEG_DIR}/lib. "
+            message(WARNING "FFmpeg DLLs (avcodec-*.dll, etc.) not found in ${FFMPEG_DIR}/bin, lib or root. "
                             "The application will fail to start unless these DLLs are manually placed next to the executable.")
         endif()
     endif()
@@ -138,4 +144,8 @@ if(BUILD_NEXUSDASH)
     find_package(Qt6 COMPONENTS Core Gui Qml Quick QuickControls2 REQUIRED)
     add_subdirectory(NexusDash)
 
+    # Add manifest to NexusDash if on Windows
+    if(WIN32)
+        target_sources(appNexusDash PRIVATE ${MANIFEST_FILE})
+    endif()
 endif()
