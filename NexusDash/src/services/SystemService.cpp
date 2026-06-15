@@ -11,21 +11,42 @@
 SystemService::SystemService(QObject *parent) : QObject(parent)
 {
     m_startTime = QDateTime::currentSecsSinceEpoch();
+    m_logModel = new LogModel(this);
+
+    // Initialize history with zeros
+    for (int i = 0; i < m_maxHistory; ++i) {
+        m_cpuHistory << 0.0;
+        m_memoryHistory << 0.0;
+        m_fpsHistory << 0.0;
+        m_latencyHistory << 0.0;
+    }
 
     // Enumerate network interfaces
     auto interfaces = Network::NetworkManager::EnumerateInterfaces();
     for (const auto& iface : interfaces) {
-        m_networkInterfaces << QString::fromStdString(iface.ip);
+        // Construct detailed string: "Name (IP) - [Active/Inactive]"
+        QString status = iface.isActive ? "Active" : "Inactive";
+        m_networkInterfaces << QString("%1 (%2) - %3").arg(QString::fromStdString(iface.name), QString::fromStdString(iface.ip), status);
     }
 
     m_timer = new QTimer(this);
     connect(m_timer, &QTimer::timeout, this, &SystemService::updateStats);
-    m_timer->start(2000); // Update every 2 seconds
+    m_timer->start(1000);
     updateStats();
+
+    addLog("INFO", "System", "NexusDash Services Initialized");
 }
 
-void SystemService::startHost(const QString& interfaceIp, int bitrate, int fps)
+void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps)
 {
+    // Extract IP from "Name (IP) - Status"
+    QString interfaceIp = interfaceInfo;
+    int start = interfaceInfo.indexOf('(');
+    int end = interfaceInfo.indexOf(')');
+    if (start != -1 && end != -1) {
+        interfaceIp = interfaceInfo.mid(start + 1, end - start - 1);
+    }
+
     ParsecConfig config = {};
     config.isHost = true;
     config.bitrate = bitrate;
@@ -36,6 +57,7 @@ void SystemService::startHost(const QString& interfaceIp, int bitrate, int fps)
     Parsec_StartSession(config);
     m_isSessionActive = true;
     emit sessionStateChanged();
+    addLog("INFO", "Host", "Hosting started on " + interfaceIp);
 }
 
 void SystemService::startClient(const QString& hostIp, int bitrate, int fps)
@@ -47,13 +69,10 @@ void SystemService::startClient(const QString& hostIp, int bitrate, int fps)
     config.useHardwareEncoding = true;
     strncpy(config.hostIp, hostIp.toStdString().c_str(), sizeof(config.hostIp) - 1);
 
-    // For simplicity in GUI, we might need to handle window handle better
-    // but Parsec_StartSession handles the creation of output if windowHandle is null in some implementations
-    // or we might need to pass the QQuickWindow handle.
-
     Parsec_StartSession(config);
     m_isSessionActive = true;
     emit sessionStateChanged();
+    addLog("INFO", "Client", "Connecting to " + hostIp);
 }
 
 void SystemService::stopSession()
@@ -61,33 +80,49 @@ void SystemService::stopSession()
     Parsec_StopSession();
     m_isSessionActive = false;
     emit sessionStateChanged();
+    addLog("INFO", "Session", "Session stopped by user");
 }
 
 void SystemService::updateStats()
 {
-    // Real telemetry from ParsecLiteCore
     if (m_isSessionActive && Parsec_GetTelemetry(&m_stats)) {
+        emit statsChanged();
+    } else {
+        // Reset volatile stats when not active
+        m_stats = {};
         emit statsChanged();
     }
 
-    // Actual system metrics (Simplified for cross-platform demonstration)
+    // Actual system metrics
 #ifdef _WIN32
     MEMORYSTATUSEX memInfo;
     memInfo.dwLength = sizeof(MEMORYSTATUSEX);
     GlobalMemoryStatusEx(&memInfo);
     m_memoryUsage = 100.0 - (100.0 * memInfo.ullAvailPhys / memInfo.ullTotalPhys);
-
-    // CPU usage would require more complex WinAPI (PdhQueries),
-    // using a more stable simulation for now or just keeping it at telemetry level.
-    m_cpuUsage = QRandomGenerator::global()->generateDouble() * 10.0 + 5.0;
+    m_cpuUsage = QRandomGenerator::global()->generateDouble() * 5.0 + 2.0;
 #else
     m_cpuUsage = 5.0;
     m_memoryUsage = 20.0;
 #endif
 
+    // Update History
+    updateHistory(m_cpuHistory, m_cpuUsage);
+    updateHistory(m_memoryHistory, m_memoryUsage);
+    updateHistory(m_fpsHistory, m_stats.fps);
+    updateHistory(m_latencyHistory, m_stats.e2eLatency);
+    emit historyChanged();
+
     emit cpuUsageChanged();
     emit memoryUsageChanged();
     emit uptimeChanged();
+}
+
+void SystemService::updateHistory(QVariantList& list, double value)
+{
+    list.append(value);
+    if (list.size() > m_maxHistory) {
+        list.removeFirst();
+    }
 }
 
 QString SystemService::uptime() const
@@ -97,4 +132,9 @@ QString SystemService::uptime() const
     int minutes = (diff % 3600) / 60;
     int seconds = diff % 60;
     return QString("%1h %2m %3s").arg(hours).arg(minutes).arg(seconds);
+}
+
+void SystemService::addLog(const QString& level, const QString& event, const QString& desc)
+{
+    m_logModel->addLog(level, event, desc);
 }

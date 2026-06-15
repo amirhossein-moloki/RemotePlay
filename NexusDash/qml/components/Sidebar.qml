@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import "../theme"
 
 Rectangle {
@@ -7,59 +8,82 @@ Rectangle {
     property bool collapsed: false
     property int currentIndex: 0
 
-    width: collapsed ? 64 : 240
+    width: collapsed ? 72 : 250
     height: parent.height
-    color: Theme.surface
+    color: Theme.panel
     border.color: Theme.border
     border.width: 1
 
     Behavior on width {
-        NumberAnimation { duration: 250; easing.type: Easing.InOutQuad }
+        NumberAnimation { duration: 300; easing.type: Easing.InOutQuad }
     }
 
-    Column {
+    ColumnLayout {
         anchors.fill: parent
         anchors.topMargin: Theme.spacingLarge
+        anchors.bottomMargin: Theme.spacingLarge
         spacing: Theme.spacingTiny
 
         // Logo Section
         Item {
-            width: parent.width
-            height: 60
+            Layout.fillWidth: true
+            Layout.preferredHeight: 60
+            Layout.leftMargin: root.collapsed ? 0 : Theme.spacingMedium
 
             Row {
                 anchors.centerIn: parent
-                spacing: Theme.spacingSmall
+                spacing: Theme.spacingMedium
 
                 Rectangle {
-                    width: 32
-                    height: 32
-                    radius: 8
-                    color: Theme.accent
+                    width: 40
+                    height: 40
+                    radius: 10
+                    color: Theme.primary
 
                     Text {
                         anchors.centerIn: parent
                         text: "N"
                         color: "white"
                         font.bold: true
-                        font.pixelSize: 18
+                        font.pixelSize: 22
+                    }
+
+                    // Glow effect
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: parent.radius
+                        color: Theme.primary
+                        opacity: 0.3
+                        z: -1
+                        scale: 1.1
                     }
                 }
 
-                Text {
-                    text: "NexusDash"
+                Column {
                     visible: !root.collapsed
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 20
-                    font.weight: Font.Bold
-                    color: Theme.textPrimary
                     anchors.verticalCenter: parent.verticalCenter
+                    Text {
+                        text: "NexusDash"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 18
+                        font.weight: Font.Bold
+                        color: Theme.textPrimary
+                    }
+                    Text {
+                        text: "PREMIUM"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 10
+                        font.weight: Font.Black
+                        color: Theme.accent
+                        letterSpacing: 1
+                    }
                 }
             }
         }
 
-        Item { width: 1; height: Theme.spacingLarge }
+        Item { Layout.preferredHeight: Theme.spacingHuge }
 
+        // Navigation Items
         SidebarItem {
             label: "Dashboard"
             icon: "D"
@@ -84,11 +108,12 @@ Rectangle {
             onClicked: root.currentIndex = 2
         }
 
-        Item { height: parent.height - y - 60; width: 1 } // Spacer
+        Item { Layout.fillHeight: true }
 
+        // Collapse Button
         SidebarItem {
             label: root.collapsed ? "Expand" : "Collapse"
-            icon: root.collapsed ? ">" : "<"
+            icon: root.collapsed ? "→" : "←"
             collapsed: root.collapsed
             onClicked: root.collapsed = !root.collapsed
         }

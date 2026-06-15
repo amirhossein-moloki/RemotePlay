@@ -36,19 +36,24 @@ Item {
             anchors.leftMargin: Theme.spacingMedium
             spacing: Theme.spacingMedium
 
-            // Icon Placeholder
+            // Icon Container
             Rectangle {
-                width: 20
-                height: 20
-                radius: 4
-                color: root.active ? Theme.accent : Theme.textSecondary
+                width: 32
+                height: 32
+                radius: 8
+                color: root.active ? Theme.primary : "transparent"
+                border.color: root.active ? "transparent" : Theme.border
+                border.width: 1
 
                 Text {
                     anchors.centerIn: parent
                     text: root.icon
-                    color: "#FFFFFF"
-                    font.pixelSize: 12
+                    color: root.active ? "#FFFFFF" : Theme.textSecondary
+                    font.pixelSize: 14
+                    font.weight: Font.Bold
                 }
+
+                Behavior on color { ColorAnimation { duration: 200 } }
             }
 
             Text {
@@ -56,21 +61,26 @@ Item {
                 visible: !root.collapsed
                 font.family: Theme.fontFamily
                 font.pixelSize: 14
-                font.weight: root.active ? Font.Medium : Font.Normal
+                font.weight: root.active ? Font.DemiBold : Font.Normal
                 color: root.active ? Theme.textPrimary : Theme.textSecondary
                 anchors.verticalCenter: parent.verticalCenter
+
+                Behavior on color { ColorAnimation { duration: 200 } }
             }
         }
 
-        // Active Indicator
+        // Active Indicator (Vertical Bar)
         Rectangle {
-            width: 3
-            height: 20
+            width: 4
+            height: 24
             radius: 2
             color: Theme.accent
             visible: root.active
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
+
+            // Subtle glow
+            layer.enabled: true
         }
     }
 }
