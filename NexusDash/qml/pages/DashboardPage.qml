@@ -1,8 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import "../theme"
-import "../components"
+import NexusDash
 
 ScrollView {
     id: root
@@ -291,7 +290,7 @@ ScrollView {
                     spacing: Theme.spacingMedium
                     Item { Layout.fillHeight: true }
                     Text { Layout.alignment: Qt.AlignHCenter; text: backend.system.uptime; font.family: Theme.monoFontFamily; font.pixelSize: 36; font.weight: Font.Bold; color: Theme.primary }
-                    Text { Layout.alignment: Qt.AlignHCenter; text: "UPTIME SINCE LAST REBOOT"; font.pixelSize: 10; font.weight: Font.Black; color: Theme.textSecondary; letterSpacing: 1 }
+                    Text { Layout.alignment: Qt.AlignHCenter; text: "UPTIME SINCE LAST REBOOT"; font.pixelSize: 10; font.weight: Font.Black; color: Theme.textSecondary; font.letterSpacing: 1 }
                     Item { Layout.fillHeight: true }
                     RowLayout { Layout.fillWidth: true; spacing: Theme.spacingSmall; Rectangle { width: 8; height: 8; radius: 4; color: Theme.success }
                         Text { text: "System Health: EXCELLENT"; color: Theme.textPrimary; font.pixelSize: 12; font.weight: Font.Bold }

@@ -20,6 +20,8 @@ qt_add_executable(appNexusDash
 
 target_include_directories(appNexusDash PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
 
+set_source_files_properties(qml/theme/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
 qt_add_qml_module(appNexusDash
     URI NexusDash
     VERSION 1.0
@@ -27,6 +29,9 @@ qt_add_qml_module(appNexusDash
         qml/main.qml
         qml/theme/Theme.qml
         qml/components/NexusButton.qml
+        qml/components/DashboardHeader.qml
+        qml/components/NexusGraph.qml
+        qml/components/NexusComboBox.qml
         qml/components/NexusCard.qml
         qml/components/NexusInput.qml
         qml/components/NexusTable.qml

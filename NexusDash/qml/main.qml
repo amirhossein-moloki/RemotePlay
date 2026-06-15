@@ -1,9 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import "theme"
-import "components"
-import "pages"
+import NexusDash
 
 ApplicationWindow {
     id: window

@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import "../theme"
-import "../components"
+import NexusDash
 
 Item {
     id: root
