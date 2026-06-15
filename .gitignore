@@ -4,6 +4,9 @@ __pycache__/
 build/
 bin/
 *.exe
-*.dll
 *.so
 *.dylib
+
+# Allow binaries in deps folder
+!deps/**/*.dll
+!deps/**/*.lib
