@@ -2,7 +2,11 @@
 #include <stdint.h>
 
 #ifdef _WIN32
+#ifdef PARSEC_LITE_EXPORT
 #define PARSEC_API __declspec(dllexport)
+#else
+#define PARSEC_API __declspec(dllimport)
+#endif
 #else
 #define PARSEC_API
 #endif

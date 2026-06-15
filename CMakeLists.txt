@@ -55,6 +55,7 @@ add_library(ParsecLiteCore SHARED
     ${HOST_SOURCES}
     ${CLIENT_SOURCES}
 )
+target_compile_definitions(ParsecLiteCore PRIVATE PARSEC_LITE_EXPORT)
 
 # Executable
 add_executable(parsec-lite
@@ -116,8 +117,8 @@ if(WIN32)
         endif()
     endif()
 
-    target_link_libraries(ParsecLiteCore PRIVATE ws2_32 iphlpapi d3d11 dxgi xinput)
-    target_link_libraries(parsec-lite PRIVATE ws2_32 iphlpapi d3d11 dxgi xinput)
+    target_link_libraries(ParsecLiteCore PRIVATE ws2_32 iphlpapi d3d11 dxgi xinput shcore)
+    target_link_libraries(parsec-lite PRIVATE ws2_32 iphlpapi d3d11 dxgi xinput shcore)
 else()
     target_link_libraries(ParsecLiteCore PRIVATE pthread)
     target_link_libraries(parsec-lite PRIVATE pthread)

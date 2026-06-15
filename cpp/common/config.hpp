@@ -5,7 +5,9 @@
 #include <mutex>
 #include <chrono>
 
-class Config {
+#include "parsec_lite_api.h"
+
+class PARSEC_API Config {
 public:
     static Config& getInstance() {
         static Config instance;
