@@ -32,11 +32,13 @@ cmake --build . --config Release
 
 1. در ریشه پروژه، یک پوشه به نام `deps` بسازید.
 2. **FFmpeg**:
-   - نسخه مشترک (Shared) FFmpeg را برای ویندوز دانلود کنید (مثلاً از [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases)).
+   - نسخه مشترک (Shared) FFmpeg را برای ویندوز دانلود کنید: [FFmpeg Shared Build](https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip).
    - محتویات را در `deps/ffmpeg` استخراج کنید به طوری که پوشه‌های `bin` و `include` مستقیماً داخل `deps/ffmpeg` باشند.
 3. **ViGEmClient**:
-   - فایل SDK را از [ViGEm/ViGEmClient](https://github.com/ViGEm/ViGEmClient/releases) دانلود کنید.
-   - محتویات را در `deps/ViGEmClient` استخراج کنید.
+   - فایل SDK را دانلود کنید: [ViGEmClient SDK](https://github.com/ViGEm/ViGEmClient/releases/download/v1.16.16/ViGEmClient_SDK.zip).
+   - محتویات را در `deps/ViGEmClient` استخراج کنید به طوری که پوشه‌های `include` و `lib` مستقیماً داخل آن باشند.
+
+**Note**: You can automate this by running `.\setup_deps.ps1` in PowerShell.
 
 ### ۳. پیکربندی و بیلد
 یک ترمینال (مانند PowerShell یا CMD) در پوشه اصلی پروژه باز کرده و دستورات زیر را اجرا کنید:
