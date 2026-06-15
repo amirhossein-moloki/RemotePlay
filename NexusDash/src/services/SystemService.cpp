@@ -1,6 +1,8 @@
 #include "SystemService.hpp"
 #include <QDateTime>
 #include <QRandomGenerator>
+#include "common/network_manager.hpp"
+#include <cstring>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -9,16 +11,62 @@
 SystemService::SystemService(QObject *parent) : QObject(parent)
 {
     m_startTime = QDateTime::currentSecsSinceEpoch();
+
+    // Enumerate network interfaces
+    auto interfaces = Network::NetworkManager::EnumerateInterfaces();
+    for (const auto& iface : interfaces) {
+        m_networkInterfaces << QString::fromStdString(iface.ip);
+    }
+
     m_timer = new QTimer(this);
     connect(m_timer, &QTimer::timeout, this, &SystemService::updateStats);
     m_timer->start(2000); // Update every 2 seconds
     updateStats();
 }
 
+void SystemService::startHost(const QString& interfaceIp, int bitrate, int fps)
+{
+    ParsecConfig config = {};
+    config.isHost = true;
+    config.bitrate = bitrate;
+    config.fps = fps;
+    config.useHardwareEncoding = true;
+    strncpy(config.selectedIp, interfaceIp.toStdString().c_str(), sizeof(config.selectedIp) - 1);
+
+    Parsec_StartSession(config);
+    m_isSessionActive = true;
+    emit sessionStateChanged();
+}
+
+void SystemService::startClient(const QString& hostIp, int bitrate, int fps)
+{
+    ParsecConfig config = {};
+    config.isHost = false;
+    config.bitrate = bitrate;
+    config.fps = fps;
+    config.useHardwareEncoding = true;
+    strncpy(config.hostIp, hostIp.toStdString().c_str(), sizeof(config.hostIp) - 1);
+
+    // For simplicity in GUI, we might need to handle window handle better
+    // but Parsec_StartSession handles the creation of output if windowHandle is null in some implementations
+    // or we might need to pass the QQuickWindow handle.
+
+    Parsec_StartSession(config);
+    m_isSessionActive = true;
+    emit sessionStateChanged();
+}
+
+void SystemService::stopSession()
+{
+    Parsec_StopSession();
+    m_isSessionActive = false;
+    emit sessionStateChanged();
+}
+
 void SystemService::updateStats()
 {
     // Real telemetry from ParsecLiteCore
-    if (Parsec_GetTelemetry(&m_stats)) {
+    if (m_isSessionActive && Parsec_GetTelemetry(&m_stats)) {
         emit statsChanged();
     }
 

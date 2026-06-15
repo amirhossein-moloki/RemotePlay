@@ -22,11 +22,12 @@ Item {
 
         NexusCard {
             Layout.fillWidth: true
-            height: 200
+            implicitHeight: 200
             title: "Appearance"
 
             ColumnLayout {
                 anchors.fill: parent
+                anchors.margins: Theme.spacingMedium
                 spacing: Theme.spacingMedium
 
                 RowLayout {
@@ -39,7 +40,7 @@ Item {
                     }
                     Switch {
                         checked: backend.theme.darkMode
-                        onToggled: backend.theme.darkMode = checked
+                        onClicked: backend.theme.darkMode = checked
                     }
                 }
 
@@ -72,21 +73,53 @@ Item {
 
         NexusCard {
             Layout.fillWidth: true
-            height: 150
-            title: "Account"
+            implicitHeight: 150
+            title: "Network"
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingMedium
+                spacing: Theme.spacingMedium
+
+                Text {
+                    text: "Preferred Interface"
+                    color: Theme.textPrimary
+                    font.family: Theme.fontFamily
+                }
+
+                ComboBox {
+                    Layout.fillWidth: true
+                    model: backend.system.networkInterfaces
+                }
+            }
+        }
+
+        NexusCard {
+            Layout.fillWidth: true
+            implicitHeight: 150
+            title: "Streaming Defaults"
 
             RowLayout {
                 anchors.fill: parent
+                anchors.margins: Theme.spacingMedium
                 spacing: Theme.spacingLarge
 
-                NexusInput {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    placeholderText: "Username"
-                    text: "AdminUser"
+                    Text { text: "Default Bitrate (kbps)"; color: Theme.textSecondary; font.pixelSize: 12 }
+                    NexusInput {
+                        Layout.fillWidth: true
+                        text: "5000"
+                    }
                 }
 
-                NexusButton {
-                    text: "Save Changes"
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Text { text: "Default FPS"; color: Theme.textSecondary; font.pixelSize: 12 }
+                    NexusInput {
+                        Layout.fillWidth: true
+                        text: "60"
+                    }
                 }
             }
         }
