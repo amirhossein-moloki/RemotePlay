@@ -18,6 +18,8 @@
 #include <netdb.h>
 #endif
 
+#include "parsec_lite_api.h"
+
 namespace Network {
 
 struct InterfaceInfo {
@@ -26,7 +28,7 @@ struct InterfaceInfo {
     bool isActive;
 };
 
-class NetworkManager {
+class PARSEC_API NetworkManager {
 public:
     static std::vector<InterfaceInfo> EnumerateInterfaces();
 
