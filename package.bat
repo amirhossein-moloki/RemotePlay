@@ -12,23 +12,21 @@ if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
 echo [2/4] Copying executables...
 set FOUND_EXE=0
 
-if exist "%BUILD_DIR%\Release\parsec-lite.exe" (
-    copy /Y "%BUILD_DIR%\Release\parsec-lite.exe" "%DIST_DIR%\"
+if exist "%BUILD_DIR%\dist\app\parsec-lite.exe" (
+    copy /Y "%BUILD_DIR%\dist\app\parsec-lite.exe" "%DIST_DIR%\"
     set FOUND_EXE=1
 )
 
-if exist "%BUILD_DIR%\NexusDash\Release\appNexusDash.exe" (
-    copy /Y "%BUILD_DIR%\NexusDash\Release\appNexusDash.exe" "%DIST_DIR%\"
+if exist "%BUILD_DIR%\dist\app\appNexusDash.exe" (
+    copy /Y "%BUILD_DIR%\dist\app\appNexusDash.exe" "%DIST_DIR%\"
     set FOUND_EXE=1
 )
 
 echo [2.5/4] Copying ParsecLiteCore.dll...
-if exist "%BUILD_DIR%\Release\ParsecLiteCore.dll" (
-    copy /Y "%BUILD_DIR%\Release\ParsecLiteCore.dll" "%DIST_DIR%\"
-) else if exist "%BUILD_DIR%\ParsecLiteCore.dll" (
-    copy /Y "%BUILD_DIR%\ParsecLiteCore.dll" "%DIST_DIR%\"
+if exist "%BUILD_DIR%\dist\app\ParsecLiteCore.dll" (
+    copy /Y "%BUILD_DIR%\dist\app\ParsecLiteCore.dll" "%DIST_DIR%\"
 ) else (
-    echo WARNING: ParsecLiteCore.dll not found in build directory.
+    echo WARNING: ParsecLiteCore.dll not found in %BUILD_DIR%\dist\app
 )
 
 if %FOUND_EXE%==0 (
@@ -39,8 +37,10 @@ if %FOUND_EXE%==0 (
 echo [3/4] Copying FFmpeg DLLs...
 if exist "%DEPS_DIR%\ffmpeg\bin" (
     copy /Y "%DEPS_DIR%\ffmpeg\bin\*.dll" "%DIST_DIR%\"
+) else if exist "%DEPS_DIR%\ffmpeg\lib" (
+    copy /Y "%DEPS_DIR%\ffmpeg\lib\*.dll" "%DIST_DIR%\"
 ) else (
-    echo WARNING: FFmpeg DLLs not found in %DEPS_DIR%\ffmpeg\bin
+    echo WARNING: FFmpeg DLLs not found in %DEPS_DIR%\ffmpeg\bin or %DEPS_DIR%\ffmpeg\lib
 )
 
 echo [4/4] Copying ViGEmClient DLL...

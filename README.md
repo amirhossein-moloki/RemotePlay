@@ -103,6 +103,14 @@ cmake .. -DBUILD_NEXUSDASH=ON -DCMAKE_PREFIX_PATH=E:\Qt\6.11.1\msvc2022_64
 - مطمئن شوید `ParsecLiteCore.dll` کنار فایل `.exe` کپی شده است.
 - برای برنامه‌ی NexusDash، از ابزار `windeployqt` استفاده کنید تا تمام وابستگی‌های Qt کپی شوند.
 
+### 🟢 ۶) خطای پیدا نشدن `avcodec-62.dll` یا `avutil-60.dll`
+**مشکل:** برنامه با خطای "The code execution cannot proceed because avcodec-62.dll was not found" بسته می‌شود.
+**راه حل:**
+این فایل‌ها مربوط به FFmpeg هستند و باید کنار فایل اجرایی برنامه باشند:
+1. به پوشه `deps/ffmpeg/bin/` یا `deps/ffmpeg/lib/` بروید.
+2. تمام فایل‌های با پسوند `.dll` (مانند `avcodec-62.dll` و `avutil-60.dll`) را کپی کنید.
+3. این فایل‌ها را در همان پوشه‌ای که فایل `parsec-lite.exe` قرار دارد، Paste کنید.
+
 ---
 
 ## 📦 Running the App (For End-Users)

@@ -86,12 +86,19 @@ if(WIN32)
         target_compile_definitions(parsec-lite PRIVATE PARSEC_LITE_ENABLE_FFMPEG)
 
         # Copy FFmpeg DLLs to output
-        file(GLOB FFMPEG_DLLS "${FFMPEG_DIR}/bin/*.dll")
+        # FFmpeg shared builds usually put DLLs in 'bin', but some might put them in 'lib'
+        file(GLOB FFMPEG_DLLS
+            "${FFMPEG_DIR}/bin/*.dll"
+            "${FFMPEG_DIR}/lib/*.dll"
+        )
         if(FFMPEG_DLLS)
             add_custom_command(TARGET ParsecLiteCore POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_DLLS} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
                 COMMENT "Copying FFmpeg DLLs to output"
             )
+        else()
+            message(WARNING "FFmpeg DLLs (avcodec-*.dll, etc.) not found in ${FFMPEG_DIR}/bin or ${FFMPEG_DIR}/lib. "
+                            "The application will fail to start unless these DLLs are manually placed next to the executable.")
         endif()
     endif()
 
