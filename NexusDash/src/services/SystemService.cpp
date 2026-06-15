@@ -26,7 +26,7 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
     for (const auto& iface : interfaces) {
         // Construct detailed string: "Name (IP) - [Active/Inactive]"
         QString status = iface.isActive ? "Active" : "Inactive";
-        m_networkInterfaces << QString("%1 (%2) - %3").arg(QString::fromStdString(iface.name), QString::fromStdString(iface.ip), status);
+        m_networkInterfaces << QString("%1 (%2) - %3").arg(QString::fromUtf8(iface.name.c_str()), QString::fromUtf8(iface.ip.c_str()), status);
     }
 
     m_timer = new QTimer(this);

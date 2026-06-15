@@ -161,11 +161,10 @@ ScrollView {
 
             NexusCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 200
+                Layout.preferredHeight: 250
                 title: "Live Stream Metrics"
                 RowLayout {
                     anchors.fill: parent
-                    anchors.margins: Theme.spacingMedium
                     GridLayout {
                         columns: 2
                         columnSpacing: Theme.spacingHuge
@@ -200,11 +199,10 @@ ScrollView {
             spacing: Theme.spacingLarge
             NexusCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 240
+                Layout.preferredHeight: 300
                 title: "CPU Usage"
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: Theme.spacingMedium
                     spacing: Theme.spacingMedium
                     RowLayout {
                         Layout.alignment: Qt.AlignHCenter
@@ -241,11 +239,10 @@ ScrollView {
             }
             NexusCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 240
+                Layout.preferredHeight: 300
                 title: "Memory Usage"
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: Theme.spacingMedium
                     spacing: Theme.spacingMedium
                     RowLayout {
                         Layout.alignment: Qt.AlignHCenter
@@ -282,11 +279,10 @@ ScrollView {
             }
             NexusCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 240
+                Layout.preferredHeight: 300
                 title: "System Uptime"
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: Theme.spacingMedium
                     spacing: Theme.spacingMedium
                     Item { Layout.fillHeight: true }
                     Text { Layout.alignment: Qt.AlignHCenter; text: backend.system.uptime; font.family: Theme.monoFontFamily; font.pixelSize: 36; font.weight: Font.Bold; color: Theme.primary }
