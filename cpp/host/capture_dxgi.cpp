@@ -14,30 +14,37 @@ CaptureDXGI::~CaptureDXGI() {
 }
 
 bool CaptureDXGI::Initialize() {
-    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &m_device, nullptr, &m_context);
+    IDXGIFactory1* factory = nullptr;
+    HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&factory);
     if (FAILED(hr)) return false;
 
-    IDXGIDevice* dxgiDevice = nullptr;
-    m_device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDevice);
+    IDXGIAdapter1* adapter = nullptr;
+    hr = factory->EnumAdapters1(0, &adapter);
+    factory->Release();
+    if (FAILED(hr)) return false;
 
-    IDXGIAdapter* dxgiAdapter = nullptr;
-    dxgiDevice->GetParent(__uuidof(IDXGIAdapter), (void**)&dxgiAdapter);
-    dxgiDevice->Release();
+    hr = D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &m_device, nullptr, &m_context);
+    if (FAILED(hr)) {
+        adapter->Release();
+        return false;
+    }
 
     IDXGIOutput* dxgiOutput = nullptr;
-    dxgiAdapter->EnumOutputs(0, &dxgiOutput);
-    dxgiAdapter->Release();
+    hr = adapter->EnumOutputs(0, &dxgiOutput);
+    adapter->Release();
+    if (FAILED(hr)) return false;
 
     IDXGIOutput1* dxgiOutput1 = nullptr;
-    dxgiOutput->QueryInterface(__uuidof(IDXGIOutput1), (void**)&dxgiOutput1);
+    hr = dxgiOutput->QueryInterface(__uuidof(IDXGIOutput1), (void**)&dxgiOutput1);
     dxgiOutput->Release();
+    if (FAILED(hr)) return false;
 
     hr = dxgiOutput1->DuplicateOutput(m_device, &m_dupl);
     dxgiOutput1->Release();
 
     if (FAILED(hr)) {
         std::stringstream ss;
-        ss << "0x" << std::hex << hr;
+        ss << std::hex << hr;
         if (hr == DXGI_ERROR_ACCESS_DENIED) {
             LOG_ERROR("Capture", "DXGI DuplicateOutput failed: Access Denied (0x" + ss.str() + "). Try running as administrator.");
         } else {

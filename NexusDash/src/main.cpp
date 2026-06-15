@@ -1,11 +1,13 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
+#include <QQuickStyle>
 #include "core/AppEngine.hpp"
 #include "common/parsec_lite_api.h"
 
 int main(int argc, char *argv[])
 {
     Parsec_Initialize();
+    QQuickStyle::setStyle("Basic");
     QGuiApplication app(argc, argv);
 
     app.setOrganizationName("NexusDash");
