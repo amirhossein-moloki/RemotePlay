@@ -8,6 +8,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
 
 qt_standard_project_setup()
+qt_policy(SET QTP0001 NEW)
+qt_policy(SET QTP0004 NEW)
 
 qt_add_executable(appNexusDash
     src/main.cpp
@@ -47,3 +49,22 @@ target_link_libraries(appNexusDash PRIVATE
 
 include(FeatureSummary)
 feature_summary(WHAT ALL)
+
+# Deployment for Qt
+if(WIN32)
+    get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${QT_BIN_DIR}")
+
+    if(WINDEPLOYQT_EXECUTABLE)
+        add_custom_command(TARGET appNexusDash POST_BUILD
+            COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+                    --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/qml"
+                    --no-translations
+                    --no-system-d3d-compiler
+                    --no-opengl-sw
+                    "$<TARGET_FILE:appNexusDash>"
+            COMMENT "Running windeployqt for appNexusDash"
+        )
+    endif()
+endif()

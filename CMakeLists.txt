@@ -125,22 +125,4 @@ if(BUILD_NEXUSDASH)
     find_package(Qt6 COMPONENTS Core Gui Qml Quick QuickControls2 REQUIRED)
     add_subdirectory(NexusDash)
 
-    # Deployment for Qt
-    if(WIN32)
-        get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
-        get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
-        find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${QT_BIN_DIR}")
-
-        if(WINDEPLOYQT_EXECUTABLE)
-            add_custom_command(TARGET appNexusDash POST_BUILD
-                COMMAND "${WINDEPLOYQT_EXECUTABLE}"
-                        --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/NexusDash/qml"
-                        --no-translations
-                        --no-system-d3d-compiler
-                        --no-opengl-sw
-                        \"$<TARGET_FILE:appNexusDash>\"
-                COMMENT "Running windeployqt for appNexusDash"
-            )
-        endif()
-    endif()
 endif()
