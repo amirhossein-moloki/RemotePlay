@@ -43,7 +43,7 @@ void Launcher::Render(LauncherConfig& config, const std::vector<Network::Interfa
         if (ImGui::BeginCombo("Local interface", preview)) {
             for (const auto& iface : interfaces) {
                 bool isSelected = (config.selectedIp == iface.ip);
-                std::string label = iface.name + "  —  " + iface.ip;
+                std::string label = "[" + iface.ip + "] " + iface.name;
                 if (ImGui::Selectable(label.c_str(), isSelected)) config.selectedIp = iface.ip;
                 if (isSelected) ImGui::SetItemDefaultFocus();
             }

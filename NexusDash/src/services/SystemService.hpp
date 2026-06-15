@@ -82,8 +82,8 @@ class SystemService : public QObject
 public:
     explicit SystemService(QObject *parent = nullptr);
 
-    Q_INVOKABLE void startHost(const QString& interfaceIp, int bitrate, int fps);
-    Q_INVOKABLE void startClient(const QString& hostIp, int bitrate, int fps);
+    Q_INVOKABLE void startHost(const QString& interfaceInfo, int bitrate, int fps);
+    Q_INVOKABLE void startClient(const QString& interfaceInfo, const QString& hostIp, int bitrate, int fps);
     Q_INVOKABLE void stopSession();
 
     double cpuUsage() const { return m_cpuUsage; }

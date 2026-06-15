@@ -24,9 +24,9 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
     // Enumerate network interfaces
     auto interfaces = Network::NetworkManager::EnumerateInterfaces();
     for (const auto& iface : interfaces) {
-        // Construct detailed string: "Name (IP) - [Active/Inactive]"
+        // Construct detailed string: "[IP] Name - Status"
         QString status = iface.isActive ? "Active" : "Inactive";
-        m_networkInterfaces << QString("%1 (%2) - %3").arg(QString::fromUtf8(iface.name.c_str()), QString::fromUtf8(iface.ip.c_str()), status);
+        m_networkInterfaces << QString("[%1] %2 - %3").arg(QString::fromUtf8(iface.ip.c_str()), QString::fromUtf8(iface.name.c_str()), status);
     }
 
     m_timer = new QTimer(this);
@@ -39,10 +39,10 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
 
 void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps)
 {
-    // Extract IP from "Name (IP) - Status"
+    // Extract IP from "[IP] Name - Status"
     QString interfaceIp = interfaceInfo;
-    int start = interfaceInfo.indexOf('(');
-    int end = interfaceInfo.indexOf(')');
+    int start = interfaceInfo.indexOf('[');
+    int end = interfaceInfo.indexOf(']');
     if (start != -1 && end != -1) {
         interfaceIp = interfaceInfo.mid(start + 1, end - start - 1);
     }
@@ -60,13 +60,22 @@ void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps
     addLog("INFO", "Host", "Hosting started on " + interfaceIp);
 }
 
-void SystemService::startClient(const QString& hostIp, int bitrate, int fps)
+void SystemService::startClient(const QString& interfaceInfo, const QString& hostIp, int bitrate, int fps)
 {
+    // Extract IP from "[IP] Name - Status"
+    QString interfaceIp = interfaceInfo;
+    int start = interfaceInfo.indexOf('[');
+    int end = interfaceInfo.indexOf(']');
+    if (start != -1 && end != -1) {
+        interfaceIp = interfaceInfo.mid(start + 1, end - start - 1);
+    }
+
     ParsecConfig config = {};
     config.isHost = false;
     config.bitrate = bitrate;
     config.fps = fps;
     config.useHardwareEncoding = true;
+    strncpy(config.selectedIp, interfaceIp.toStdString().c_str(), sizeof(config.selectedIp) - 1);
     strncpy(config.hostIp, hostIp.toStdString().c_str(), sizeof(config.hostIp) - 1);
 
     Parsec_StartSession(config);

@@ -88,12 +88,22 @@ ScrollView {
                         }
                         Column {
                             Text { text: "Join a session"; color: Theme.textPrimary; font.pixelSize: 16; font.weight: Font.DemiBold }
-                            Text { text: "Enter remote host IP address"; color: Theme.textSecondary; font.pixelSize: 12 }
+                            Text { text: "Select interface and enter host IP"; color: Theme.textSecondary; font.pixelSize: 12 }
+                        }
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSmall
+                        Text { text: "Local Interface"; color: Theme.textSecondary; font.pixelSize: 11; font.weight: Font.Bold }
+                        NexusComboBox {
+                            id: clientInterfaceCombo
+                            Layout.fillWidth: true
+                            model: backend.system.networkInterfaces
                         }
                     }
                     NexusInput {
                         id: hostIpInput
-                        placeholderText: "192.168.1.XX"
+                        placeholderText: "Remote Host IP (e.g. 192.168.1.XX)"
                         Layout.fillWidth: true
                     }
                     ColumnLayout {
@@ -119,7 +129,7 @@ ScrollView {
                     NexusButton {
                         text: "Connect"
                         Layout.fillWidth: true
-                        onClicked: backend.system.startClient(hostIpInput.text, 5000, 60)
+                        onClicked: backend.system.startClient(clientInterfaceCombo.currentText, hostIpInput.text, 5000, 60)
                     }
                 }
             }
