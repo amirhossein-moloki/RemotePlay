@@ -57,7 +57,11 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
     m_internal->codecCtx->max_b_frames = 0;
 
     av_opt_set(m_internal->codecCtx->priv_data, "preset", "p1", 0);
-    av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
+    if (std::string(m_internal->codecCtx->codec->name).find("nvenc") != std::string::npos) {
+        av_opt_set(m_internal->codecCtx->priv_data, "tune", "ull", 0);
+    } else {
+        av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
+    }
     av_opt_set(m_internal->codecCtx->priv_data, "rc", "cbr", 0);
 
     if (d3d11Device) {
@@ -83,6 +87,7 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
 
                 if (av_hwframe_ctx_init(frames_ref) >= 0) {
                     m_internal->codecCtx->hw_frames_ctx = av_buffer_ref(frames_ref);
+                    m_internal->codecCtx->pix_fmt = AV_PIX_FMT_D3D11;
                 }
                 av_buffer_unref(&frames_ref);
             } else {
