@@ -210,6 +210,7 @@ ScrollView {
                         Item {
                             width: 100; height: 100
                             Canvas {
+                                id: cpuCanvas
                                 anchors.fill: parent
                                 onPaint: {
                                     var ctx = getContext("2d");
@@ -219,7 +220,10 @@ ScrollView {
                                     ctx.beginPath(); ctx.arc(width/2, height/2, 45, -Math.PI/2, (-Math.PI/2) + (backend.system.cpuUsage/100 * 2*Math.PI));
                                     ctx.strokeStyle = Theme.accent; ctx.lineWidth = 10; ctx.lineCap = "round"; ctx.stroke();
                                 }
-                                Connections { target: backend.system; onCpuUsageChanged: parent.requestPaint() }
+                                Connections {
+                                    target: backend.system
+                                    function onCpuUsageChanged() { cpuCanvas.requestPaint() }
+                                }
                             }
                             Text { anchors.centerIn: parent; text: backend.system.cpuUsage.toFixed(0) + "%"; font.family: Theme.fontFamily; font.pixelSize: 20; font.weight: Font.Bold; color: Theme.textPrimary }
                         }
@@ -250,6 +254,7 @@ ScrollView {
                         Item {
                             width: 100; height: 100
                             Canvas {
+                                id: memoryCanvas
                                 anchors.fill: parent
                                 onPaint: {
                                     var ctx = getContext("2d");
@@ -259,7 +264,10 @@ ScrollView {
                                     ctx.beginPath(); ctx.arc(width/2, height/2, 45, -Math.PI/2, (-Math.PI/2) + (backend.system.memoryUsage/100 * 2*Math.PI));
                                     ctx.strokeStyle = Theme.success; ctx.lineWidth = 10; ctx.lineCap = "round"; ctx.stroke();
                                 }
-                                Connections { target: backend.system; onMemoryUsageChanged: parent.requestPaint() }
+                                Connections {
+                                    target: backend.system
+                                    function onMemoryUsageChanged() { memoryCanvas.requestPaint() }
+                                }
                             }
                             Text { anchors.centerIn: parent; text: backend.system.memoryUsage.toFixed(0) + "%"; font.family: Theme.fontFamily; font.pixelSize: 20; font.weight: Font.Bold; color: Theme.textPrimary }
                         }
@@ -342,6 +350,7 @@ ScrollView {
     }
 
     component MetricLarge : Column {
+        id: metricRoot
         property string label: ""
         property string value: ""
         property string suffix: ""
@@ -349,7 +358,7 @@ ScrollView {
         Text { text: label; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.Bold }
         Row {
             spacing: 2
-            Text { text: value; color: parent.color; font.pixelSize: 28; font.weight: Font.Bold; font.family: Theme.monoFontFamily }
+            Text { text: value; color: metricRoot.color; font.pixelSize: 28; font.weight: Font.Bold; font.family: Theme.monoFontFamily }
             Text { text: suffix; color: Theme.textSecondary; font.pixelSize: 12; anchors.bottom: parent.bottom; anchors.bottomMargin: 4 }
         }
     }
