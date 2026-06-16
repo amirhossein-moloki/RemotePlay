@@ -15,7 +15,7 @@ namespace Client {
 
 class InputCapture {
 public:
-    using InputCallback = std::function<void(const std::vector<uint8_t>&)>;
+    using InputCallback = std::function<void(const uint8_t*, size_t)>;
 
     InputCapture(InputCallback callback);
 
@@ -38,10 +38,10 @@ private:
         h.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 
-        std::vector<uint8_t> packet(sizeof(h) + sizeof(T));
-        std::memcpy(packet.data(), &h, sizeof(h));
-        std::memcpy(packet.data() + sizeof(h), &payload, sizeof(T));
-        m_callback(packet);
+        uint8_t buffer[sizeof(Protocol::InputHeader) + sizeof(T)];
+        std::memcpy(buffer, &h, sizeof(h));
+        std::memcpy(buffer + sizeof(h), &payload, sizeof(T));
+        m_callback(buffer, sizeof(buffer));
     }
 
     InputCallback m_callback;

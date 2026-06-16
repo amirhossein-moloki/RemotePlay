@@ -72,12 +72,12 @@ int main(int argc, char* argv[]) {
         return 0;
     } else if (args[1] == "--host") {
         config.isHost = true;
-        strcpy(config.selectedIp, selectedIp.c_str());
+        strncpy(config.selectedIp, selectedIp.c_str(), sizeof(config.selectedIp) - 1);
         Parsec_StartSession(config);
     } else if (args.size() > 2 && args[1] == "--client") {
         config.isHost = false;
-        strcpy(config.selectedIp, selectedIp.c_str());
-        strcpy(config.hostIp, args[2].c_str());
+        strncpy(config.selectedIp, selectedIp.c_str(), sizeof(config.selectedIp) - 1);
+        strncpy(config.hostIp, args[2].c_str(), sizeof(config.hostIp) - 1);
 
         void* hwnd = Parsec_CreateClientWindow("Parsec-Lite Client", 1280, 720);
         config.windowHandle = hwnd;

@@ -321,9 +321,11 @@ void SessionManager::runHost(ParsecConfig config) {
                             });
 
                             if (it == m_pendingClients.end()) {
-                                m_pendingClients.push_back({senderIp, senderPort, username, false, true});
-                                if (m_connectionCallback) {
-                                    m_connectionCallback(username.c_str(), senderIp.c_str(), senderPort);
+                                if (m_pendingClients.size() < 32) {
+                                    m_pendingClients.push_back({senderIp, senderPort, username, false, true});
+                                    if (m_connectionCallback) {
+                                        m_connectionCallback(username.c_str(), senderIp.c_str(), senderPort);
+                                    }
                                 }
                             } else if (!it->waiting) {
                                 approved = it->approved;
@@ -411,8 +413,8 @@ void SessionManager::runClient(ParsecConfig config) {
     Client::JitterBuffer jitterBuffer(3);
     Client::DecoderHW decoder;
     Client::RendererD3D11 renderer;
-    Client::InputCapture input([&](const std::vector<uint8_t>& packet) {
-        net.SendTo(packet.data(), (int)packet.size(), config.hostIp, 5005);
+    Client::InputCapture input([&](const uint8_t* data, size_t size) {
+        net.SendTo(data, (int)size, config.hostIp, 5005);
     });
 
     bool useRenderer = (config.windowHandle != nullptr);
@@ -463,15 +465,18 @@ void SessionManager::runClient(ParsecConfig config) {
     hp.username[sizeof(hp.username) - 1] = '\0';
 
     auto startHandshake = std::chrono::steady_clock::now();
-    while (m_running && !handshakeApproved && !handshakeRejected) {
-        net.SendTo(&hp, sizeof(hp), config.hostIp, 5005);
+    auto lastHandshakeSend = std::chrono::steady_clock::now();
+    net.SendTo(&hp, sizeof(hp), config.hostIp, 5005);
 
-        // Wait and check periodically
-        for (int i = 0; i < 10 && m_running && !handshakeApproved && !handshakeRejected; ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    while (m_running && !handshakeApproved && !handshakeRejected) {
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastHandshakeSend).count() >= 1) {
+             net.SendTo(&hp, sizeof(hp), config.hostIp, 5005);
+             lastHandshakeSend = now;
         }
 
-        auto now = std::chrono::steady_clock::now();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
         if (std::chrono::duration_cast<std::chrono::seconds>(now - startHandshake).count() > 30) {
             LOG_ERROR("Session", "Handshake timeout");
             break;
