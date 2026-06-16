@@ -4,6 +4,8 @@
 #include <thread>
 #include <atomic>
 #include <memory>
+#include <vector>
+#include <mutex>
 #include "parsec_lite_api.h"
 
 class SessionManager {

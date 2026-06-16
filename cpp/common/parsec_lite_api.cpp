@@ -1,3 +1,8 @@
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 #include "parsec_lite_api.h"
 #include "session_manager.hpp"
 #include "logger.hpp"
