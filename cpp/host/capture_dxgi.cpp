@@ -14,6 +14,15 @@ CaptureDXGI::~CaptureDXGI() {
 }
 
 bool CaptureDXGI::Initialize() {
+    if (m_dupl) {
+        m_dupl->Release();
+        m_dupl = nullptr;
+    }
+
+    if (m_device && FAILED(m_device->GetDeviceRemovedReason())) {
+        Cleanup();
+    }
+
     IDXGIFactory1* factory = nullptr;
     HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&factory);
     if (FAILED(hr)) return false;
@@ -23,10 +32,12 @@ bool CaptureDXGI::Initialize() {
     factory->Release();
     if (FAILED(hr)) return false;
 
-    hr = D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &m_device, nullptr, &m_context);
-    if (FAILED(hr)) {
-        adapter->Release();
-        return false;
+    if (!m_device) {
+        hr = D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &m_device, nullptr, &m_context);
+        if (FAILED(hr)) {
+            adapter->Release();
+            return false;
+        }
     }
 
     IDXGIOutput* dxgiOutput = nullptr;
@@ -55,8 +66,8 @@ bool CaptureDXGI::Initialize() {
     return true;
 }
 
-bool CaptureDXGI::AcquireFrame(ID3D11Texture2D** texture) {
-    if (!m_dupl) return false;
+HRESULT CaptureDXGI::AcquireFrame(ID3D11Texture2D** texture) {
+    if (!m_dupl) return DXGI_ERROR_INVALID_CALL;
 
     DXGI_OUTDUPL_FRAME_INFO frameInfo;
     IDXGIResource* desktopResource = nullptr;
@@ -68,24 +79,23 @@ bool CaptureDXGI::AcquireFrame(ID3D11Texture2D** texture) {
             LOG_WARN("Capture", "DXGI Device lost (HR: " + ss.str() + "), cleaning up for re-init.");
             Cleanup();
         }
-        return false;
+        return hr;
     }
 
     hr = desktopResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)texture);
     desktopResource->Release();
 
-    if (FAILED(hr)) return false;
-    return true;
+    return hr;
 }
 
 void CaptureDXGI::ReleaseFrame() {
-    m_dupl->ReleaseFrame();
+    if (m_dupl) m_dupl->ReleaseFrame();
 }
 
 void CaptureDXGI::Cleanup() {
-    if (m_dupl) m_dupl->Release();
-    if (m_context) m_context->Release();
-    if (m_device) m_device->Release();
+    if (m_dupl) { m_dupl->Release(); m_dupl = nullptr; }
+    if (m_context) { m_context->Release(); m_context = nullptr; }
+    if (m_device) { m_device->Release(); m_device = nullptr; }
 }
 
 } // namespace Host

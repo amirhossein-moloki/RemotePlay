@@ -11,6 +11,7 @@
 
 #include <vector>
 #include <mutex>
+#include <condition_variable>
 #include <set>
 #include <algorithm>
 #include <cstring>
@@ -97,25 +98,49 @@ void SessionManager::runHost(ParsecConfig config) {
         PacketPool packetPool{200, 1024 * 1024};
         PacketPool udpPool{1000, 1500};
         std::atomic<uint32_t> globalPacketSequence{0};
+
+        std::mutex initMutex;
+        std::condition_variable initCv;
+        bool initDone = false;
+        bool initFailed = false;
+        int capturedWidth = 1920;
+        int capturedHeight = 1080;
     } ctx;
 
     if (!ctx.net.Bind(config.selectedIp, 5005)) return;
-    if (!ctx.capture.Initialize()) return;
 
-    // Resolve resolution from capture
-    int width = 1920, height = 1080;
-    ID3D11Texture2D* testTex = nullptr;
-    if (ctx.capture.AcquireFrame(&testTex)) {
-        D3D11_TEXTURE2D_DESC desc;
-        testTex->GetDesc(&desc);
-        width = desc.Width;
-        height = desc.Height;
-        ctx.capture.ReleaseFrame();
-    }
+    std::thread captureThread;
 
-    if (!ctx.encoder.Initialize(width, height, config.fps, config.bitrate, ctx.capture.GetDevice())) return;
+    captureThread = std::thread([&]() {
+        // Initialize capture on this thread for DXGI thread affinity
+        if (!ctx.capture.Initialize()) {
+            std::lock_guard<std::mutex> lock(ctx.initMutex);
+            ctx.initFailed = true;
+            ctx.initCv.notify_all();
+            return;
+        }
 
-    std::thread captureThread = std::thread([&]() {
+        // Detect resolution
+        ID3D11Texture2D* testTex = nullptr;
+        HRESULT hr = ctx.capture.AcquireFrame(&testTex);
+        if (SUCCEEDED(hr)) {
+            D3D11_TEXTURE2D_DESC desc;
+            testTex->GetDesc(&desc);
+            {
+                std::lock_guard<std::mutex> lock(ctx.initMutex);
+                ctx.capturedWidth = desc.Width;
+                ctx.capturedHeight = desc.Height;
+                ctx.initDone = true;
+            }
+            ctx.capture.ReleaseFrame();
+            ctx.initCv.notify_all();
+        } else {
+            std::lock_guard<std::mutex> lock(ctx.initMutex);
+            ctx.initFailed = true;
+            ctx.initCv.notify_all();
+            return;
+        }
+
         uint32_t frameCount = 0;
         auto lastFpsCheck = std::chrono::high_resolution_clock::now();
 
@@ -131,13 +156,18 @@ void SessionManager::runHost(ParsecConfig config) {
 
             ID3D11Texture2D* tex = nullptr;
             uint64_t captureTs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-            if (ctx.capture.AcquireFrame(&tex)) {
+            HRESULT hr = ctx.capture.AcquireFrame(&tex);
+            if (SUCCEEDED(hr)) {
                 uint64_t endCaptureTs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
                 Profiler::getInstance().recordTime("Capture_Time", (double)(endCaptureTs - captureTs));
                 if (!ctx.captureQueue.push({tex, endCaptureTs})) ctx.capture.ReleaseFrame();
+            } else if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+                // Ignore timeouts
+                std::this_thread::yield();
             } else if (m_running) {
-                ctx.capture.Initialize();
+                // Fatal error or loss of access
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                ctx.capture.Initialize();
             }
         }
     });
@@ -262,6 +292,23 @@ void SessionManager::runHost(ParsecConfig config) {
             }
         }
     });
+
+    // Wait for capture initialization
+    {
+        std::unique_lock<std::mutex> lock(ctx.initMutex);
+        ctx.initCv.wait(lock, [&] { return ctx.initDone || ctx.initFailed || !m_running; });
+        if (ctx.initFailed || !m_running) {
+            m_running = false;
+            if (captureThread.joinable()) captureThread.join();
+            return;
+        }
+    }
+
+    if (!ctx.encoder.Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, config.bitrate, ctx.capture.GetDevice())) {
+        m_running = false;
+        if (captureThread.joinable()) captureThread.join();
+        return;
+    }
 
     if (captureThread.joinable()) captureThread.join();
     if (encoderThread.joinable()) encoderThread.join();

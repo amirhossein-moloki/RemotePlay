@@ -13,7 +13,7 @@ public:
 
     bool Initialize();
     ID3D11Device* GetDevice() { return m_device; }
-    bool AcquireFrame(ID3D11Texture2D** texture);
+    HRESULT AcquireFrame(ID3D11Texture2D** texture);
     void ReleaseFrame();
 
 private:
