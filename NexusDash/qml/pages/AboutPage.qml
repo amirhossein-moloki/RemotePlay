@@ -7,28 +7,30 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingLarge
-        spacing: Theme.spacingLarge
+        anchors.margins: Theme.adaptiveMargin
+        spacing: Theme.adaptiveSpacing
 
         Text {
             text: "About NexusDash"
             font.family: Theme.fontFamily
-            font.pixelSize: 28
+            font.pixelSize: Theme.isSmall ? 24 : 28
             font.weight: Font.Bold
             color: Theme.textPrimary
         }
 
         NexusCard {
             Layout.fillWidth: true
-            Layout.preferredHeight: 300
+            Layout.preferredHeight: Theme.isSmall ? 400 : 350
 
             Column {
                 anchors.centerIn: parent
                 spacing: Theme.spacingLarge
-                width: parent.width * 0.8
+                width: parent.width * 0.9
 
                 Rectangle {
-                    width: 80; height: 80; radius: 20
+                    width: Theme.isSmall ? 60 : 80
+                    height: Theme.isSmall ? 60 : 80
+                    radius: 20
                     color: Theme.accent
                     anchors.horizontalCenter: parent.horizontalCenter
                     Text {
@@ -36,14 +38,14 @@ Item {
                         text: "N"
                         color: "white"
                         font.bold: true
-                        font.pixelSize: 40
+                        font.pixelSize: Theme.isSmall ? 30 : 40
                     }
                 }
 
                 Text {
                     text: "NexusDash v1.0.0"
                     font.family: Theme.fontFamily
-                    font.pixelSize: 24
+                    font.pixelSize: Theme.isSmall ? 20 : 24
                     font.weight: Font.DemiBold
                     color: Theme.textPrimary
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -52,7 +54,7 @@ Item {
                 Text {
                     text: "A modern, high-performance dashboard template built with Qt 6 and C++. Designed for scalability, ease of use, and a premium user experience."
                     font.family: Theme.fontFamily
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.isSmall ? 14 : 16
                     color: Theme.textSecondary
                     wrapMode: Text.WordWrap
                     width: parent.width

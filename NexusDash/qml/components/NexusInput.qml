@@ -13,9 +13,12 @@ TextField {
     placeholderTextColor: Theme.textSecondary
     verticalAlignment: TextInput.AlignVCenter
 
+    leftPadding: Theme.spacingMedium
+    rightPadding: Theme.spacingMedium
+
     background: Rectangle {
         implicitWidth: 200
-        implicitHeight: 40
+        implicitHeight: 36
         radius: Theme.radiusMedium
         color: Theme.surfaceSecondary
         border.color: control.activeFocus ? Theme.accent : Theme.border

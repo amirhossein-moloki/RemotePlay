@@ -12,8 +12,8 @@ Item {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Theme.spacingLarge
-        anchors.rightMargin: Theme.spacingLarge
+        anchors.leftMargin: 0
+        anchors.rightMargin: 0
         spacing: Theme.spacingMedium
 
         ColumnLayout {
@@ -23,13 +23,14 @@ Item {
             Text {
                 text: root.title
                 font.family: Theme.fontFamily
-                font.pixelSize: 32
+                font.pixelSize: Theme.isSmall ? 24 : 32
                 font.weight: Font.Bold
                 color: Theme.textPrimary
             }
 
             Text {
                 text: root.subtitle
+                visible: !Theme.isSmall
                 font.family: Theme.fontFamily
                 font.pixelSize: 14
                 color: Theme.textSecondary
@@ -38,8 +39,8 @@ Item {
 
         // Connection Status Indicator
         Rectangle {
-            Layout.preferredWidth: 160
-            Layout.preferredHeight: 44
+            Layout.preferredWidth: Theme.isSmall ? 120 : 160
+            Layout.preferredHeight: 40
             color: Theme.surface
             radius: Theme.radiusMedium
             border.color: Theme.border
@@ -78,8 +79,9 @@ Item {
 
         // Date/Time Section
         Column {
-            Layout.preferredWidth: 120
+            Layout.preferredWidth: Theme.isSmall ? 80 : 120
             Layout.alignment: Qt.AlignVCenter
+            visible: !Theme.isSmall
 
             Text {
                 id: timeText

@@ -3,152 +3,167 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import NexusDash
 
-Item {
+ScrollView {
     id: root
+    contentWidth: availableWidth
+    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+    clip: true
 
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: Theme.spacingLarge
-        spacing: Theme.spacingLarge
+        width: root.availableWidth
+        spacing: Theme.adaptiveCardSpacing
+        anchors.margins: Theme.spacingTiny
 
         Text {
             text: "Settings"
             font.family: Theme.fontFamily
-            font.pixelSize: 28
+            font.pixelSize: Theme.isSmall ? 24 : 28
             font.weight: Font.Bold
             color: Theme.textPrimary
+            Layout.topMargin: Theme.spacingMedium
         }
 
-        NexusCard {
+        GridLayout {
+            columns: Theme.isSmall ? 1 : 2
+            columnSpacing: Theme.adaptiveCardSpacing
+            rowSpacing: Theme.adaptiveCardSpacing
             Layout.fillWidth: true
-            implicitHeight: 150
-            title: "User Profile"
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
-                spacing: Theme.spacingMedium
+            NexusCard {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 160
+                title: "User Profile"
 
-                Text {
-                    text: "Display Name"
-                    color: Theme.textPrimary
-                    font.family: Theme.fontFamily
-                }
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
 
-                NexusInput {
-                    id: usernameInput
-                    Layout.fillWidth: true
-                    text: backend.system.username
-                    placeholderText: "Enter your username"
-                    onTextChanged: backend.system.username = text
+                    Text {
+                        text: "Display Name"
+                        color: Theme.textPrimary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 13
+                    }
+
+                    NexusInput {
+                        id: usernameInput
+                        Layout.fillWidth: true
+                        text: backend.system.username
+                        placeholderText: "Enter your username"
+                        onTextChanged: backend.system.username = text
+                    }
                 }
             }
-        }
 
-        NexusCard {
-            Layout.fillWidth: true
-            implicitHeight: 200
-            title: "Appearance"
+            NexusCard {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 160
+                title: "Appearance"
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
-                spacing: Theme.spacingMedium
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        text: "Dark Mode"
-                        font.family: Theme.fontFamily
-                        color: Theme.textPrimary
+                    RowLayout {
                         Layout.fillWidth: true
+                        Text {
+                            text: "Dark Mode"
+                            font.family: Theme.fontFamily
+                            color: Theme.textPrimary
+                            Layout.fillWidth: true
+                            font.pixelSize: 13
+                        }
+                        Switch {
+                            checked: backend.theme.darkMode
+                            onClicked: backend.theme.darkMode = checked
+                        }
                     }
-                    Switch {
-                        checked: backend.theme.darkMode
-                        onClicked: backend.theme.darkMode = checked
-                    }
-                }
 
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        text: "Accent Color"
-                        font.family: Theme.fontFamily
-                        color: Theme.textPrimary
+                    RowLayout {
                         Layout.fillWidth: true
-                    }
-                    Row {
-                        spacing: 8
-                        Repeater {
-                            model: ["#3B82F6", "#EF4444", "#10B981", "#F59E0B"]
-                            Rectangle {
-                                width: 24; height: 24; radius: 12
-                                color: modelData
-                                border.width: 2
-                                border.color: Theme.accent === modelData ? Theme.textPrimary : "transparent"
-                                MouseArea { anchors.fill: parent; onClicked: {} /* Demo only */ }
+                        Text {
+                            text: "Accent Color"
+                            font.family: Theme.fontFamily
+                            color: Theme.textPrimary
+                            Layout.fillWidth: true
+                            font.pixelSize: 13
+                        }
+                        Row {
+                            spacing: 8
+                            Repeater {
+                                model: ["#3B82F6", "#EF4444", "#10B981", "#F59E0B"]
+                                Rectangle {
+                                    width: 20; height: 20; radius: 10
+                                    color: modelData
+                                    border.width: 2
+                                    border.color: Theme.accent === modelData ? Theme.textPrimary : "transparent"
+                                    MouseArea { anchors.fill: parent; onClicked: {} /* Demo only */ }
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        NexusCard {
-            Layout.fillWidth: true
-            implicitHeight: 150
-            title: "Network"
-
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
-                spacing: Theme.spacingMedium
-
-                Text {
-                    text: "Preferred Interface"
-                    color: Theme.textPrimary
-                    font.family: Theme.fontFamily
-                }
-
-                ComboBox {
-                    Layout.fillWidth: true
-                    model: backend.system.networkInterfaces
-                }
-            }
-        }
-
-        NexusCard {
-            Layout.fillWidth: true
-            implicitHeight: 150
-            title: "Streaming Defaults"
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
-                spacing: Theme.spacingLarge
+            NexusCard {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 160
+                title: "Network"
 
                 ColumnLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Default Bitrate (kbps)"; color: Theme.textSecondary; font.pixelSize: 12 }
-                    NexusInput {
-                        Layout.fillWidth: true
-                        text: "5000"
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
+
+                    Text {
+                        text: "Preferred Interface"
+                        color: Theme.textPrimary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 13
                     }
-                }
 
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Text { text: "Default FPS"; color: Theme.textSecondary; font.pixelSize: 12 }
-                    NexusInput {
+                    ComboBox {
                         Layout.fillWidth: true
-                        text: "60"
+                        model: backend.system.networkInterfaces
+                        font.family: Theme.fontFamily
                     }
                 }
             }
-        }
 
-        Item { Layout.fillHeight: true }
+            NexusCard {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 160
+                title: "Streaming Defaults"
+
+                GridLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingMedium
+                    columns: Theme.isSmall ? 1 : 2
+                    columnSpacing: Theme.spacingLarge
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Text { text: "Default Bitrate (kbps)"; color: Theme.textSecondary; font.pixelSize: 11 }
+                        NexusInput {
+                            Layout.fillWidth: true
+                            text: "5000"
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Text { text: "Default FPS"; color: Theme.textSecondary; font.pixelSize: 11 }
+                        NexusInput {
+                            Layout.fillWidth: true
+                            text: "60"
+                        }
+                    }
+                }
+            }
+        }
     }
 }

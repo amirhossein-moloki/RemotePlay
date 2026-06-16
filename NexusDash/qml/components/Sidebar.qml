@@ -8,11 +8,19 @@ Rectangle {
     property bool collapsed: false
     property int currentIndex: 0
 
-    width: collapsed ? 72 : 250
+    width: collapsed ? 72 : (Theme.isSmall ? 220 : 250)
     height: parent.height
     color: Theme.panel
     border.color: Theme.border
-    border.width: 1
+    border.width: 0
+
+    // Modern right border shadow/line
+    Rectangle {
+        anchors.right: parent.right
+        width: 1
+        height: parent.height
+        color: Theme.border
+    }
 
     Behavior on width {
         NumberAnimation { duration: 300; easing.type: Easing.InOutQuad }
