@@ -27,6 +27,14 @@ PARSEC_API void Parsec_Shutdown() {
     SessionManager::getInstance().stopSession();
 }
 
+PARSEC_API void Parsec_SetConnectionCallback(ParsecConnectionCallback callback) {
+    SessionManager::getInstance().setConnectionCallback(callback);
+}
+
+PARSEC_API void Parsec_ApproveConnection(const char* ip, uint16_t port, bool approved) {
+    SessionManager::getInstance().approveConnection(ip, port, approved);
+}
+
 PARSEC_API void Parsec_HandleMessage(uint32_t msg, uint64_t wParam, int64_t lParam) {
     SessionManager::getInstance().handleMessage(msg, wParam, lParam);
 }

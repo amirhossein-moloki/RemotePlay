@@ -126,4 +126,42 @@ ApplicationWindow {
 
     // Global transitions
     Behavior on color { ColorAnimation { duration: 300 } }
+
+    Connections {
+        target: backend.system
+        function onConnectionRequested(username, ip, port) {
+            connectionDialog.pendingIp = ip
+            connectionDialog.pendingPort = port
+            connectionDialog.message = "User '" + username + "' (" + ip + ") is requesting to connect to your session."
+            connectionDialog.open()
+        }
+    }
+
+    NexusDialog {
+        id: connectionDialog
+        title: "Connection Request"
+        property string pendingIp: ""
+        property int pendingPort: 0
+
+        footer: DialogButtonBox {
+            background: Rectangle { color: "transparent" }
+            alignment: Qt.AlignHCenter
+            NexusButton {
+                text: "Accept"
+                primary: true
+                onClicked: {
+                    backend.system.approveConnection(connectionDialog.pendingIp, connectionDialog.pendingPort, true)
+                    connectionDialog.accept()
+                }
+            }
+            NexusButton {
+                text: "Reject"
+                primary: false
+                onClicked: {
+                    backend.system.approveConnection(connectionDialog.pendingIp, connectionDialog.pendingPort, false)
+                    connectionDialog.reject()
+                }
+            }
+        }
+    }
 }

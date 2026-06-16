@@ -21,6 +21,32 @@ Item {
 
         NexusCard {
             Layout.fillWidth: true
+            implicitHeight: 150
+            title: "User Profile"
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingMedium
+                spacing: Theme.spacingMedium
+
+                Text {
+                    text: "Display Name"
+                    color: Theme.textPrimary
+                    font.family: Theme.fontFamily
+                }
+
+                NexusInput {
+                    id: usernameInput
+                    Layout.fillWidth: true
+                    text: backend.system.username
+                    placeholderText: "Enter your username"
+                    onTextChanged: backend.system.username = text
+                }
+            }
+        }
+
+        NexusCard {
+            Layout.fillWidth: true
             implicitHeight: 200
             title: "Appearance"
 

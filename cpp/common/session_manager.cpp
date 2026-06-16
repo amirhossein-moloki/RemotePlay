@@ -62,6 +62,19 @@ void SessionManager::stopSession() {
     if (m_sessionThread.joinable()) {
         m_sessionThread.join();
     }
+    std::lock_guard<std::mutex> lock(m_pendingClientsMutex);
+    m_pendingClients.clear();
+}
+
+void SessionManager::approveConnection(const std::string& ip, uint16_t port, bool approved) {
+    std::lock_guard<std::mutex> lock(m_pendingClientsMutex);
+    for (auto& client : m_pendingClients) {
+        if (client.ip == ip && client.port == port) {
+            client.approved = approved;
+            client.waiting = false;
+            break;
+        }
+    }
 }
 
 bool SessionManager::getTelemetry(ParsecTelemetry* outTelemetry) {
@@ -278,9 +291,54 @@ void SessionManager::runHost(ParsecConfig config) {
             int len = ctx.net.ReceiveFrom(buf, sizeof(buf), senderIp, senderPort);
             if (len > 0) {
                 Protocol::PacketType type = (Protocol::PacketType)buf[0];
-                if (type == Protocol::PacketType::Handshake) {
-                    std::lock_guard<std::mutex> lock(ctx.clientsMutex);
-                    ctx.clients.insert({senderIp, senderPort});
+                if (type == Protocol::PacketType::Handshake && len >= (int)sizeof(Protocol::HandshakePacket)) {
+                    Protocol::HandshakePacket* hp = (Protocol::HandshakePacket*)buf;
+                    std::string username(hp->username, strnlen(hp->username, sizeof(hp->username)));
+
+                    bool alreadyActive = false;
+                    {
+                        std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+                        if (ctx.clients.count({senderIp, senderPort})) alreadyActive = true;
+                    }
+
+                    if (!alreadyActive) {
+                        bool approved = false;
+                        {
+                            std::lock_guard<std::mutex> pLock(m_pendingClientsMutex);
+                            auto it = std::find_if(m_pendingClients.begin(), m_pendingClients.end(), [&](const PendingClient& pc) {
+                                return pc.ip == senderIp && pc.port == senderPort;
+                            });
+
+                            if (it == m_pendingClients.end()) {
+                                m_pendingClients.push_back({senderIp, senderPort, username, false, true});
+                                if (m_connectionCallback) {
+                                    m_connectionCallback(username.c_str(), senderIp.c_str(), senderPort);
+                                }
+                            } else if (!it->waiting) {
+                                approved = it->approved;
+                                if (!approved) m_pendingClients.erase(it); // Remove rejected
+                            } else {
+                                // Still waiting for approval
+                                continue;
+                            }
+                        }
+
+                        Protocol::HandshakeResponsePacket hrp;
+                        hrp.type = (uint8_t)Protocol::PacketType::HandshakeResponse;
+                        hrp.approved = approved ? 1 : 0;
+                        ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
+
+                        if (approved) {
+                            std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+                            ctx.clients.insert({senderIp, senderPort});
+                            // Remove from pending after adding to clients
+                            std::lock_guard<std::mutex> pLock(m_pendingClientsMutex);
+                            auto it = std::find_if(m_pendingClients.begin(), m_pendingClients.end(), [&](const PendingClient& pc) {
+                                return pc.ip == senderIp && pc.port == senderPort;
+                            });
+                            if (it != m_pendingClients.end()) m_pendingClients.erase(it);
+                        }
+                    }
                 } else if (type == Protocol::PacketType::Input && len >= (int)sizeof(Protocol::InputHeader)) {
                     Protocol::InputHeader* ih = (Protocol::InputHeader*)buf;
                     uint8_t* payload = buf + sizeof(Protocol::InputHeader);
@@ -358,6 +416,9 @@ void SessionManager::runClient(ParsecConfig config) {
     }
 
     std::atomic<uint32_t> lastFrameId{0};
+    std::atomic<bool> handshakeApproved{false};
+    std::atomic<bool> handshakeRejected{false};
+
     std::thread netThread = std::thread([&]() {
         uint8_t buf[65535];
         std::string senderIp;
@@ -370,13 +431,44 @@ void SessionManager::runClient(ParsecConfig config) {
                     Protocol::VideoHeader* vh = (Protocol::VideoHeader*)buf;
                     receiver.ProcessPacket(*vh, buf + sizeof(Protocol::VideoHeader));
                     lastFrameId = std::max((uint32_t)lastFrameId, vh->frameId);
+                } else if (type == Protocol::PacketType::HandshakeResponse && len >= (int)sizeof(Protocol::HandshakeResponsePacket)) {
+                    Protocol::HandshakeResponsePacket* hrp = (Protocol::HandshakeResponsePacket*)buf;
+                    if (hrp->approved) handshakeApproved = true;
+                    else handshakeRejected = true;
                 }
             }
         }
     });
 
-    uint8_t handshake = (uint8_t)Protocol::PacketType::Handshake;
-    net.SendTo(&handshake, 1, config.hostIp, 5005);
+    Protocol::HandshakePacket hp;
+    hp.type = (uint8_t)Protocol::PacketType::Handshake;
+    strncpy(hp.username, config.username, sizeof(hp.username) - 1);
+    hp.username[sizeof(hp.username) - 1] = '\0';
+
+    auto startHandshake = std::chrono::steady_clock::now();
+    while (m_running && !handshakeApproved && !handshakeRejected) {
+        net.SendTo(&hp, sizeof(hp), config.hostIp, 5005);
+
+        // Wait and check periodically
+        for (int i = 0; i < 10 && m_running && !handshakeApproved && !handshakeRejected; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - startHandshake).count() > 30) {
+            LOG_ERROR("Session", "Handshake timeout");
+            break;
+        }
+    }
+
+    if (!handshakeApproved) {
+        LOG_ERROR("Session", handshakeRejected ? "Connection rejected by host" : "Handshake failed");
+        m_running = false;
+        if (netThread.joinable()) netThread.join();
+        return;
+    }
+
+    LOG_INFO("Session", "Handshake approved, starting stream");
 
     while (m_running) {
         while (auto frame = receiver.GetNextFrame()) {
