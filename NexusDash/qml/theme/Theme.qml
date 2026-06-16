@@ -5,6 +5,19 @@ QtObject {
     id: root
     readonly property bool isDark: backend.theme.darkMode
 
+    // Window metrics for responsiveness
+    property int windowWidth: 1200
+    property int windowHeight: 800
+
+    readonly property bool isSmall: windowWidth < 1000
+    readonly property bool isMedium: windowWidth >= 1000 && windowWidth < 1400
+    readonly property bool isLarge: windowWidth >= 1400
+
+    // Adaptive Spacings
+    readonly property int adaptiveMargin: isSmall ? spacingMedium : (isMedium ? spacingLarge : spacingHuge)
+    readonly property int adaptiveSpacing: isSmall ? spacingSmall : spacingMedium
+    readonly property int adaptiveCardSpacing: isSmall ? spacingMedium : spacingLarge
+
     // Colors - Refined for Premium Dashboard
     readonly property color background: "#0B1020"
     readonly property color panel: "#111827"

@@ -33,7 +33,7 @@ Item {
         Row {
             anchors.verticalCenter: parent.verticalCenter
             anchors.left: parent.left
-            anchors.leftMargin: Theme.spacingMedium
+            anchors.leftMargin: Theme.isSmall && !root.collapsed ? Theme.spacingSmall : Theme.spacingMedium
             spacing: Theme.spacingMedium
 
             // Icon Container

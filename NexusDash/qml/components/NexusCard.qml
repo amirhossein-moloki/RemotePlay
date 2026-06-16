@@ -35,8 +35,8 @@ Rectangle {
 
     Column {
         anchors.fill: parent
-        anchors.margins: Theme.spacingMedium
-        spacing: Theme.spacingMedium
+        anchors.margins: Theme.adaptiveSpacing
+        spacing: Theme.adaptiveSpacing
 
         Text {
             id: titleText

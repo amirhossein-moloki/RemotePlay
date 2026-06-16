@@ -13,6 +13,10 @@ ApplicationWindow {
     title: qsTr("NexusDash")
     color: Theme.background
 
+    // Sync window metrics with Theme
+    onWidthChanged: Theme.windowWidth = width
+    onHeightChanged: Theme.windowHeight = height
+
     Sidebar {
         id: sidebar
         anchors.left: parent.left
@@ -25,7 +29,9 @@ ApplicationWindow {
     // Main Content Area
     ColumnLayout {
         anchors.left: sidebar.right
+        anchors.leftMargin: Theme.adaptiveMargin
         anchors.right: parent.right
+        anchors.rightMargin: Theme.adaptiveMargin
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         spacing: 0
