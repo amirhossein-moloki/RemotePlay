@@ -18,7 +18,10 @@ qt_add_executable(appNexusDash
     src/services/SystemService.cpp src/services/SystemService.hpp
 )
 
-target_include_directories(appNexusDash PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
+target_include_directories(appNexusDash PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../cpp
+)
 
 set_source_files_properties(qml/theme/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
