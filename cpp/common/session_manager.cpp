@@ -66,6 +66,13 @@ void SessionManager::stopSession() {
     m_pendingClients.clear();
 }
 
+void SessionManager::reportError(ParsecError error, const std::string& message) {
+    LOG_ERROR("Session", "Error Reported: " + message);
+    if (m_errorCallback) {
+        m_errorCallback(error, message.c_str());
+    }
+}
+
 void SessionManager::approveConnection(const std::string& ip, uint16_t port, bool approved) {
     std::lock_guard<std::mutex> lock(m_pendingClientsMutex);
     for (auto& client : m_pendingClients) {
@@ -120,7 +127,11 @@ void SessionManager::runHost(ParsecConfig config) {
         int capturedHeight = 1080;
     } ctx;
 
-    if (!ctx.net.Bind(config.selectedIp, 5005)) return;
+    if (!ctx.net.Bind(config.selectedIp, 5005)) {
+        reportError(ParsecError::NETWORK_BIND_FAILED, "Failed to bind to " + std::string(config.selectedIp) + ":5005. Is the port already in use?");
+        m_running = false;
+        return;
+    }
 
     std::thread captureThread;
 
@@ -365,6 +376,7 @@ void SessionManager::runHost(ParsecConfig config) {
         std::unique_lock<std::mutex> lock(ctx.initMutex);
         ctx.initCv.wait(lock, [&] { return ctx.initDone || ctx.initFailed || !m_running; });
         if (ctx.initFailed || !m_running) {
+            if (ctx.initFailed) reportError(ParsecError::HARDWARE_INIT_FAILED, "Capture initialization failed. Please check your GPU drivers and ensure you are not in a RDP session.");
             m_running = false;
             if (captureThread.joinable()) captureThread.join();
             return;
@@ -372,6 +384,7 @@ void SessionManager::runHost(ParsecConfig config) {
     }
 
     if (!ctx.encoder.Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, config.bitrate, ctx.capture.GetDevice())) {
+        reportError(ParsecError::HARDWARE_INIT_FAILED, "Hardware encoder initialization failed. Your GPU might not support the requested resolution or bitrate.");
         m_running = false;
         if (captureThread.joinable()) captureThread.join();
         return;
@@ -388,7 +401,11 @@ void SessionManager::runClient(ParsecConfig config) {
     LOG_INFO("Session", "Starting Client Session");
 
     Network::NetworkManager net;
-    if (!net.Bind(config.selectedIp, 0)) return;
+    if (!net.Bind(config.selectedIp, 0)) {
+        reportError(ParsecError::NETWORK_BIND_FAILED, "Failed to bind to local interface " + std::string(config.selectedIp));
+        m_running = false;
+        return;
+    }
 
     Client::Receiver receiver;
     Client::JitterBuffer jitterBuffer(3);
@@ -463,6 +480,8 @@ void SessionManager::runClient(ParsecConfig config) {
 
     if (!handshakeApproved) {
         LOG_ERROR("Session", handshakeRejected ? "Connection rejected by host" : "Handshake failed");
+        reportError(handshakeRejected ? ParsecError::HANDSHAKE_REJECTED : ParsecError::HANDSHAKE_TIMEOUT,
+                    handshakeRejected ? "The host rejected your connection request." : "Failed to connect to host: Handshake timeout. Check the IP and network connectivity.");
         m_running = false;
         if (netThread.joinable()) netThread.join();
         return;

@@ -131,7 +131,16 @@ ScrollView {
                     NexusButton {
                         text: "Connect"
                         Layout.fillWidth: true
-                        onClicked: backend.system.startClient(clientInterfaceCombo.currentText, hostIpInput.text, 5000, 60)
+                        onClicked: {
+                            var ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/
+                            if (!ipRegex.test(hostIpInput.text)) {
+                                hostIpInput.isInvalid = true
+                                hostIpInput.errorMessage = "لطفاً یک آدرس IP معتبر وارد کنید (مثلاً ۱۹۲.۱۶۸.۱.۱۰)"
+                                return
+                            }
+                            hostIpInput.isInvalid = false
+                            backend.system.startClient(clientInterfaceCombo.currentText, hostIpInput.text, 5000, 60)
+                        }
                     }
                 }
             }

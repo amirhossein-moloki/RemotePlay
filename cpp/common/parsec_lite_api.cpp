@@ -38,6 +38,10 @@ PARSEC_API void Parsec_SetConnectionCallback(ParsecConnectionCallback callback) 
     SessionManager::getInstance().setConnectionCallback(callback);
 }
 
+PARSEC_API void Parsec_SetErrorCallback(ParsecErrorCallback callback) {
+    SessionManager::getInstance().setErrorCallback(callback);
+}
+
 PARSEC_API void Parsec_ApproveConnection(const char* ip, uint16_t port, bool approved) {
     SessionManager::getInstance().approveConnection(ip, port, approved);
 }
