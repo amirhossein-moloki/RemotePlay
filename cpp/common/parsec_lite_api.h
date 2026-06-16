@@ -36,7 +36,18 @@ struct ParsecTelemetry {
     float bitrateMbps;
 };
 
+enum class ParsecError {
+    SUCCESS = 0,
+    NETWORK_BIND_FAILED,
+    HARDWARE_INIT_FAILED,
+    HANDSHAKE_TIMEOUT,
+    HANDSHAKE_REJECTED,
+    CONNECTION_LOST,
+    UNEXPECTED_ERROR
+};
+
 typedef void (*ParsecConnectionCallback)(const char* username, const char* ip, uint16_t port);
+typedef void (*ParsecErrorCallback)(ParsecError error, const char* message);
 
 PARSEC_API bool Parsec_Initialize();
 PARSEC_API void Parsec_StartSession(ParsecConfig config);
@@ -45,6 +56,7 @@ PARSEC_API bool Parsec_GetTelemetry(ParsecTelemetry* outTelemetry);
 PARSEC_API void Parsec_Shutdown();
 
 PARSEC_API void Parsec_SetConnectionCallback(ParsecConnectionCallback callback);
+PARSEC_API void Parsec_SetErrorCallback(ParsecErrorCallback callback);
 PARSEC_API void Parsec_ApproveConnection(const char* ip, uint16_t port, bool approved);
 
 // UI Support

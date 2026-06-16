@@ -141,6 +141,23 @@ ApplicationWindow {
             connectionDialog.message = "User '" + username + "' (" + ip + ") is requesting to connect to your session."
             connectionDialog.open()
         }
+
+        function onErrorOccurred(title, message) {
+            errorDialog.title = title
+            errorDialog.message = message
+            errorDialog.open()
+        }
+    }
+
+    NexusNotification {
+        id: globalNotification
+        z: 100
+    }
+
+    NexusDialog {
+        id: errorDialog
+        title: "Error"
+        message: ""
     }
 
     NexusDialog {

@@ -22,6 +22,18 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
                                   Q_ARG(int, (int)port));
     });
 
+    Parsec_SetErrorCallback([](ParsecError error, const char* message) {
+        QString technicalMsg = QString::fromUtf8(message);
+        QString friendlyMsg = AppEngine::instance()->system()->getFriendlyError((int)error, technicalMsg);
+
+        QMetaObject::invokeMethod(AppEngine::instance()->system(), "errorOccurred",
+                                  Qt::QueuedConnection,
+                                  Q_ARG(QString, tr("System Error")),
+                                  Q_ARG(QString, friendlyMsg));
+
+        AppEngine::instance()->system()->stopSession();
+    });
+
     m_startTime = QDateTime::currentSecsSinceEpoch();
     m_logModel = new LogModel(this);
 
@@ -113,6 +125,25 @@ void SystemService::setUsername(const QString& username)
         Config::getInstance().setString("username", username.toStdString());
         Config::getInstance().save("config.ini");
         emit usernameChanged();
+    }
+}
+
+QString SystemService::getFriendlyError(int errorCode, const QString& technicalMsg)
+{
+    ParsecError err = static_cast<ParsecError>(errorCode);
+    switch (err) {
+        case ParsecError::NETWORK_BIND_FAILED:
+            return tr("ارتباط با شبکه برقرار نشد. لطفاً بررسی کنید که پورت ۵۰۰۵ توسط برنامه دیگری اشغال نشده باشد.");
+        case ParsecError::HARDWARE_INIT_FAILED:
+            return tr("خطا در مقداردهی اولیه سخت‌افزار (کارت گرافیک). لطفاً از بروز بودن درایور کارت گرافیک خود اطمینان حاصل کنید.");
+        case ParsecError::HANDSHAKE_TIMEOUT:
+            return tr("زمان اتصال به پایان رسید. لطفاً آدرس IP را بررسی کرده و از روشن بودن سیستم میزبان اطمینان حاصل کنید.");
+        case ParsecError::HANDSHAKE_REJECTED:
+            return tr("میزبان درخواست اتصال شما را رد کرد.");
+        case ParsecError::CONNECTION_LOST:
+            return tr("اتصال به شبکه قطع شد.");
+        default:
+            return tr("خطای غیرمنتظره‌ای رخ داده است: ") + technicalMsg;
     }
 }
 

@@ -103,6 +103,9 @@ public:
 
     QAbstractListModel* logModel() const { return m_logModel; }
 
+    // Error mapping for UI
+    Q_INVOKABLE QString getFriendlyError(int errorCode, const QString& technicalMsg);
+
     QVariantList cpuHistory() const { return m_cpuHistory; }
     QVariantList memoryHistory() const { return m_memoryHistory; }
     QVariantList fpsHistory() const { return m_fpsHistory; }
@@ -118,6 +121,7 @@ signals:
     void historyChanged();
     void usernameChanged();
     void connectionRequested(const QString& username, const QString& ip, int port);
+    void errorOccurred(const QString& title, const QString& message);
 
 private:
     void updateStats();

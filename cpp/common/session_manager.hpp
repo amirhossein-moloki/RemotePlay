@@ -21,6 +21,8 @@ public:
     bool isRunning() const { return m_running; }
 
     void setConnectionCallback(ParsecConnectionCallback callback) { m_connectionCallback = callback; }
+    void setErrorCallback(ParsecErrorCallback callback) { m_errorCallback = callback; }
+    void reportError(ParsecError error, const std::string& message);
     void approveConnection(const std::string& ip, uint16_t port, bool approved);
 
     void handleMessage(uint32_t msg, uint64_t wParam, int64_t lParam);
@@ -37,6 +39,7 @@ private:
     ParsecConfig m_currentConfig;
     void* m_activeInputCapture = nullptr; // Client side
     ParsecConnectionCallback m_connectionCallback = nullptr;
+    ParsecErrorCallback m_errorCallback = nullptr;
 
     struct PendingClient {
         std::string ip;
