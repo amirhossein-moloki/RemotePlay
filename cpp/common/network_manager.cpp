@@ -12,6 +12,11 @@ namespace Network {
 std::vector<InterfaceInfo> NetworkManager::EnumerateInterfaces() {
     std::vector<InterfaceInfo> interfaces;
 #ifdef _WIN32
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        return interfaces;
+    }
+
     ULONG outBufLen = 15000;
     PIP_ADAPTER_ADDRESSES pAddresses = (IP_ADAPTER_ADDRESSES*)malloc(outBufLen);
     if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, NULL, pAddresses, &outBufLen) == NO_ERROR) {
@@ -19,21 +24,25 @@ std::vector<InterfaceInfo> NetworkManager::EnumerateInterfaces() {
             InterfaceInfo info;
             std::wstring wname = pCurrAddresses->FriendlyName;
             int size_needed = WideCharToMultiByte(CP_UTF8, 0, wname.c_str(), (int)wname.size(), NULL, 0, NULL, NULL);
-            info.name.resize(size_needed);
-            WideCharToMultiByte(CP_UTF8, 0, wname.c_str(), (int)wname.size(), &info.name[0], size_needed, NULL, NULL);
+            if (size_needed > 0) {
+                info.name.resize(size_needed);
+                WideCharToMultiByte(CP_UTF8, 0, wname.c_str(), (int)wname.size(), &info.name[0], size_needed, NULL, NULL);
+            }
             info.isActive = (pCurrAddresses->OperStatus == IfOperStatusUp);
 
             for (PIP_ADAPTER_UNICAST_ADDRESS pUnicast = pCurrAddresses->FirstUnicastAddress; pUnicast != NULL; pUnicast = pUnicast->Next) {
                 if (pUnicast->Address.lpSockaddr->sa_family == AF_INET) {
-                    char buf[INET_ADDRSTRLEN];
-                    getnameinfo(pUnicast->Address.lpSockaddr, pUnicast->Address.iSockaddrLength, buf, sizeof(buf), NULL, 0, NI_NUMERICHOST);
-                    info.ip = buf;
-                    interfaces.push_back(info);
+                    char buf[INET_ADDRSTRLEN] = { 0 };
+                    if (getnameinfo(pUnicast->Address.lpSockaddr, pUnicast->Address.iSockaddrLength, buf, sizeof(buf), NULL, 0, NI_NUMERICHOST) == 0) {
+                        info.ip = buf;
+                        interfaces.push_back(info);
+                    }
                 }
             }
         }
     }
     free(pAddresses);
+    WSACleanup();
 #else
     struct ifaddrs *ifaddr, *ifa;
     if (getifaddrs(&ifaddr) == -1) return interfaces;
@@ -44,10 +53,11 @@ std::vector<InterfaceInfo> NetworkManager::EnumerateInterfaces() {
         InterfaceInfo info;
         info.name = ifa->ifa_name;
         info.isActive = (ifa->ifa_flags & IFF_UP);
-        char host[NI_MAXHOST];
-        getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in), host, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
-        info.ip = host;
-        interfaces.push_back(info);
+        char host[NI_MAXHOST] = { 0 };
+        if (getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in), host, NI_MAXHOST, NULL, 0, NI_NUMERICHOST) == 0) {
+            info.ip = host;
+            interfaces.push_back(info);
+        }
     }
     freeifaddrs(ifaddr);
 #endif
