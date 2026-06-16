@@ -12,53 +12,62 @@
 
 SystemService::SystemService(QObject *parent) : QObject(parent)
 {
-    m_username = QString::fromStdString(Config::getInstance().getString("username", "User"));
-    Parsec_SetConnectionCallback([](const char* username, const char* ip, uint16_t port) {
-        // Bridge to Qt main thread
-        QMetaObject::invokeMethod(AppEngine::instance()->system(), "connectionRequested",
-                                  Qt::QueuedConnection,
-                                  Q_ARG(QString, QString::fromUtf8(username)),
-                                  Q_ARG(QString, QString::fromUtf8(ip)),
-                                  Q_ARG(int, (int)port));
-    });
+    try {
+        m_username = QString::fromStdString(Config::getInstance().getString("username", "User"));
 
-    Parsec_SetErrorCallback([](ParsecError error, const char* message) {
-        QString technicalMsg = QString::fromUtf8(message);
-        QString friendlyMsg = AppEngine::instance()->system()->getFriendlyError((int)error, technicalMsg);
+        Parsec_SetConnectionCallback([](const char* username, const char* ip, uint16_t port) {
+            // Bridge to Qt main thread
+            QMetaObject::invokeMethod(AppEngine::instance()->system(), "connectionRequested",
+                                      Qt::QueuedConnection,
+                                      Q_ARG(QString, QString::fromUtf8(username)),
+                                      Q_ARG(QString, QString::fromUtf8(ip)),
+                                      Q_ARG(int, (int)port));
+        });
 
-        QMetaObject::invokeMethod(AppEngine::instance()->system(), "errorOccurred",
-                                  Qt::QueuedConnection,
-                                  Q_ARG(QString, tr("System Error")),
-                                  Q_ARG(QString, friendlyMsg));
+        Parsec_SetErrorCallback([](ParsecError error, const char* message) {
+            QString technicalMsg = QString::fromUtf8(message);
+            QString friendlyMsg = AppEngine::instance()->system()->getFriendlyError((int)error, technicalMsg);
 
-        AppEngine::instance()->system()->stopSession();
-    });
+            QMetaObject::invokeMethod(AppEngine::instance()->system(), "errorOccurred",
+                                      Qt::QueuedConnection,
+                                      Q_ARG(QString, tr("System Error")),
+                                      Q_ARG(QString, friendlyMsg));
 
-    m_startTime = QDateTime::currentSecsSinceEpoch();
-    m_logModel = new LogModel(this);
+            AppEngine::instance()->system()->stopSession();
+        });
 
-    // Initialize history with zeros
-    for (int i = 0; i < m_maxHistory; ++i) {
-        m_cpuHistory << 0.0;
-        m_memoryHistory << 0.0;
-        m_fpsHistory << 0.0;
-        m_latencyHistory << 0.0;
+        m_startTime = QDateTime::currentSecsSinceEpoch();
+        m_logModel = new LogModel(this);
+
+        // Initialize history with zeros
+        for (int i = 0; i < m_maxHistory; ++i) {
+            m_cpuHistory << 0.0;
+            m_memoryHistory << 0.0;
+            m_fpsHistory << 0.0;
+            m_latencyHistory << 0.0;
+        }
+
+        // Enumerate network interfaces
+        auto interfaces = Network::NetworkManager::EnumerateInterfaces();
+        for (const auto& iface : interfaces) {
+            // Construct detailed string: "[IP] Name - Status"
+            QString status = iface.isActive ? "Active" : "Inactive";
+            m_networkInterfaces << QString("[%1] %2 - %3").arg(QString::fromUtf8(iface.ip.c_str()), QString::fromUtf8(iface.name.c_str()), status);
+        }
+
+        m_timer = new QTimer(this);
+        connect(m_timer, &QTimer::timeout, this, &SystemService::updateStats);
+        m_timer->start(1000);
+        updateStats();
+
+        addLog("INFO", "System", "NexusDash Services Initialized");
+    } catch (const std::exception& e) {
+        LOG_ERROR("SystemService", std::string("Initialization failed: ") + e.what());
+        throw; // Re-throw to be caught by main.cpp's global handler
+    } catch (...) {
+        LOG_ERROR("SystemService", "Unknown error during initialization");
+        throw std::runtime_error("Unknown error during SystemService initialization");
     }
-
-    // Enumerate network interfaces
-    auto interfaces = Network::NetworkManager::EnumerateInterfaces();
-    for (const auto& iface : interfaces) {
-        // Construct detailed string: "[IP] Name - Status"
-        QString status = iface.isActive ? "Active" : "Inactive";
-        m_networkInterfaces << QString("[%1] %2 - %3").arg(QString::fromUtf8(iface.ip.c_str()), QString::fromUtf8(iface.name.c_str()), status);
-    }
-
-    m_timer = new QTimer(this);
-    connect(m_timer, &QTimer::timeout, this, &SystemService::updateStats);
-    m_timer->start(1000);
-    updateStats();
-
-    addLog("INFO", "System", "NexusDash Services Initialized");
 }
 
 void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps)
