@@ -1,7 +1,9 @@
 #include "SystemService.hpp"
+#include "core/AppEngine.hpp"
 #include <QDateTime>
 #include <QRandomGenerator>
 #include "common/network_manager.hpp"
+#include "common/config.hpp"
 #include <cstring>
 
 #ifdef _WIN32
@@ -10,6 +12,16 @@
 
 SystemService::SystemService(QObject *parent) : QObject(parent)
 {
+    m_username = QString::fromStdString(Config::getInstance().getString("username", "User"));
+    Parsec_SetConnectionCallback([](const char* username, const char* ip, uint16_t port) {
+        // Bridge to Qt main thread
+        QMetaObject::invokeMethod(AppEngine::instance()->system(), "connectionRequested",
+                                  Qt::QueuedConnection,
+                                  Q_ARG(QString, QString::fromUtf8(username)),
+                                  Q_ARG(QString, QString::fromUtf8(ip)),
+                                  Q_ARG(int, (int)port));
+    });
+
     m_startTime = QDateTime::currentSecsSinceEpoch();
     m_logModel = new LogModel(this);
 
@@ -53,6 +65,7 @@ void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps
     config.fps = fps;
     config.useHardwareEncoding = true;
     strncpy(config.selectedIp, interfaceIp.toStdString().c_str(), sizeof(config.selectedIp) - 1);
+    strncpy(config.username, m_username.toStdString().c_str(), sizeof(config.username) - 1);
 
     Parsec_StartSession(config);
     m_isSessionActive = true;
@@ -77,6 +90,7 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
     config.useHardwareEncoding = true;
     strncpy(config.selectedIp, interfaceIp.toStdString().c_str(), sizeof(config.selectedIp) - 1);
     strncpy(config.hostIp, hostIp.toStdString().c_str(), sizeof(config.hostIp) - 1);
+    strncpy(config.username, m_username.toStdString().c_str(), sizeof(config.username) - 1);
 
     m_clientWindow = Parsec_CreateClientWindow("NexusDash Stream Viewer", 1280, 720);
     config.windowHandle = m_clientWindow;
@@ -85,6 +99,21 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
     m_isSessionActive = true;
     emit sessionStateChanged();
     addLog("INFO", "Client", "Connecting to " + hostIp);
+}
+
+void SystemService::approveConnection(const QString& ip, int port, bool approved)
+{
+    Parsec_ApproveConnection(ip.toStdString().c_str(), (uint16_t)port, approved);
+}
+
+void SystemService::setUsername(const QString& username)
+{
+    if (m_username != username) {
+        m_username = username;
+        Config::getInstance().setString("username", username.toStdString());
+        Config::getInstance().save("config.ini");
+        emit usernameChanged();
+    }
 }
 
 void SystemService::stopSession()

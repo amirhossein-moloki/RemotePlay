@@ -71,6 +71,7 @@ class SystemService : public QObject
     Q_PROPERTY(double rtt READ rtt NOTIFY statsChanged)
     Q_PROPERTY(QStringList networkInterfaces READ networkInterfaces NOTIFY networkInterfacesChanged)
     Q_PROPERTY(bool isSessionActive READ isSessionActive NOTIFY sessionStateChanged)
+    Q_PROPERTY(QString username READ username WRITE setUsername NOTIFY usernameChanged)
     Q_PROPERTY(QAbstractListModel* logModel READ logModel CONSTANT)
 
     // Historical data for graphs
@@ -85,6 +86,7 @@ public:
     Q_INVOKABLE void startHost(const QString& interfaceInfo, int bitrate, int fps);
     Q_INVOKABLE void startClient(const QString& interfaceInfo, const QString& hostIp, int bitrate, int fps);
     Q_INVOKABLE void stopSession();
+    Q_INVOKABLE void approveConnection(const QString& ip, int port, bool approved);
 
     double cpuUsage() const { return m_cpuUsage; }
     double memoryUsage() const { return m_memoryUsage; }
@@ -96,6 +98,8 @@ public:
     double rtt() const { return m_stats.rtt; }
     QStringList networkInterfaces() const { return m_networkInterfaces; }
     bool isSessionActive() const { return m_isSessionActive; }
+    QString username() const { return m_username; }
+    void setUsername(const QString& username);
 
     QAbstractListModel* logModel() const { return m_logModel; }
 
@@ -112,6 +116,8 @@ signals:
     void networkInterfacesChanged();
     void sessionStateChanged();
     void historyChanged();
+    void usernameChanged();
+    void connectionRequested(const QString& username, const QString& ip, int port);
 
 private:
     void updateStats();
@@ -121,6 +127,7 @@ private:
     double m_cpuUsage = 0.0;
     double m_memoryUsage = 0.0;
     bool m_isSessionActive = false;
+    QString m_username;
     void* m_clientWindow = nullptr;
     QStringList m_networkInterfaces;
     ParsecTelemetry m_stats = {};

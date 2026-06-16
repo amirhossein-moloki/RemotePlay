@@ -213,6 +213,24 @@ void TestJitterBuffer() {
     std::cout << "JitterBuffer Tests Passed!" << std::endl;
 }
 
+void TestHandshakeProtocol() {
+    std::cout << "Running Handshake Protocol Tests..." << std::endl;
+    assert(sizeof(Protocol::HandshakePacket) == 33);
+    assert(sizeof(Protocol::HandshakeResponsePacket) == 2);
+
+    Protocol::HandshakePacket hp;
+    hp.type = (uint8_t)Protocol::PacketType::Handshake;
+    strcpy(hp.username, "TestUser");
+    assert(strcmp(hp.username, "TestUser") == 0);
+
+    Protocol::HandshakeResponsePacket hrp;
+    hrp.type = (uint8_t)Protocol::PacketType::HandshakeResponse;
+    hrp.approved = 1;
+    assert(hrp.approved == 1);
+
+    std::cout << "Handshake Protocol Tests Passed!" << std::endl;
+}
+
 int main() {
     try {
         TestProtocol();
@@ -223,6 +241,7 @@ int main() {
         TestReceiverSkipping();
         TestJitterBuffer();
         TestGamepadProtocol();
+        TestHandshakeProtocol();
         std::cout << "\nAll Core Logic Tests Passed Successfully!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Test failed: " << e.what() << std::endl;

@@ -16,6 +16,7 @@ extern "C" {
 struct ParsecConfig {
     char selectedIp[64];
     char hostIp[64];
+    char username[32];
     int bitrate;
     int fps;
     bool isHost;
@@ -35,11 +36,16 @@ struct ParsecTelemetry {
     float bitrateMbps;
 };
 
+typedef void (*ParsecConnectionCallback)(const char* username, const char* ip, uint16_t port);
+
 PARSEC_API bool Parsec_Initialize();
 PARSEC_API void Parsec_StartSession(ParsecConfig config);
 PARSEC_API void Parsec_StopSession();
 PARSEC_API bool Parsec_GetTelemetry(ParsecTelemetry* outTelemetry);
 PARSEC_API void Parsec_Shutdown();
+
+PARSEC_API void Parsec_SetConnectionCallback(ParsecConnectionCallback callback);
+PARSEC_API void Parsec_ApproveConnection(const char* ip, uint16_t port, bool approved);
 
 // UI Support
 PARSEC_API void Parsec_HandleMessage(uint32_t msg, uint64_t wParam, int64_t lParam);

@@ -12,7 +12,8 @@ enum class PacketType : uint8_t {
     Discovery = 0x03,
     Handshake = 0x04,
     FEC = 0x05,
-    Feedback = 0x06
+    Feedback = 0x06,
+    HandshakeResponse = 0x07
 };
 
 // Input subtypes
@@ -111,6 +112,18 @@ struct GamepadState {
 struct GamepadStatusEvent {
     uint8_t gamepadId;
     uint8_t isConnected;
+};
+
+// Handshake Packet (Client -> Host)
+struct HandshakePacket {
+    uint8_t type;            // PacketType::Handshake
+    char username[32];
+};
+
+// Handshake Response Packet (Host -> Client)
+struct HandshakeResponsePacket {
+    uint8_t type;            // PacketType::HandshakeResponse
+    uint8_t approved;        // 1: Approved, 0: Rejected
 };
 
 #pragma pack(pop)
