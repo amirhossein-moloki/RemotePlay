@@ -5,7 +5,6 @@ import NexusDash
 Rectangle {
     id: root
     property string message: ""
-    property color color: Theme.accent
     property bool isError: true
 
     width: Math.min(400, parent.width - 40)
