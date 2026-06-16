@@ -78,6 +78,9 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
     strncpy(config.selectedIp, interfaceIp.toStdString().c_str(), sizeof(config.selectedIp) - 1);
     strncpy(config.hostIp, hostIp.toStdString().c_str(), sizeof(config.hostIp) - 1);
 
+    m_clientWindow = Parsec_CreateClientWindow("NexusDash Stream Viewer", 1280, 720);
+    config.windowHandle = m_clientWindow;
+
     Parsec_StartSession(config);
     m_isSessionActive = true;
     emit sessionStateChanged();
@@ -87,6 +90,14 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
 void SystemService::stopSession()
 {
     Parsec_StopSession();
+
+#ifdef _WIN32
+    if (m_clientWindow) {
+        DestroyWindow((HWND)m_clientWindow);
+        m_clientWindow = nullptr;
+    }
+#endif
+
     m_isSessionActive = false;
     emit sessionStateChanged();
     addLog("INFO", "Session", "Session stopped by user");
@@ -94,6 +105,18 @@ void SystemService::stopSession()
 
 void SystemService::updateStats()
 {
+#ifdef _WIN32
+    MSG msg;
+    while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) {
+        TranslateMessage(&msg);
+        DispatchMessageA(&msg);
+        if (msg.message == WM_QUIT) {
+            stopSession();
+            break;
+        }
+    }
+#endif
+
     if (m_isSessionActive && Parsec_GetTelemetry(&m_stats)) {
         emit statsChanged();
     } else {

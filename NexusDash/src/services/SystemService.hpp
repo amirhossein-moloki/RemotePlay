@@ -121,6 +121,7 @@ private:
     double m_cpuUsage = 0.0;
     double m_memoryUsage = 0.0;
     bool m_isSessionActive = false;
+    void* m_clientWindow = nullptr;
     QStringList m_networkInterfaces;
     ParsecTelemetry m_stats = {};
     QTimer *m_timer;

@@ -283,10 +283,19 @@ void SessionManager::runHost(ParsecConfig config) {
                     ctx.clients.insert({senderIp, senderPort});
                 } else if (type == Protocol::PacketType::Input && len >= (int)sizeof(Protocol::InputHeader)) {
                     Protocol::InputHeader* ih = (Protocol::InputHeader*)buf;
+                    uint8_t* payload = buf + sizeof(Protocol::InputHeader);
                     if (ih->inputType == (uint8_t)Protocol::InputType::Keyboard) {
-                        ctx.injector.InjectKeyboard(*(Protocol::KeyboardEvent*)(buf + sizeof(Protocol::InputHeader)));
+                        ctx.injector.InjectKeyboard(*(Protocol::KeyboardEvent*)payload);
                     } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseMove) {
-                        ctx.injector.InjectMouseMove(*(Protocol::MouseMoveEvent*)(buf + sizeof(Protocol::InputHeader)));
+                        ctx.injector.InjectMouseMove(*(Protocol::MouseMoveEvent*)payload);
+                    } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseButton) {
+                        ctx.injector.InjectMouseButton(*(Protocol::MouseButtonEvent*)payload);
+                    } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseScroll) {
+                        ctx.injector.InjectMouseScroll(*(Protocol::MouseScrollEvent*)payload);
+                    } else if (ih->inputType == (uint8_t)Protocol::InputType::GamepadStatus) {
+                        ctx.injector.HandleGamepadStatus(senderIp, *(Protocol::GamepadStatusEvent*)payload);
+                    } else if (ih->inputType == (uint8_t)Protocol::InputType::Gamepad) {
+                        ctx.injector.InjectGamepad(senderIp, *(Protocol::GamepadState*)payload);
                     }
                 }
             }
@@ -327,8 +336,15 @@ void SessionManager::runClient(ParsecConfig config) {
     Client::JitterBuffer jitterBuffer(3);
     Client::DecoderHW decoder;
     Client::RendererD3D11 renderer;
+    Client::InputCapture input([&](const std::vector<uint8_t>& packet) {
+        net.SendTo(packet.data(), (int)packet.size(), config.hostIp, 5005);
+    });
 
     bool useRenderer = (config.windowHandle != nullptr);
+    if (useRenderer) {
+        input.RegisterDevices((HWND)config.windowHandle);
+        m_activeInputCapture = &input;
+    }
     if (useRenderer) {
         if (!renderer.Initialize((HWND)config.windowHandle, 1920, 1080)) {
             LOG_ERROR("Session", "Failed to initialize renderer");
@@ -390,8 +406,20 @@ void SessionManager::runClient(ParsecConfig config) {
         }
     }
 
+    m_activeInputCapture = nullptr;
     if (netThread.joinable()) netThread.join();
 }
+
+void SessionManager::handleMessage(uint32_t msg, uint64_t wParam, int64_t lParam) {
+#ifdef _WIN32
+    if (m_activeInputCapture) {
+        if (msg == WM_INPUT) {
+            ((Client::InputCapture*)m_activeInputCapture)->HandleRawInput((LPARAM)lParam);
+        }
+    }
+#endif
+}
+
 #else
 void SessionManager::runHost(ParsecConfig config) {}
 void SessionManager::runClient(ParsecConfig config) {}

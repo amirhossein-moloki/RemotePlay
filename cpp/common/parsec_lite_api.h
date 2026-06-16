@@ -41,4 +41,8 @@ PARSEC_API void Parsec_StopSession();
 PARSEC_API bool Parsec_GetTelemetry(ParsecTelemetry* outTelemetry);
 PARSEC_API void Parsec_Shutdown();
 
+// UI Support
+PARSEC_API void Parsec_HandleMessage(uint32_t msg, uint64_t wParam, int64_t lParam);
+PARSEC_API void* Parsec_CreateClientWindow(const char* title, int width, int height);
+
 }

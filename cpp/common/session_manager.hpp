@@ -18,6 +18,8 @@ public:
     bool getTelemetry(ParsecTelemetry* outTelemetry);
     bool isRunning() const { return m_running; }
 
+    void handleMessage(uint32_t msg, uint64_t wParam, int64_t lParam);
+
 private:
     SessionManager() = default;
     ~SessionManager() { stopSession(); }
@@ -28,4 +30,5 @@ private:
     std::atomic<bool> m_running{false};
     std::thread m_sessionThread;
     ParsecConfig m_currentConfig;
+    void* m_activeInputCapture = nullptr; // Client side
 };

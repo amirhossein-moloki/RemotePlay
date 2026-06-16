@@ -24,6 +24,7 @@ public:
     void InjectKeyboard(const Protocol::KeyboardEvent& ev);
     void InjectMouseMove(const Protocol::MouseMoveEvent& ev);
     void InjectMouseButton(const Protocol::MouseButtonEvent& ev);
+    void InjectMouseScroll(const Protocol::MouseScrollEvent& ev);
 
     void HandleGamepadStatus(const std::string& clientIp, const Protocol::GamepadStatusEvent& ev);
     void InjectGamepad(const std::string& clientIp, const Protocol::GamepadState& ev);

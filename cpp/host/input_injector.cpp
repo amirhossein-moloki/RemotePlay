@@ -45,6 +45,14 @@ void InputInjector::InjectKeyboard(const Protocol::KeyboardEvent& ev) {
     SendInput(1, &input, sizeof(INPUT));
 }
 
+void InputInjector::InjectMouseScroll(const Protocol::MouseScrollEvent& ev) {
+    INPUT input = { 0 };
+    input.type = INPUT_MOUSE;
+    input.mi.dwFlags = MOUSEEVENTF_WHEEL;
+    input.mi.mouseData = ev.delta;
+    SendInput(1, &input, sizeof(INPUT));
+}
+
 void InputInjector::InjectMouseMove(const Protocol::MouseMoveEvent& ev) {
     INPUT input = { 0 };
     input.type = INPUT_MOUSE;
@@ -70,6 +78,12 @@ void InputInjector::InjectMouseButton(const Protocol::MouseButtonEvent& ev) {
         input.mi.dwFlags = ev.isPressed ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
     } else if (ev.button == 3) { // Middle
         input.mi.dwFlags = ev.isPressed ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
+    } else if (ev.button == 4) { // XButton 1
+        input.mi.dwFlags = ev.isPressed ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP;
+        input.mi.mouseData = XBUTTON1;
+    } else if (ev.button == 5) { // XButton 2
+        input.mi.dwFlags = ev.isPressed ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP;
+        input.mi.mouseData = XBUTTON2;
     }
     SendInput(1, &input, sizeof(INPUT));
 }
