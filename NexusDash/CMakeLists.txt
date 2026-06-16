@@ -39,6 +39,7 @@ qt_add_qml_module(appNexusDash
         qml/components/NexusInput.qml
         qml/components/NexusTable.qml
         qml/components/NexusDialog.qml
+        qml/components/NexusNotification.qml
         qml/components/Sidebar.qml
         qml/components/SidebarItem.qml
         qml/pages/DashboardPage.qml
