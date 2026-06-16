@@ -4,6 +4,7 @@
 #include <QRandomGenerator>
 #include "common/network_manager.hpp"
 #include "common/config.hpp"
+#include "common/logger.hpp"
 #include <cstring>
 
 #ifdef _WIN32
