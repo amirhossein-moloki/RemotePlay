@@ -10,12 +10,15 @@ namespace ParsecLite.UI.Services
         public string SelectedIp;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
         public string HostIp;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string Username;
         public int Bitrate;
         public int Fps;
         [MarshalAs(UnmanagedType.I1)]
         public bool IsHost;
         [MarshalAs(UnmanagedType.I1)]
         public bool UseHardwareEncoding;
+        public IntPtr WindowHandle;
     }
 
     [StructLayout(LayoutKind.Sequential)]

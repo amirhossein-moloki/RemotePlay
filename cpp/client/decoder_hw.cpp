@@ -79,7 +79,16 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture)
 }
 
 void DecoderHW::Shutdown() {
-    if (m_internal->codecCtx) avcodec_free_context(&m_internal->codecCtx);
+    if (m_internal->codecCtx) {
+        if (m_internal->codecCtx->hw_device_ctx) {
+            AVHWDeviceContext* device_ctx = (AVHWDeviceContext*)m_internal->codecCtx->hw_device_ctx->data;
+            if (device_ctx->type == AV_HWDEVICE_TYPE_D3D11VA) {
+                AVD3D11VADeviceContext* d3d11_ctx = (AVD3D11VADeviceContext*)device_ctx->hwctx;
+                if (d3d11_ctx->device) d3d11_ctx->device->Release();
+            }
+        }
+        avcodec_free_context(&m_internal->codecCtx);
+    }
     if (m_internal->hwDeviceCtx) av_buffer_unref(&m_internal->hwDeviceCtx);
     if (m_internal->frame) av_frame_free(&m_internal->frame);
     if (m_internal->pkt) av_packet_free(&m_internal->pkt);

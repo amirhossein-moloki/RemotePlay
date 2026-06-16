@@ -177,7 +177,7 @@ void SystemService::updateStats()
 {
 #ifdef _WIN32
     MSG msg;
-    while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) {
+    while (PeekMessageA(&msg, (HWND)-1, 0, 0, PM_REMOVE)) {
         TranslateMessage(&msg);
         DispatchMessageA(&msg);
         if (msg.message == WM_QUIT) {

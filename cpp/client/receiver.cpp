@@ -138,6 +138,8 @@ void Receiver::TryRecover(uint32_t frameId, uint16_t groupStart) {
 
     if (missingCount == 1) {
         size_t offset = missingIndex * Protocol::MAX_UDP_PAYLOAD;
+        if (offset + group->fecHeader.dataSize > frame->buffer.size()) return;
+
         uint8_t* recoveredPayload = frame->buffer.data() + offset;
 
         // Zero-fill recovered buffer before XOR to avoid stale data
@@ -152,8 +154,9 @@ void Receiver::TryRecover(uint32_t frameId, uint16_t groupStart) {
 
             uint8_t* otherPayload = frame->buffer.data() + (idx * Protocol::MAX_UDP_PAYLOAD);
             uint16_t otherSize = frame->fragmentSizes[idx];
+            size_t xorSize = std::min((size_t)group->fecHeader.dataSize, (size_t)otherSize);
 
-            for (size_t k = 0; k < otherSize; ++k) {
+            for (size_t k = 0; k < xorSize; ++k) {
                 recoveredPayload[k] ^= otherPayload[k];
             }
             // Bytes beyond otherSize in recoveredPayload are already XORed with 0 (no-op)

@@ -39,6 +39,7 @@ TextField {
             visible: control.isInvalid
             width: control.width
             wrapMode: Text.WordWrap
+            horizontalAlignment: Text.AlignRight
         }
     }
 }

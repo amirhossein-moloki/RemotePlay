@@ -136,12 +136,12 @@ private:
         std::sort(sorted.begin(), sorted.end());
 
         Stats s;
+        s.latest = buf.samples[(buf.count - 1) % MAX_SAMPLES];
         s.totalCount = buf.count;
         s.min = buf.min;
         s.max = buf.max;
         s.avg = buf.sum / buf.count;
         s.p99 = sorted[static_cast<size_t>(n * 0.99)];
-        s.latest = buf.samples[(buf.count - 1) % MAX_SAMPLES];
         return s;
     }
 

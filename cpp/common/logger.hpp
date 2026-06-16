@@ -93,7 +93,8 @@ private:
             }
         }
         if (std::filesystem::exists(m_baseFilename)) {
-            std::filesystem::rename(m_baseFilename, m_baseFilename + ".1");
+            std::error_code ec;
+            std::filesystem::rename(m_baseFilename, m_baseFilename + ".1", ec);
         }
         openFile();
     }

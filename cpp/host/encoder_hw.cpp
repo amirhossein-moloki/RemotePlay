@@ -70,7 +70,12 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
             AVHWDeviceContext* device_ctx = (AVHWDeviceContext*)device_ref->data;
             AVD3D11VADeviceContext* d3d11_ctx = (AVD3D11VADeviceContext*)device_ctx->hwctx;
             d3d11_ctx->device = (ID3D11Device*)d3d11Device;
-            ((ID3D11Device*)d3d11Device)->AddRef();
+            // No AddRef here if we assume the device lifetime is managed by the caller
+            // OR if FFmpeg's internal logic handles it.
+            // Actually, FFmpeg doesn't AddRef it, so we should, BUT we must ensure it's released.
+            // AVD3D11VADeviceContext doesn't automatically Release it on destruction if set manually.
+            // Better to use FFmpeg's own device creation if possible, or manage it carefully.
+            d3d11_ctx->device->AddRef();
 
             if (av_hwdevice_ctx_init(device_ref) >= 0) {
                 m_internal->hwDeviceCtx = device_ref;
@@ -179,7 +184,16 @@ void FFmpegHardwareEncoder::SetBitrate(int bitrateKbps) {
 
 void FFmpegHardwareEncoder::Shutdown() {
     m_initialized = false;
-    if (m_internal->codecCtx) avcodec_free_context(&m_internal->codecCtx);
+    if (m_internal->codecCtx) {
+        if (m_internal->codecCtx->hw_device_ctx) {
+            AVHWDeviceContext* device_ctx = (AVHWDeviceContext*)m_internal->codecCtx->hw_device_ctx->data;
+            if (device_ctx->type == AV_HWDEVICE_TYPE_D3D11VA) {
+                AVD3D11VADeviceContext* d3d11_ctx = (AVD3D11VADeviceContext*)device_ctx->hwctx;
+                if (d3d11_ctx->device) d3d11_ctx->device->Release();
+            }
+        }
+        avcodec_free_context(&m_internal->codecCtx);
+    }
     if (m_internal->hwDeviceCtx) av_buffer_unref(&m_internal->hwDeviceCtx);
     if (m_internal->frame) av_frame_free(&m_internal->frame);
     if (m_internal->pkt) av_packet_free(&m_internal->pkt);

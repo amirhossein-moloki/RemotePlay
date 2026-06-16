@@ -19,7 +19,17 @@ std::vector<InterfaceInfo> NetworkManager::EnumerateInterfaces() {
 
     ULONG outBufLen = 15000;
     PIP_ADAPTER_ADDRESSES pAddresses = (IP_ADAPTER_ADDRESSES*)malloc(outBufLen);
-    if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, NULL, pAddresses, &outBufLen) == NO_ERROR) {
+    if (pAddresses == NULL) return interfaces;
+
+    ULONG ret = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, NULL, pAddresses, &outBufLen);
+    if (ret == ERROR_BUFFER_OVERFLOW) {
+        free(pAddresses);
+        pAddresses = (IP_ADAPTER_ADDRESSES*)malloc(outBufLen);
+        if (pAddresses == NULL) return interfaces;
+        ret = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, NULL, pAddresses, &outBufLen);
+    }
+
+    if (ret == NO_ERROR) {
         for (PIP_ADAPTER_ADDRESSES pCurrAddresses = pAddresses; pCurrAddresses != NULL; pCurrAddresses = pCurrAddresses->Next) {
             InterfaceInfo info;
             std::wstring wname = pCurrAddresses->FriendlyName;
