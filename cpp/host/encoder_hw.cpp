@@ -9,6 +9,7 @@ extern "C" {
 #include <libavutil/imgutils.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_d3d11va.h>
+#include <libswscale/swscale.h>
 }
 #endif
 
@@ -21,6 +22,13 @@ struct FFmpegHardwareEncoder::InternalData {
     AVFrame* frame = nullptr;
     AVPacket* pkt = nullptr;
     int64_t frameCounter = 0;
+
+    // Software fallback resources
+    ID3D11Device* d3d11Device = nullptr;
+    ID3D11DeviceContext* d3d11Context = nullptr;
+    ID3D11Texture2D* stagingTex = nullptr;
+    SwsContext* swsCtx = nullptr;
+    AVFrame* swFrame = nullptr;
 };
 
 FFmpegHardwareEncoder::FFmpegHardwareEncoder() : m_internal(new InternalData()) {}
@@ -36,77 +44,108 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
     m_fps = fps;
     m_bitrate = bitrateKbps;
 
-    const AVCodec* codec = avcodec_find_encoder_by_name("h264_nvenc");
-    if (!codec) codec = avcodec_find_encoder_by_name("h264_amf");
-    if (!codec) codec = avcodec_find_encoder_by_name("h264_qsv");
-    if (!codec) {
-        LOG_ERROR("Encoder", "No hardware H.264 encoder found (nvenc, amf, qsv).");
-        return false;
-    }
-
-    m_internal->codecCtx = avcodec_alloc_context3(codec);
-    if (!m_internal->codecCtx) return false;
-
-    m_internal->codecCtx->width = width;
-    m_internal->codecCtx->height = height;
-    m_internal->codecCtx->time_base = { 1, fps };
-    m_internal->codecCtx->framerate = { fps, 1 };
-    m_internal->codecCtx->pix_fmt = AV_PIX_FMT_NV12;
-    m_internal->codecCtx->bit_rate = bitrateKbps * 1000;
-    m_internal->codecCtx->gop_size = 60;
-    m_internal->codecCtx->max_b_frames = 0;
-
-    av_opt_set(m_internal->codecCtx->priv_data, "preset", "p1", 0);
-    if (std::string(m_internal->codecCtx->codec->name).find("nvenc") != std::string::npos) {
-        av_opt_set(m_internal->codecCtx->priv_data, "tune", "ull", 0);
-    } else {
-        av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
-    }
-    av_opt_set(m_internal->codecCtx->priv_data, "rc", "cbr", 0);
-
     if (d3d11Device) {
-        AVBufferRef* device_ref = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
-        if (device_ref) {
-            AVHWDeviceContext* device_ctx = (AVHWDeviceContext*)device_ref->data;
-            AVD3D11VADeviceContext* d3d11_ctx = (AVD3D11VADeviceContext*)device_ctx->hwctx;
-            d3d11_ctx->device = (ID3D11Device*)d3d11Device;
-            // No AddRef here if we assume the device lifetime is managed by the caller
-            // OR if FFmpeg's internal logic handles it.
-            // Actually, FFmpeg doesn't AddRef it, so we should, BUT we must ensure it's released.
-            // AVD3D11VADeviceContext doesn't automatically Release it on destruction if set manually.
-            // Better to use FFmpeg's own device creation if possible, or manage it carefully.
-            d3d11_ctx->device->AddRef();
+        m_internal->d3d11Device = (ID3D11Device*)d3d11Device;
+        m_internal->d3d11Device->GetImmediateContext(&m_internal->d3d11Context);
+    }
 
-            if (av_hwdevice_ctx_init(device_ref) >= 0) {
-                m_internal->hwDeviceCtx = device_ref;
-                m_internal->codecCtx->hw_device_ctx = av_buffer_ref(device_ref);
+    auto tryInitialize = [&](bool softwareFallback) -> bool {
+        const AVCodec* codec = nullptr;
+        bool isSoftware = false;
 
-                // Initialize HW Frames Context for zero-copy
-                AVBufferRef* frames_ref = av_hwframe_ctx_alloc(device_ref);
-                AVHWFramesContext* frames_ctx = (AVHWFramesContext*)frames_ref->data;
-                frames_ctx->format = AV_PIX_FMT_D3D11;
-                frames_ctx->sw_format = AV_PIX_FMT_NV12;
-                frames_ctx->width = width;
-                frames_ctx->height = height;
-                frames_ctx->initial_pool_size = 0; // Use 0 for wrapped textures
+        if (!softwareFallback) {
+            codec = avcodec_find_encoder_by_name("h264_nvenc");
+            if (!codec) codec = avcodec_find_encoder_by_name("h264_amf");
+            if (!codec) codec = avcodec_find_encoder_by_name("h264_qsv");
+        }
 
-                if (av_hwframe_ctx_init(frames_ref) >= 0) {
-                    m_internal->codecCtx->hw_frames_ctx = av_buffer_ref(frames_ref);
-                    m_internal->codecCtx->pix_fmt = AV_PIX_FMT_D3D11;
-                } else {
-                    LOG_ERROR("Encoder", "Failed to initialize HW frames context.");
-                }
-                av_buffer_unref(&frames_ref);
+        if (!codec) {
+            if (!softwareFallback) LOG_WARN("Encoder", "No hardware H.264 encoder found. Trying software...");
+            codec = avcodec_find_encoder_by_name("libx264");
+            if (!codec) codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+            isSoftware = true;
+        }
+
+        if (!codec) return false;
+
+        m_internal->codecCtx = avcodec_alloc_context3(codec);
+        if (!m_internal->codecCtx) return false;
+
+        m_internal->codecCtx->width = width;
+        m_internal->codecCtx->height = height;
+        m_internal->codecCtx->time_base = { 1, fps };
+        m_internal->codecCtx->framerate = { fps, 1 };
+        m_internal->codecCtx->pix_fmt = isSoftware ? AV_PIX_FMT_YUV420P : AV_PIX_FMT_NV12;
+        m_internal->codecCtx->bit_rate = (int64_t)bitrateKbps * 1000;
+        m_internal->codecCtx->gop_size = 60;
+        m_internal->codecCtx->max_b_frames = 0;
+
+        if (isSoftware) {
+            av_opt_set(m_internal->codecCtx->priv_data, "preset", "ultrafast", 0);
+            av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
+        } else {
+            av_opt_set(m_internal->codecCtx->priv_data, "preset", "p1", 0);
+            if (std::string(codec->name).find("nvenc") != std::string::npos) {
+                av_opt_set(m_internal->codecCtx->priv_data, "tune", "ull", 0);
             } else {
-                LOG_ERROR("Encoder", "Failed to initialize HW device context.");
-                av_buffer_unref(&device_ref);
+                av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
             }
         }
-    }
+        av_opt_set(m_internal->codecCtx->priv_data, "rc", "cbr", 0);
 
-    if (avcodec_open2(m_internal->codecCtx, codec, NULL) < 0) {
-        LOG_ERROR("Encoder", "Failed to open codec.");
-        return false;
+        if (d3d11Device && !isSoftware) {
+            AVBufferRef* device_ref = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
+            if (device_ref) {
+                AVHWDeviceContext* device_ctx = (AVHWDeviceContext*)device_ref->data;
+                AVD3D11VADeviceContext* d3d11_ctx = (AVD3D11VADeviceContext*)device_ctx->hwctx;
+                d3d11_ctx->device = (ID3D11Device*)d3d11Device;
+                d3d11_ctx->device->AddRef();
+
+                if (av_hwdevice_ctx_init(device_ref) >= 0) {
+                    m_internal->hwDeviceCtx = device_ref;
+                    m_internal->codecCtx->hw_device_ctx = av_buffer_ref(device_ref);
+
+                    AVBufferRef* frames_ref = av_hwframe_ctx_alloc(device_ref);
+                    AVHWFramesContext* frames_ctx = (AVHWFramesContext*)frames_ref->data;
+                    frames_ctx->format = AV_PIX_FMT_D3D11;
+                    frames_ctx->sw_format = AV_PIX_FMT_NV12;
+                    frames_ctx->width = width;
+                    frames_ctx->height = height;
+                    frames_ctx->initial_pool_size = 0;
+
+                    if (av_hwframe_ctx_init(frames_ref) >= 0) {
+                        m_internal->codecCtx->hw_frames_ctx = av_buffer_ref(frames_ref);
+                        m_internal->codecCtx->pix_fmt = AV_PIX_FMT_D3D11;
+                    }
+                    av_buffer_unref(&frames_ref);
+                } else {
+                    av_buffer_unref(&device_ref);
+                }
+            }
+        }
+
+        if (avcodec_open2(m_internal->codecCtx, codec, NULL) < 0) {
+            Shutdown(); // Clean up before retrying or failing
+            return false;
+        }
+
+        if (isSoftware) {
+            m_internal->swFrame = av_frame_alloc();
+            m_internal->swFrame->format = AV_PIX_FMT_YUV420P;
+            m_internal->swFrame->width = width;
+            m_internal->swFrame->height = height;
+            av_frame_get_buffer(m_internal->swFrame, 0);
+        }
+
+        return true;
+    };
+
+    if (!tryInitialize(false)) {
+        LOG_WARN("Encoder", "Hardware encoder initialization failed. Falling back to software encoding.");
+        if (!tryInitialize(true)) {
+            LOG_ERROR("Encoder", "Software encoder initialization also failed.");
+            return false;
+        }
     }
 
     m_internal->pkt = av_packet_alloc();
@@ -119,22 +158,65 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
 bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) {
     if (!m_internal->codecCtx || !texturePtr) return false;
 
-    av_frame_unref(m_internal->frame);
+    AVFrame* encodeFrame = m_internal->frame;
+    av_frame_unref(encodeFrame);
 
     if (m_internal->codecCtx->hw_frames_ctx) {
         // Zero-copy path: Wrap the D3D11 texture directly
-        m_internal->frame->data[0] = (uint8_t*)texturePtr;
-        m_internal->frame->format = AV_PIX_FMT_D3D11;
+        encodeFrame->data[0] = (uint8_t*)texturePtr;
+        encodeFrame->format = AV_PIX_FMT_D3D11;
+    } else if (m_internal->swFrame) {
+        // Software fallback path: GPU -> Staging Texture -> CPU -> sws_scale -> software encoder
+        if (!m_internal->stagingTex) {
+            D3D11_TEXTURE2D_DESC desc;
+            ((ID3D11Texture2D*)texturePtr)->GetDesc(&desc);
+            desc.Usage = D3D11_USAGE_STAGING;
+            desc.BindFlags = 0;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            desc.MiscFlags = 0;
+            m_internal->d3d11Device->CreateTexture2D(&desc, nullptr, &m_internal->stagingTex);
+        }
+
+        if (m_internal->stagingTex && m_internal->d3d11Context) {
+            m_internal->d3d11Context->CopyResource(m_internal->stagingTex, (ID3D11Texture2D*)texturePtr);
+
+            D3D11_MAPPED_SUBRESOURCE mapped;
+            if (SUCCEEDED(m_internal->d3d11Context->Map(m_internal->stagingTex, 0, D3D11_MAP_READ, 0, &mapped))) {
+                if (!m_internal->swsCtx) {
+                    m_internal->swsCtx = sws_getContext(m_width, m_height, AV_PIX_FMT_BGRA,
+                                                       m_width, m_height, AV_PIX_FMT_YUV420P,
+                                                       SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+                }
+
+                if (m_internal->swsCtx) {
+                    const uint8_t* srcData[4] = { (const uint8_t*)mapped.pData, nullptr, nullptr, nullptr };
+                    int srcLinesize[4] = { (int)mapped.RowPitch, 0, 0, 0 };
+                    sws_scale(m_internal->swsCtx, srcData, srcLinesize, 0, m_height,
+                              m_internal->swFrame->data, m_internal->swFrame->linesize);
+                }
+
+                m_internal->d3d11Context->Unmap(m_internal->stagingTex, 0);
+                encodeFrame = m_internal->swFrame;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
     } else {
-        LOG_ERROR("Encoder", "Non-HW path not supported for D3D11 textures. Ensure HW Context is initialized.");
+        LOG_ERROR("Encoder", "Encoder not initialized correctly for hardware or software path.");
         return false;
     }
 
-    m_internal->frame->width = m_internal->codecCtx->width;
-    m_internal->frame->height = m_internal->codecCtx->height;
-    m_internal->frame->pts = m_internal->frameCounter++;
+    encodeFrame->width = m_internal->codecCtx->width;
+    encodeFrame->height = m_internal->codecCtx->height;
+    encodeFrame->pts = m_internal->frameCounter++;
 
-    int ret = avcodec_send_frame(m_internal->codecCtx, m_internal->frame);
+    int ret = avcodec_send_frame(m_internal->codecCtx, encodeFrame);
+    if (encodeFrame == m_internal->frame) {
+        // We only unref if it was the wrapper frame. The software frame is reused.
+        av_frame_unref(encodeFrame);
+    }
     if (ret < 0) return false;
 
     while (ret >= 0) {
@@ -197,6 +279,11 @@ void FFmpegHardwareEncoder::Shutdown() {
     if (m_internal->hwDeviceCtx) av_buffer_unref(&m_internal->hwDeviceCtx);
     if (m_internal->frame) av_frame_free(&m_internal->frame);
     if (m_internal->pkt) av_packet_free(&m_internal->pkt);
+
+    if (m_internal->swsCtx) { sws_freeContext(m_internal->swsCtx); m_internal->swsCtx = nullptr; }
+    if (m_internal->swFrame) { av_frame_free(&m_internal->swFrame); m_internal->swFrame = nullptr; }
+    if (m_internal->stagingTex) { m_internal->stagingTex->Release(); m_internal->stagingTex = nullptr; }
+    if (m_internal->d3d11Context) { m_internal->d3d11Context->Release(); m_internal->d3d11Context = nullptr; }
 }
 
 #else

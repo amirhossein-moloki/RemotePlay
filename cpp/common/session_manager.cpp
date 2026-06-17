@@ -314,6 +314,7 @@ void SessionManager::runHost(ParsecConfig config) {
 
                     if (!alreadyActive) {
                         bool approved = false;
+                        bool shouldRespond = false;
                         {
                             std::lock_guard<std::mutex> pLock(m_pendingClientsMutex);
                             auto it = std::find_if(m_pendingClients.begin(), m_pendingClients.end(), [&](const PendingClient& pc) {
@@ -327,8 +328,11 @@ void SessionManager::runHost(ParsecConfig config) {
                                         m_connectionCallback(username.c_str(), senderIp.c_str(), senderPort);
                                     }
                                 }
+                                // Don't respond yet, wait for approval
+                                continue;
                             } else if (!it->waiting) {
                                 approved = it->approved;
+                                shouldRespond = true;
                                 if (!approved) m_pendingClients.erase(it); // Remove rejected
                             } else {
                                 // Still waiting for approval
@@ -336,21 +340,29 @@ void SessionManager::runHost(ParsecConfig config) {
                             }
                         }
 
+                        if (shouldRespond) {
+                            Protocol::HandshakeResponsePacket hrp;
+                            hrp.type = (uint8_t)Protocol::PacketType::HandshakeResponse;
+                            hrp.approved = approved ? 1 : 0;
+                            ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
+
+                            if (approved) {
+                                std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+                                ctx.clients.insert({senderIp, senderPort});
+                                // Remove from pending after adding to clients
+                                std::lock_guard<std::mutex> pLock(m_pendingClientsMutex);
+                                auto it = std::find_if(m_pendingClients.begin(), m_pendingClients.end(), [&](const PendingClient& pc) {
+                                    return pc.ip == senderIp && pc.port == senderPort;
+                                });
+                                if (it != m_pendingClients.end()) m_pendingClients.erase(it);
+                            }
+                        }
+                    } else {
+                        // Already active, re-send approval in case the first one was lost
                         Protocol::HandshakeResponsePacket hrp;
                         hrp.type = (uint8_t)Protocol::PacketType::HandshakeResponse;
-                        hrp.approved = approved ? 1 : 0;
+                        hrp.approved = 1;
                         ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
-
-                        if (approved) {
-                            std::lock_guard<std::mutex> lock(ctx.clientsMutex);
-                            ctx.clients.insert({senderIp, senderPort});
-                            // Remove from pending after adding to clients
-                            std::lock_guard<std::mutex> pLock(m_pendingClientsMutex);
-                            auto it = std::find_if(m_pendingClients.begin(), m_pendingClients.end(), [&](const PendingClient& pc) {
-                                return pc.ip == senderIp && pc.port == senderPort;
-                            });
-                            if (it != m_pendingClients.end()) m_pendingClients.erase(it);
-                        }
                     }
                 } else if (type == Protocol::PacketType::Input && len >= (int)sizeof(Protocol::InputHeader)) {
                     Protocol::InputHeader* ih = (Protocol::InputHeader*)buf;

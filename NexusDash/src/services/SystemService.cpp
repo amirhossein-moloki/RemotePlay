@@ -145,7 +145,7 @@ QString SystemService::getFriendlyError(int errorCode, const QString& technicalM
         case ParsecError::NETWORK_BIND_FAILED:
             return tr("ارتباط با شبکه برقرار نشد. لطفاً بررسی کنید که پورت ۵۰۰۵ توسط برنامه دیگری اشغال نشده باشد.");
         case ParsecError::HARDWARE_INIT_FAILED:
-            return tr("خطا در مقداردهی اولیه سخت‌افزار (کارت گرافیک). لطفاً از بروز بودن درایور کارت گرافیک خود اطمینان حاصل کنید.");
+            return tr("خطا در مقداردهی اولیه سخت‌افزار یا کدگذار (Encoder). لطفاً از بروز بودن درایور کارت گرافیک خود اطمینان حاصل کنید.");
         case ParsecError::HANDSHAKE_TIMEOUT:
             return tr("زمان اتصال به پایان رسید. لطفاً آدرس IP را بررسی کرده و از روشن بودن سیستم میزبان اطمینان حاصل کنید.");
         case ParsecError::HANDSHAKE_REJECTED:
