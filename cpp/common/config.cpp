@@ -78,6 +78,12 @@ float Config::getFloat(const std::string& key, float defaultValue) {
     try { return std::stof(val); } catch (...) { return defaultValue; }
 }
 
+double Config::getDouble(const std::string& key, double defaultValue) {
+    std::string val = getString(key, "");
+    if (val.empty()) return defaultValue;
+    try { return std::stod(val); } catch (...) { return defaultValue; }
+}
+
 bool Config::getBool(const std::string& key, bool defaultValue) {
     std::string val = getString(key, "");
     if (val.empty()) return defaultValue;
@@ -95,6 +101,10 @@ void Config::setInt(const std::string& key, int value) {
 }
 
 void Config::setFloat(const std::string& key, float value) {
+    setString(key, std::to_string(value));
+}
+
+void Config::setDouble(const std::string& key, double value) {
     setString(key, std::to_string(value));
 }
 

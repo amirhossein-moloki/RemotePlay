@@ -72,6 +72,8 @@ class SystemService : public QObject
     Q_PROPERTY(QStringList networkInterfaces READ networkInterfaces NOTIFY networkInterfacesChanged)
     Q_PROPERTY(bool isSessionActive READ isSessionActive NOTIFY sessionStateChanged)
     Q_PROPERTY(QString username READ username WRITE setUsername NOTIFY usernameChanged)
+    Q_PROPERTY(bool useHardwareEncoding READ useHardwareEncoding WRITE setUseHardwareEncoding NOTIFY useHardwareEncodingChanged)
+    Q_PROPERTY(double resolutionScale READ resolutionScale WRITE setResolutionScale NOTIFY resolutionScaleChanged)
     Q_PROPERTY(QAbstractListModel* logModel READ logModel CONSTANT)
 
     // Historical data for graphs
@@ -100,6 +102,10 @@ public:
     bool isSessionActive() const { return m_isSessionActive; }
     QString username() const { return m_username; }
     void setUsername(const QString& username);
+    bool useHardwareEncoding() const { return m_useHardwareEncoding; }
+    void setUseHardwareEncoding(bool use);
+    double resolutionScale() const { return m_resolutionScale; }
+    void setResolutionScale(double scale);
 
     QAbstractListModel* logModel() const { return m_logModel; }
 
@@ -120,6 +126,8 @@ signals:
     void sessionStateChanged();
     void historyChanged();
     void usernameChanged();
+    void useHardwareEncodingChanged();
+    void resolutionScaleChanged();
     void connectionRequested(const QString& username, const QString& ip, int port);
     void errorOccurred(const QString& title, const QString& message);
 
@@ -132,6 +140,8 @@ private:
     double m_memoryUsage = 0.0;
     bool m_isSessionActive = false;
     QString m_username;
+    bool m_useHardwareEncoding = true;
+    double m_resolutionScale = 1.0;
     void* m_clientWindow = nullptr;
     QStringList m_networkInterfaces;
     ParsecTelemetry m_stats = {};

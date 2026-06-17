@@ -15,6 +15,8 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
 {
     try {
         m_username = QString::fromStdString(Config::getInstance().getString("username", "User"));
+        m_useHardwareEncoding = Config::getInstance().getBool("useHardwareEncoding", true);
+        m_resolutionScale = Config::getInstance().getDouble("resolutionScale", 1.0);
 
         Parsec_SetConnectionCallback([](const char* username, const char* ip, uint16_t port) {
             // Bridge to Qt main thread
@@ -85,7 +87,10 @@ void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps
     config.isHost = true;
     config.bitrate = bitrate;
     config.fps = fps;
-    config.useHardwareEncoding = true;
+    config.useHardwareEncoding = m_useHardwareEncoding;
+    config.resolutionScale = (float)m_resolutionScale;
+    config.targetWidth = 0;
+    config.targetHeight = 0;
     strncpy(config.selectedIp, interfaceIp.toStdString().c_str(), sizeof(config.selectedIp) - 1);
     strncpy(config.username, m_username.toStdString().c_str(), sizeof(config.username) - 1);
 
@@ -109,7 +114,8 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
     config.isHost = false;
     config.bitrate = bitrate;
     config.fps = fps;
-    config.useHardwareEncoding = true;
+    config.useHardwareEncoding = m_useHardwareEncoding;
+    config.resolutionScale = (float)m_resolutionScale;
     strncpy(config.selectedIp, interfaceIp.toStdString().c_str(), sizeof(config.selectedIp) - 1);
     strncpy(config.hostIp, hostIp.toStdString().c_str(), sizeof(config.hostIp) - 1);
     strncpy(config.username, m_username.toStdString().c_str(), sizeof(config.username) - 1);
@@ -135,6 +141,26 @@ void SystemService::setUsername(const QString& username)
         Config::getInstance().setString("username", username.toStdString());
         Config::getInstance().save("config.ini");
         emit usernameChanged();
+    }
+}
+
+void SystemService::setUseHardwareEncoding(bool use)
+{
+    if (m_useHardwareEncoding != use) {
+        m_useHardwareEncoding = use;
+        Config::getInstance().setBool("useHardwareEncoding", use);
+        Config::getInstance().save("config.ini");
+        emit useHardwareEncodingChanged();
+    }
+}
+
+void SystemService::setResolutionScale(double scale)
+{
+    if (qAbs(m_resolutionScale - scale) > 0.001) {
+        m_resolutionScale = scale;
+        Config::getInstance().setDouble("resolutionScale", scale);
+        Config::getInstance().save("config.ini");
+        emit resolutionScaleChanged();
     }
 }
 

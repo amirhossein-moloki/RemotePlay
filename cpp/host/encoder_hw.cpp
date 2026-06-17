@@ -129,13 +129,12 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
             return false;
         }
 
-        if (isSoftware) {
-            m_internal->swFrame = av_frame_alloc();
-            m_internal->swFrame->format = AV_PIX_FMT_YUV420P;
-            m_internal->swFrame->width = width;
-            m_internal->swFrame->height = height;
-            av_frame_get_buffer(m_internal->swFrame, 0);
-        }
+    // Always allocate swFrame if we might need scaling or software fallback
+    m_internal->swFrame = av_frame_alloc();
+    m_internal->swFrame->format = isSoftware ? AV_PIX_FMT_YUV420P : AV_PIX_FMT_NV12;
+    m_internal->swFrame->width = width;
+    m_internal->swFrame->height = height;
+    av_frame_get_buffer(m_internal->swFrame, 0);
 
         return true;
     };
@@ -163,18 +162,37 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
 
     if (m_internal->codecCtx->hw_frames_ctx) {
         // Zero-copy path: Wrap the D3D11 texture directly
-        encodeFrame->data[0] = (uint8_t*)texturePtr;
-        encodeFrame->format = AV_PIX_FMT_D3D11;
-    } else if (m_internal->swFrame) {
+        // Note: This only works if captured resolution matches encoder resolution.
+        // If scaling was applied in SessionManager, m_width/m_height will be scaled.
+
+        D3D11_TEXTURE2D_DESC desc;
+        ((ID3D11Texture2D*)texturePtr)->GetDesc(&desc);
+
+        if (desc.Width == (UINT)m_width && desc.Height == (UINT)m_height) {
+            encodeFrame->data[0] = (uint8_t*)texturePtr;
+            encodeFrame->format = AV_PIX_FMT_D3D11;
+        } else {
+            // We need to scale. For now, hardware path without zero-copy
+            // or implementing D3D11 scaling.
+            // Simplified: if resolutions don't match and we're in "hardware" mode,
+            // fallback to software scaling for now or log error.
+            LOG_WARN("Encoder", "Resolution mismatch in hardware path. Falling back to software scaling.");
+            goto software_path;
+        }
+    } else {
+    software_path:
+        if (m_internal->swFrame) {
         // Software fallback path: GPU -> Staging Texture -> CPU -> sws_scale -> software encoder
+        D3D11_TEXTURE2D_DESC desc;
+        ((ID3D11Texture2D*)texturePtr)->GetDesc(&desc);
+
         if (!m_internal->stagingTex) {
-            D3D11_TEXTURE2D_DESC desc;
-            ((ID3D11Texture2D*)texturePtr)->GetDesc(&desc);
-            desc.Usage = D3D11_USAGE_STAGING;
-            desc.BindFlags = 0;
-            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-            desc.MiscFlags = 0;
-            m_internal->d3d11Device->CreateTexture2D(&desc, nullptr, &m_internal->stagingTex);
+            D3D11_TEXTURE2D_DESC stagingDesc = desc;
+            stagingDesc.Usage = D3D11_USAGE_STAGING;
+            stagingDesc.BindFlags = 0;
+            stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            stagingDesc.MiscFlags = 0;
+            m_internal->d3d11Device->CreateTexture2D(&stagingDesc, nullptr, &m_internal->stagingTex);
         }
 
         if (m_internal->stagingTex && m_internal->d3d11Context) {
@@ -183,20 +201,43 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
             D3D11_MAPPED_SUBRESOURCE mapped;
             if (SUCCEEDED(m_internal->d3d11Context->Map(m_internal->stagingTex, 0, D3D11_MAP_READ, 0, &mapped))) {
                 if (!m_internal->swsCtx) {
-                    m_internal->swsCtx = sws_getContext(m_width, m_height, AV_PIX_FMT_BGRA,
-                                                       m_width, m_height, AV_PIX_FMT_YUV420P,
+                    m_internal->swsCtx = sws_getContext(desc.Width, desc.Height, AV_PIX_FMT_BGRA,
+                                                       m_width, m_height,
+                                                       m_internal->codecCtx->pix_fmt == AV_PIX_FMT_D3D11 ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P,
                                                        SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
                 }
 
                 if (m_internal->swsCtx) {
                     const uint8_t* srcData[4] = { (const uint8_t*)mapped.pData, nullptr, nullptr, nullptr };
                     int srcLinesize[4] = { (int)mapped.RowPitch, 0, 0, 0 };
-                    sws_scale(m_internal->swsCtx, srcData, srcLinesize, 0, m_height,
+
+                    if (m_internal->codecCtx->hw_frames_ctx) {
+                        // If we are using hardware encoder but software scaling
+                        // We need an intermediate frame to upload to GPU
+                        // For now, let's just use the software encoder if scaling is needed
+                        // or implement proper GPU scaling.
+                        // To keep it simple, we'll assume scaling = software path for now
+                        // but let's try to make it work.
+                    }
+
+                    sws_scale(m_internal->swsCtx, srcData, srcLinesize, 0, desc.Height,
                               m_internal->swFrame->data, m_internal->swFrame->linesize);
                 }
 
                 m_internal->d3d11Context->Unmap(m_internal->stagingTex, 0);
-                encodeFrame = m_internal->swFrame;
+
+                if (m_internal->codecCtx->hw_frames_ctx) {
+                    // Upload swFrame to hwFrame
+                    AVFrame* hwFrame = av_frame_alloc();
+                    av_hwframe_get_buffer(m_internal->codecCtx->hw_frames_ctx, hwFrame, 0);
+                    av_hwframe_transfer_data(hwFrame, m_internal->swFrame, 0);
+                    encodeFrame = m_internal->frame;
+                    av_frame_unref(encodeFrame);
+                    av_frame_ref(encodeFrame, hwFrame);
+                    av_frame_free(&hwFrame);
+                } else {
+                    encodeFrame = m_internal->swFrame;
+                }
             } else {
                 return false;
             }

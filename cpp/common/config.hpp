@@ -21,11 +21,13 @@ public:
     std::string getString(const std::string& key, const std::string& defaultValue);
     int getInt(const std::string& key, int defaultValue);
     float getFloat(const std::string& key, float defaultValue);
+    double getDouble(const std::string& key, double defaultValue);
     bool getBool(const std::string& key, bool defaultValue);
 
     void setString(const std::string& key, const std::string& value);
     void setInt(const std::string& key, int value);
     void setFloat(const std::string& key, float value);
+    void setDouble(const std::string& key, double value);
     void setBool(const std::string& key, bool value);
 
 private:
