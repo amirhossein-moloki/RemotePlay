@@ -154,6 +154,16 @@ void SessionManager::runHost(ParsecConfig config) {
                 std::lock_guard<std::mutex> lock(ctx.initMutex);
                 ctx.capturedWidth = desc.Width;
                 ctx.capturedHeight = desc.Height;
+
+                // Apply resolution scale if requested
+                if (config.resolutionScale > 0.0f && config.resolutionScale < 1.0f) {
+                    ctx.capturedWidth = (int)(ctx.capturedWidth * config.resolutionScale);
+                    ctx.capturedHeight = (int)(ctx.capturedHeight * config.resolutionScale);
+                    // Ensure even dimensions for video encoding
+                    ctx.capturedWidth &= ~1;
+                    ctx.capturedHeight &= ~1;
+                }
+
                 ctx.initDone = true;
             }
             ctx.capture.ReleaseFrame();

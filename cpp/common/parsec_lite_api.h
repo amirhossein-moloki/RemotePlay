@@ -19,6 +19,9 @@ struct ParsecConfig {
     char username[32];
     int bitrate;
     int fps;
+    int targetWidth;
+    int targetHeight;
+    float resolutionScale;
     bool isHost;
     bool useHardwareEncoding;
     void* windowHandle; // HWND on Windows

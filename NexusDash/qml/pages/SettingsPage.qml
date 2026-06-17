@@ -149,6 +149,7 @@ ScrollView {
                         Layout.fillWidth: true
                         Text { text: "Default Bitrate (kbps)"; color: Theme.textSecondary; font.pixelSize: 11 }
                         NexusInput {
+                            id: bitrateInput
                             Layout.fillWidth: true
                             text: "5000"
                         }
@@ -158,8 +159,77 @@ ScrollView {
                         Layout.fillWidth: true
                         Text { text: "Default FPS"; color: Theme.textSecondary; font.pixelSize: 11 }
                         NexusInput {
+                            id: fpsInput
                             Layout.fillWidth: true
                             text: "60"
+                        }
+                    }
+                }
+            }
+
+            NexusCard {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 160
+                title: "Performance & Quality"
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: "Hardware Acceleration"
+                                font.family: Theme.fontFamily
+                                color: Theme.textPrimary
+                                font.pixelSize: 13
+                            }
+                            Text {
+                                text: "Use GPU for faster encoding/decoding"
+                                font.family: Theme.fontFamily
+                                color: Theme.textSecondary
+                                font.pixelSize: 11
+                            }
+                        }
+                        Switch {
+                            checked: backend.system.useHardwareEncoding
+                            onClicked: backend.system.useHardwareEncoding = checked
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: "Resolution Scale"
+                                font.family: Theme.fontFamily
+                                color: Theme.textPrimary
+                                font.pixelSize: 13
+                            }
+                            Text {
+                                text: "Reduce resolution for better performance"
+                                font.family: Theme.fontFamily
+                                color: Theme.textSecondary
+                                font.pixelSize: 11
+                            }
+                        }
+                        ComboBox {
+                            model: ListModel {
+                                ListElement { text: "100% (Native)"; value: 1.0 }
+                                ListElement { text: "75%"; value: 0.75 }
+                                ListElement { text: "50%"; value: 0.5 }
+                            }
+                            textRole: "text"
+                            currentIndex: backend.system.resolutionScale === 1.0 ? 0 : (backend.system.resolutionScale === 0.75 ? 1 : 2)
+                            onActivated: (index) => { backend.system.resolutionScale = model.get(index).value }
                         }
                     }
                 }
