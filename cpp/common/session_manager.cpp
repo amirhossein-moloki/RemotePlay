@@ -177,6 +177,7 @@ void SessionManager::runHost(ParsecConfig config) {
 
         uint32_t frameCount = 0;
         auto lastFpsCheck = std::chrono::high_resolution_clock::now();
+        Profiler::getInstance().recordValue("Host_Bitrate", (double)config.bitrate / 1000.0);
 
         while (m_running) {
             frameCount++;
@@ -190,11 +191,31 @@ void SessionManager::runHost(ParsecConfig config) {
 
             ID3D11Texture2D* tex = nullptr;
             uint64_t captureTs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+
+            // Encode on this thread to keep DXGI affinity and reduce latency
             HRESULT hr = ctx.capture.AcquireFrame(&tex);
             if (SUCCEEDED(hr)) {
                 uint64_t endCaptureTs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
                 Profiler::getInstance().recordTime("Capture_Time", (double)(endCaptureTs - captureTs));
-                if (!ctx.captureQueue.push({tex, endCaptureTs})) ctx.capture.ReleaseFrame();
+
+                if (ctx.encoder.IsInitialized()) {
+                    static thread_local std::vector<Host::EncodedPacket> packets;
+                    packets.clear();
+                    uint64_t encodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                    if (ctx.encoder.EncodeFrame(tex, packets, ctx.packetPool)) {
+                        uint64_t encodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                        Profiler::getInstance().recordTime("Encode_Time", (double)(encodeEnd - encodeStart));
+                        for (auto& p : packets) {
+                            p.captureTimestamp = endCaptureTs; // Use end of capture as ref
+                            p.encodeStartTimestamp = encodeStart;
+                            p.encodeEndTimestamp = encodeEnd;
+                        }
+                        if (!ctx.encodeQueue.push(std::move(packets))) {
+                            for (auto& p : packets) ctx.packetPool.release(std::move(p.packet));
+                        }
+                    }
+                }
+                ctx.capture.ReleaseFrame();
             } else if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
                 // Ignore timeouts
                 std::this_thread::yield();
@@ -206,37 +227,11 @@ void SessionManager::runHost(ParsecConfig config) {
         }
     });
 
-    std::thread encoderThread = std::thread([&]() {
-        Profiler::getInstance().recordValue("Host_Bitrate", (double)config.bitrate / 1000.0);
-        while (m_running) {
-            CapturedFrame cf = {nullptr, 0};
-            if (ctx.captureQueue.pop(cf)) {
-                static thread_local std::vector<Host::EncodedPacket> packets;
-                packets.clear();
-                uint64_t encodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-                if (ctx.encoder.EncodeFrame(cf.texture, packets, ctx.packetPool)) {
-                    uint64_t encodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-                    Profiler::getInstance().recordTime("Encode_Time", (double)(encodeEnd - encodeStart));
-                    for (auto& p : packets) {
-                        p.captureTimestamp = cf.captureTimestamp;
-                        p.encodeStartTimestamp = encodeStart;
-                        p.encodeEndTimestamp = encodeEnd;
-                    }
-                    if (!ctx.encodeQueue.push(std::move(packets))) {
-                        for (auto& p : packets) ctx.packetPool.release(std::move(p.packet));
-                    }
-                }
-                ctx.capture.ReleaseFrame();
-            } else {
-                std::this_thread::sleep_for(std::chrono::microseconds(100));
-            }
-        }
-    });
 
     std::thread packetizerThread = std::thread([&]() {
         uint32_t frameId = 0;
         std::vector<Host::EncodedPacket> frames;
-        while (m_running) {
+        while (m_running || !ctx.encodeQueue.empty()) {
             if (ctx.encodeQueue.pop(frames)) {
                 for (auto& frame : frames) {
                     uint16_t totalFrags = (uint16_t)((frame.packet->size + Protocol::MAX_UDP_PAYLOAD - 1) / Protocol::MAX_UDP_PAYLOAD);
@@ -268,11 +263,14 @@ void SessionManager::runHost(ParsecConfig config) {
                                 if (sendPkt) {
                                     sendPkt->size = frag->size;
                                     memcpy(sendPkt->data.data(), frag->data.data(), frag->size);
-                                    ctx.sendQueue.push({std::move(sendPkt), client.first, client.second});
+                                    if (!ctx.sendQueue.push({std::move(sendPkt), client.first, client.second})) {
+                                        ctx.udpPool.release(std::move(sendPkt));
+                                    }
                                 }
                             }
                         }
                     }
+                    for (auto& frag : fragments) ctx.udpPool.release(std::move(frag));
                     ctx.packetPool.release(std::move(frame.packet));
                 }
                 frameId++;
@@ -286,7 +284,7 @@ void SessionManager::runHost(ParsecConfig config) {
         const size_t MAX_BATCH = 64;
         Network::NetworkManager::BatchItem batch[MAX_BATCH];
         OutgoingPacket ops[MAX_BATCH];
-        while (m_running) {
+        while (m_running || !ctx.sendQueue.empty()) {
             size_t count = 0;
             while (count < MAX_BATCH && ctx.sendQueue.pop(ops[count])) {
                 batch[count].data = ops[count].packet->data.data();
@@ -377,17 +375,19 @@ void SessionManager::runHost(ParsecConfig config) {
                 } else if (type == Protocol::PacketType::Input && len >= (int)sizeof(Protocol::InputHeader)) {
                     Protocol::InputHeader* ih = (Protocol::InputHeader*)buf;
                     uint8_t* payload = buf + sizeof(Protocol::InputHeader);
-                    if (ih->inputType == (uint8_t)Protocol::InputType::Keyboard) {
+                    int payloadLen = len - (int)sizeof(Protocol::InputHeader);
+
+                    if (ih->inputType == (uint8_t)Protocol::InputType::Keyboard && payloadLen >= (int)sizeof(Protocol::KeyboardEvent)) {
                         ctx.injector.InjectKeyboard(*(Protocol::KeyboardEvent*)payload);
-                    } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseMove) {
+                    } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseMove && payloadLen >= (int)sizeof(Protocol::MouseMoveEvent)) {
                         ctx.injector.InjectMouseMove(*(Protocol::MouseMoveEvent*)payload);
-                    } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseButton) {
+                    } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseButton && payloadLen >= (int)sizeof(Protocol::MouseButtonEvent)) {
                         ctx.injector.InjectMouseButton(*(Protocol::MouseButtonEvent*)payload);
-                    } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseScroll) {
+                    } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseScroll && payloadLen >= (int)sizeof(Protocol::MouseScrollEvent)) {
                         ctx.injector.InjectMouseScroll(*(Protocol::MouseScrollEvent*)payload);
-                    } else if (ih->inputType == (uint8_t)Protocol::InputType::GamepadStatus) {
+                    } else if (ih->inputType == (uint8_t)Protocol::InputType::GamepadStatus && payloadLen >= (int)sizeof(Protocol::GamepadStatusEvent)) {
                         ctx.injector.HandleGamepadStatus(senderIp, *(Protocol::GamepadStatusEvent*)payload);
-                    } else if (ih->inputType == (uint8_t)Protocol::InputType::Gamepad) {
+                    } else if (ih->inputType == (uint8_t)Protocol::InputType::Gamepad && payloadLen >= (int)sizeof(Protocol::GamepadState)) {
                         ctx.injector.InjectGamepad(senderIp, *(Protocol::GamepadState*)payload);
                     }
                 }
@@ -402,20 +402,23 @@ void SessionManager::runHost(ParsecConfig config) {
         if (ctx.initFailed || !m_running) {
             if (ctx.initFailed) reportError(ParsecError::HARDWARE_INIT_FAILED, "Capture initialization failed. Please check your GPU drivers and ensure you are not in a RDP session.");
             m_running = false;
-            if (captureThread.joinable()) captureThread.join();
-            return;
         }
+    }
+
+    if (!m_running) {
+        if (captureThread.joinable()) captureThread.join();
+        if (packetizerThread.joinable()) packetizerThread.join();
+        if (senderThread.joinable()) senderThread.join();
+        if (receiverThread.joinable()) receiverThread.join();
+        return;
     }
 
     if (!ctx.encoder.Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, config.bitrate, ctx.capture.GetDevice())) {
         reportError(ParsecError::HARDWARE_INIT_FAILED, "Hardware encoder initialization failed. Your GPU might not support the requested resolution or bitrate.");
         m_running = false;
-        if (captureThread.joinable()) captureThread.join();
-        return;
     }
 
     if (captureThread.joinable()) captureThread.join();
-    if (encoderThread.joinable()) encoderThread.join();
     if (packetizerThread.joinable()) packetizerThread.join();
     if (senderThread.joinable()) senderThread.join();
     if (receiverThread.joinable()) receiverThread.join();

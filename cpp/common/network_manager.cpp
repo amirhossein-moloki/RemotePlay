@@ -97,8 +97,17 @@ bool NetworkManager::Bind(const std::string& ip, uint16_t port) {
     m_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 #ifdef _WIN32
     if (m_socket == INVALID_SOCKET) return false;
+
+    // Set receive timeout to allow threads to exit gracefully
+    DWORD timeout = 500; // ms
+    setsockopt(m_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
 #else
     if (m_socket < 0) return false;
+
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 500000; // 500ms
+    setsockopt(m_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 #endif
 
     sockaddr_in addr;
