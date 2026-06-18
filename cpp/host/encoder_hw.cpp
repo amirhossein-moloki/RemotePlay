@@ -248,6 +248,7 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
         LOG_ERROR("Encoder", "Encoder not initialized correctly for hardware or software path.");
         return false;
     }
+    }
 
     encodeFrame->width = m_internal->codecCtx->width;
     encodeFrame->height = m_internal->codecCtx->height;
