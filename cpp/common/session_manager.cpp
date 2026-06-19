@@ -411,6 +411,14 @@ void SessionManager::runHost(ParsecConfig config) {
                     } else if (ih->inputType == (uint8_t)Protocol::InputType::Gamepad && payloadLen >= (int)sizeof(Protocol::GamepadState)) {
                         ctx.injector.InjectGamepad(senderIp, *(Protocol::GamepadState*)payload);
                     }
+                } else if (type == Protocol::PacketType::Feedback && len >= (int)sizeof(Protocol::FeedbackHeader)) {
+                    Protocol::FeedbackHeader* fh = (Protocol::FeedbackHeader*)buf;
+                    // Update telemetry for local display
+                    Profiler::getInstance().recordValue("Network_LossRate", fh->lossRate);
+                    Profiler::getInstance().recordValue("Network_RTT", (double)fh->rttMs);
+
+                    // Pass to encoder manager for adaptive quality
+                    ctx.encoder.UpdatePerformanceMetrics(fh->lossRate, -1.0f, fh->avgDecodeTimeMs);
                 }
             }
         }
@@ -540,7 +548,28 @@ void SessionManager::runClient(ParsecConfig config) {
 
     LOG_INFO("Session", "Handshake approved, starting stream");
 
+    auto lastFeedbackTime = std::chrono::steady_clock::now();
+
     while (m_running) {
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFeedbackTime).count() >= 1000) {
+            Protocol::FeedbackHeader fh;
+            fh.type = (uint8_t)Protocol::PacketType::Feedback;
+            fh.lastReceivedFrameId = lastFrameId;
+
+            auto stats = Profiler::getInstance().getStats("Network_LossRate");
+            fh.lossRate = (float)stats.latest;
+
+            stats = Profiler::getInstance().getStats("Network_RTT");
+            fh.rttMs = (uint32_t)stats.latest;
+
+            stats = Profiler::getInstance().getStats("Decode_Time");
+            fh.avgDecodeTimeMs = (float)stats.avg / 1000.0f; // us to ms
+
+            net.SendTo(&fh, sizeof(fh), config.hostIp, 5005);
+            lastFeedbackTime = now;
+        }
+
         while (auto frame = receiver.GetNextFrame()) {
             jitterBuffer.PushFrame(std::move(frame));
         }
