@@ -111,12 +111,16 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
 
                 if (std::string(codec->name).find("qsv") != std::string::npos) {
                     p = qsv_presets[std::max(0, std::min(2, preset))];
+                    av_opt_set(m_internal->codecCtx->priv_data, "preset", p, 0);
+                    av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
+                    av_opt_set(m_internal->codecCtx->priv_data, "repeat_headers", "1", 0);
+                    av_opt_set(m_internal->codecCtx->priv_data, "async_depth", "1", 0);
                 } else {
                     p = amf_presets[std::max(0, std::min(2, preset))];
+                    av_opt_set(m_internal->codecCtx->priv_data, "preset", p, 0);
+                    av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
+                    av_opt_set(m_internal->codecCtx->priv_data, "header_insertion_mode", "1", 0);
                 }
-
-                av_opt_set(m_internal->codecCtx->priv_data, "preset", p, 0);
-                av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
             }
         }
         av_opt_set(m_internal->codecCtx->priv_data, "rc", "cbr", 0);

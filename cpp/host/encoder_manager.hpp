@@ -41,7 +41,7 @@ public:
     EncoderManager();
     ~EncoderManager();
 
-    bool Initialize(int initialWidth, int height, int fps, void* d3d11Device);
+    bool Initialize(int initialWidth, int height, int fps, void* d3d11Device, bool useHardware = true);
     bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool);
 
     void RequestKeyframe();
@@ -54,7 +54,7 @@ public:
     void Shutdown();
 
 private:
-    void DetectCapabilities();
+    void DetectCapabilities(bool useHardware);
     bool SelectAndInitEncoder();
     QualityProfile GetProfileForTier(QualityTier tier) const;
 
