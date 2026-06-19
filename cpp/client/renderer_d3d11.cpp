@@ -86,13 +86,16 @@ bool RendererD3D11::SetupVideoProcessor(int width, int height) {
     if (m_videoProcessor) return true;
     if (!m_device) return false;
 
+    HRESULT hr;
+
     if (!m_videoDevice) {
-        HRESULT hr = m_device->QueryInterface(__uuidof(ID3D11VideoDevice), (void**)&m_videoDevice);
+        hr = m_device->QueryInterface(__uuidof(ID3D11VideoDevice), (void**)&m_videoDevice);
         if (FAILED(hr)) return false;
     }
 
     if (!m_videoContext) {
-        m_context->QueryInterface(__uuidof(ID3D11VideoContext), (void**)&m_videoContext);
+        hr = m_context->QueryInterface(__uuidof(ID3D11VideoContext), (void**)&m_videoContext);
+        if (FAILED(hr)) return false;
     }
 
     D3D11_VIDEO_PROCESSOR_CONTENT_DESC contentDesc = {};
@@ -147,7 +150,6 @@ void RendererD3D11::Render(ID3D11Texture2D* texture) {
                 D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outputViewDesc = {};
                 outputViewDesc.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
                 outputViewDesc.Texture2D.MipSlice = 0;
-                outputViewDesc.Texture2D.ArraySlice = 0;
                 m_videoDevice->CreateVideoProcessorOutputView(backBuffer, m_videoEnumerator, &outputViewDesc, &m_outputView);
                 m_lastOutputTexture = backBuffer;
             }
