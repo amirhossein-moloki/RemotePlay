@@ -378,6 +378,7 @@ void SessionManager::runHost(ParsecConfig config) {
                             if (approved) {
                                 std::lock_guard<std::mutex> lock(ctx.clientsMutex);
                                 ctx.clients.insert({senderIp, senderPort});
+                                ctx.encoder.RequestKeyframe();
                                 // Remove from pending after adding to clients
                                 std::lock_guard<std::mutex> pLock(m_pendingClientsMutex);
                                 auto it = std::find_if(m_pendingClients.begin(), m_pendingClients.end(), [&](const PendingClient& pc) {
