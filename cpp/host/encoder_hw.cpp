@@ -105,40 +105,65 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
                 av_opt_set(m_internal->codecCtx->priv_data, "tune", "ull", 0);
                 av_opt_set(m_internal->codecCtx->priv_data, "repeat_config", "1", 0);
             } else {
-                av_opt_set(m_internal->codecCtx->priv_data, "preset", "speed", 0); // AMF/QSV usually have speed/balanced/quality
+                const char* qsv_presets[] = { "veryfast", "medium", "veryslow" };
+                const char* amf_presets[] = { "speed", "balanced", "quality" };
+                const char* p = "balanced";
+
+                if (std::string(codec->name).find("qsv") != std::string::npos) {
+                    p = qsv_presets[std::max(0, std::min(2, preset))];
+                } else {
+                    p = amf_presets[std::max(0, std::min(2, preset))];
+                }
+
+                av_opt_set(m_internal->codecCtx->priv_data, "preset", p, 0);
                 av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
             }
         }
         av_opt_set(m_internal->codecCtx->priv_data, "rc", "cbr", 0);
 
         if (d3d11Device && !isSoftware) {
-            AVBufferRef* device_ref = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
-            if (device_ref) {
-                AVHWDeviceContext* device_ctx = (AVHWDeviceContext*)device_ref->data;
-                AVD3D11VADeviceContext* d3d11_ctx = (AVD3D11VADeviceContext*)device_ctx->hwctx;
-                d3d11_ctx->device = (ID3D11Device*)d3d11Device;
-                d3d11_ctx->device->AddRef();
-
-                if (av_hwdevice_ctx_init(device_ref) >= 0) {
-                    m_internal->hwDeviceCtx = device_ref;
-                    m_internal->codecCtx->hw_device_ctx = av_buffer_ref(device_ref);
-
-                    AVBufferRef* frames_ref = av_hwframe_ctx_alloc(device_ref);
-                    AVHWFramesContext* frames_ctx = (AVHWFramesContext*)frames_ref->data;
-                    frames_ctx->format = AV_PIX_FMT_D3D11;
-                    frames_ctx->sw_format = AV_PIX_FMT_NV12;
-                    frames_ctx->width = width;
-                    frames_ctx->height = height;
-                    frames_ctx->initial_pool_size = 0;
-
-                    if (av_hwframe_ctx_init(frames_ref) >= 0) {
-                        m_internal->codecCtx->hw_frames_ctx = av_buffer_ref(frames_ref);
-                        m_internal->codecCtx->pix_fmt = AV_PIX_FMT_D3D11;
+            bool supportsD3D11 = false;
+            if (codec->pix_fmts) {
+                for (const enum AVPixelFormat* p = codec->pix_fmts; *p != AV_PIX_FMT_NONE; p++) {
+                    if (*p == AV_PIX_FMT_D3D11) {
+                        supportsD3D11 = true;
+                        break;
                     }
-                    av_buffer_unref(&frames_ref);
-                } else {
-                    av_buffer_unref(&device_ref);
                 }
+            }
+
+            if (supportsD3D11) {
+                m_internal->codecCtx->pix_fmt = AV_PIX_FMT_D3D11;
+                AVBufferRef* device_ref = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
+                if (device_ref) {
+                    AVHWDeviceContext* device_ctx = (AVHWDeviceContext*)device_ref->data;
+                    AVD3D11VADeviceContext* d3d11_ctx = (AVD3D11VADeviceContext*)device_ctx->hwctx;
+                    d3d11_ctx->device = (ID3D11Device*)d3d11Device;
+                    d3d11_ctx->device->AddRef();
+
+                    if (av_hwdevice_ctx_init(device_ref) >= 0) {
+                        m_internal->hwDeviceCtx = device_ref;
+                        m_internal->codecCtx->hw_device_ctx = av_buffer_ref(device_ref);
+
+                        AVBufferRef* frames_ref = av_hwframe_ctx_alloc(device_ref);
+                        AVHWFramesContext* frames_ctx = (AVHWFramesContext*)frames_ref->data;
+                        frames_ctx->format = AV_PIX_FMT_D3D11;
+                        frames_ctx->sw_format = AV_PIX_FMT_NV12;
+                        frames_ctx->width = width;
+                        frames_ctx->height = height;
+                        frames_ctx->initial_pool_size = 0;
+
+                        if (av_hwframe_ctx_init(frames_ref) >= 0) {
+                            m_internal->codecCtx->hw_frames_ctx = av_buffer_ref(frames_ref);
+                            m_internal->codecCtx->pix_fmt = AV_PIX_FMT_D3D11;
+                        }
+                        av_buffer_unref(&frames_ref);
+                    } else {
+                        av_buffer_unref(&device_ref);
+                    }
+                }
+            } else {
+                LOG_WARN("Encoder", "Codec " + std::string(codec->name) + " does not support D3D11 pixel format directly. Using software-to-hardware upload path.");
             }
         }
 
@@ -216,10 +241,10 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
 
             D3D11_MAPPED_SUBRESOURCE mapped;
             if (SUCCEEDED(m_internal->d3d11Context->Map(m_internal->stagingTex, 0, D3D11_MAP_READ, 0, &mapped))) {
-                if (!m_internal->swsCtx) {
+                if (!m_internal->swsCtx && m_internal->swFrame) {
                     m_internal->swsCtx = sws_getContext(desc.Width, desc.Height, AV_PIX_FMT_BGRA,
                                                        m_width, m_height,
-                                                       m_internal->codecCtx->pix_fmt == AV_PIX_FMT_D3D11 ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P,
+                                                       (AVPixelFormat)m_internal->swFrame->format,
                                                        SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
                 }
 
