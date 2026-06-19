@@ -49,6 +49,7 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
 
     if (d3d11Device) {
         m_internal->d3d11Device = (ID3D11Device*)d3d11Device;
+        m_internal->d3d11Device->AddRef();
         m_internal->d3d11Device->GetImmediateContext(&m_internal->d3d11Context);
     }
 
@@ -96,11 +97,13 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
             const char* sw_presets[] = { "ultrafast", "superfast", "veryfast" };
             av_opt_set(m_internal->codecCtx->priv_data, "preset", sw_presets[std::max(0, std::min(2, preset))], 0);
             av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
+            av_opt_set(m_internal->codecCtx->priv_data, "x264-params", "repeat-headers=1", 0);
         } else {
             const char* hw_presets[] = { "p1", "p4", "p7" }; // NVENC: p1 is fastest, p7 is slowest/best
             if (std::string(codec->name).find("nvenc") != std::string::npos) {
                 av_opt_set(m_internal->codecCtx->priv_data, "preset", hw_presets[std::max(0, std::min(2, preset))], 0);
                 av_opt_set(m_internal->codecCtx->priv_data, "tune", "ull", 0);
+                av_opt_set(m_internal->codecCtx->priv_data, "repeat_config", "1", 0);
             } else {
                 av_opt_set(m_internal->codecCtx->priv_data, "preset", "speed", 0); // AMF/QSV usually have speed/balanced/quality
                 av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
@@ -155,11 +158,8 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
     };
 
     if (!tryInitialize(false)) {
-        LOG_WARN("Encoder", "Hardware encoder initialization failed. Falling back to software encoding.");
-        if (!tryInitialize(true)) {
-            LOG_ERROR("Encoder", "Software encoder initialization also failed.");
-            return false;
-        }
+        LOG_ERROR("Encoder", "Failed to initialize requested backend.");
+        return false;
     }
 
     m_internal->pkt = av_packet_alloc();
@@ -270,6 +270,12 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
     encodeFrame->height = m_internal->codecCtx->height;
     encodeFrame->pts = m_internal->frameCounter++;
 
+    if (m_forceKeyframe) {
+        encodeFrame->pict_type = AV_PICTURE_TYPE_I;
+        encodeFrame->key_frame = 1;
+        m_forceKeyframe = false;
+    }
+
     int ret = avcodec_send_frame(m_internal->codecCtx, encodeFrame);
     if (encodeFrame == m_internal->frame) {
         // We only unref if it was the wrapper frame. The software frame is reused.
@@ -322,6 +328,10 @@ void FFmpegHardwareEncoder::SetBitrate(int bitrateKbps) {
     }
 }
 
+void FFmpegHardwareEncoder::ForceKeyframe() {
+    m_forceKeyframe = true;
+}
+
 void FFmpegHardwareEncoder::Shutdown() {
     m_initialized = false;
     if (m_internal->codecCtx) {
@@ -342,6 +352,7 @@ void FFmpegHardwareEncoder::Shutdown() {
     if (m_internal->swFrame) { av_frame_free(&m_internal->swFrame); m_internal->swFrame = nullptr; }
     if (m_internal->stagingTex) { m_internal->stagingTex->Release(); m_internal->stagingTex = nullptr; }
     if (m_internal->d3d11Context) { m_internal->d3d11Context->Release(); m_internal->d3d11Context = nullptr; }
+    if (m_internal->d3d11Device) { m_internal->d3d11Device->Release(); m_internal->d3d11Device = nullptr; }
 }
 
 #else

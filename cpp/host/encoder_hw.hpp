@@ -4,6 +4,7 @@
 #include <string>
 #include <cstdint>
 #include <memory>
+#include <atomic>
 #include "../common/packet_pool.hpp"
 
 #ifdef _WIN32
@@ -26,6 +27,7 @@ public:
     virtual bool Initialize(int width, int height, int fps, int bitrateKbps, void* d3d11Device = nullptr, int preset = 0, const std::string& codecName = "") = 0;
     virtual bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) = 0;
     virtual void SetBitrate(int bitrateKbps) = 0;
+    virtual void ForceKeyframe() = 0;
     virtual void Shutdown() = 0;
     virtual bool IsInitialized() const = 0;
 };
@@ -38,6 +40,7 @@ public:
     bool Initialize(int width, int height, int fps, int bitrateKbps, void* d3d11Device = nullptr, int preset = 0, const std::string& codecName = "") override;
     bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) override;
     void SetBitrate(int bitrateKbps) override;
+    void ForceKeyframe() override;
     void Shutdown() override;
     bool IsInitialized() const override { return m_initialized; }
 
@@ -49,6 +52,7 @@ private:
     int m_fps = 0;
     int m_bitrate = 0;
     bool m_initialized = false;
+    std::atomic<bool> m_forceKeyframe{false};
 
     struct InternalData;
     InternalData* m_internal = nullptr;

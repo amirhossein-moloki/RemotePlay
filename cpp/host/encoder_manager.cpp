@@ -82,10 +82,12 @@ bool EncoderManager::SelectAndInitEncoder() {
 
     if (m_encoder->Initialize(profile.width, profile.height, m_fps, profile.bitrateKbps, m_d3d11Device, profile.preset, cap.codecName)) {
         LOG_INFO("EncoderManager", "SelectedEncoder: " + cap.codecName + " | Profile: " + profile.name);
+        m_encoder->ForceKeyframe();
         return true;
     }
 
-    LOG_WARN("EncoderManager", "Failed to initialize " + cap.codecName + ". Trying fallback...");
+    LOG_WARN("EncoderManager", "Failed to initialize " + cap.codecName + ". Marking as failed and trying fallback...");
+    cap.available = false; // Mark this specific backend as failed
     return Fallback();
 }
 
@@ -108,6 +110,12 @@ QualityProfile EncoderManager::GetProfileForTier(QualityTier tier) const {
 
 bool EncoderManager::Fallback() {
     m_backendIndex++;
+
+    // Skip backends that have been marked as unavailable
+    while (m_backendIndex < m_capabilities.size() && !m_capabilities[m_backendIndex].available) {
+        m_backendIndex++;
+    }
+
     if (m_backendIndex < m_capabilities.size()) {
         return SelectAndInitEncoder();
     }
@@ -115,6 +123,12 @@ bool EncoderManager::Fallback() {
     // If we've exhausted backends, try lower tier with first backend again?
     // Usually software is the ultimate fallback.
     return false;
+}
+
+void EncoderManager::RequestKeyframe() {
+    if (m_encoder) {
+        m_encoder->ForceKeyframe();
+    }
 }
 
 bool EncoderManager::EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) {

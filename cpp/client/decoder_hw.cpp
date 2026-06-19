@@ -82,10 +82,20 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture)
     m_internal->pkt->size = (int)size;
 
     int ret = avcodec_send_packet(m_internal->codecCtx, m_internal->pkt);
-    if (ret < 0) return false;
+    if (ret < 0) {
+        if (ret != AVERROR(EAGAIN)) {
+            LOG_WARN("Decoder", "avcodec_send_packet failed (code: " + std::to_string(ret) + ")");
+        }
+        return false;
+    }
 
     ret = avcodec_receive_frame(m_internal->codecCtx, m_internal->frame);
-    if (ret < 0) return false;
+    if (ret < 0) {
+        if (ret != AVERROR(EAGAIN)) {
+            LOG_WARN("Decoder", "Decoding error (code: " + std::to_string(ret) + "). Possible missing SPS/PPS headers; awaiting next keyframe.");
+        }
+        return false;
+    }
 
     if (m_internal->frame->format == AV_PIX_FMT_D3D11) {
         *outTexture = m_internal->frame->data[0]; // ID3D11Texture2D*

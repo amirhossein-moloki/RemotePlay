@@ -44,6 +44,7 @@ public:
     bool Initialize(int initialWidth, int height, int fps, void* d3d11Device);
     bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool);
 
+    void RequestKeyframe();
     void UpdatePerformanceMetrics(float frameDropRate, float avgEncodeTimeMs, float clientDecodeTimeMs = -1.0f);
 
     QualityTier GetCurrentTier() const { return m_currentTier; }
