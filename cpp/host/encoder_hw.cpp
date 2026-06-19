@@ -1,5 +1,6 @@
 #include "encoder_hw.hpp"
 #include <iostream>
+#include <algorithm>
 #include "../common/logger.hpp"
 
 #ifdef PARSEC_LITE_ENABLE_FFMPEG
@@ -38,7 +39,7 @@ FFmpegHardwareEncoder::~FFmpegHardwareEncoder() {
     delete m_internal;
 }
 
-bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitrateKbps, void* d3d11Device) {
+bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitrateKbps, void* d3d11Device, int preset) {
     m_width = width;
     m_height = height;
     m_fps = fps;
@@ -81,13 +82,16 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
         m_internal->codecCtx->max_b_frames = 0;
 
         if (isSoftware) {
-            av_opt_set(m_internal->codecCtx->priv_data, "preset", "ultrafast", 0);
+            const char* sw_presets[] = { "ultrafast", "superfast", "veryfast" };
+            av_opt_set(m_internal->codecCtx->priv_data, "preset", sw_presets[std::max(0, std::min(2, preset))], 0);
             av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
         } else {
-            av_opt_set(m_internal->codecCtx->priv_data, "preset", "p1", 0);
+            const char* hw_presets[] = { "p1", "p4", "p7" }; // NVENC: p1 is fastest, p7 is slowest/best
             if (std::string(codec->name).find("nvenc") != std::string::npos) {
+                av_opt_set(m_internal->codecCtx->priv_data, "preset", hw_presets[std::max(0, std::min(2, preset))], 0);
                 av_opt_set(m_internal->codecCtx->priv_data, "tune", "ull", 0);
             } else {
+                av_opt_set(m_internal->codecCtx->priv_data, "preset", "speed", 0); // AMF/QSV usually have speed/balanced/quality
                 av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
             }
         }

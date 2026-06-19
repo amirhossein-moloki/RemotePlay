@@ -73,6 +73,8 @@ class SystemService : public QObject
     Q_PROPERTY(bool isSessionActive READ isSessionActive NOTIFY sessionStateChanged)
     Q_PROPERTY(QString username READ username WRITE setUsername NOTIFY usernameChanged)
     Q_PROPERTY(bool useHardwareEncoding READ useHardwareEncoding WRITE setUseHardwareEncoding NOTIFY useHardwareEncodingChanged)
+    Q_PROPERTY(int encoderPreset READ encoderPreset WRITE setEncoderPreset NOTIFY encoderPresetChanged)
+    Q_PROPERTY(bool autoApprove READ autoApprove WRITE setAutoApprove NOTIFY autoApproveChanged)
     Q_PROPERTY(double resolutionScale READ resolutionScale WRITE setResolutionScale NOTIFY resolutionScaleChanged)
     Q_PROPERTY(QAbstractListModel* logModel READ logModel CONSTANT)
 
@@ -104,6 +106,10 @@ public:
     void setUsername(const QString& username);
     bool useHardwareEncoding() const { return m_useHardwareEncoding; }
     void setUseHardwareEncoding(bool use);
+    int encoderPreset() const { return m_encoderPreset; }
+    void setEncoderPreset(int preset);
+    bool autoApprove() const { return m_autoApprove; }
+    void setAutoApprove(bool approve);
     double resolutionScale() const { return m_resolutionScale; }
     void setResolutionScale(double scale);
 
@@ -127,6 +133,8 @@ signals:
     void historyChanged();
     void usernameChanged();
     void useHardwareEncodingChanged();
+    void encoderPresetChanged();
+    void autoApproveChanged();
     void resolutionScaleChanged();
     void connectionRequested(const QString& username, const QString& ip, int port);
     void errorOccurred(const QString& title, const QString& message);
@@ -141,6 +149,8 @@ private:
     bool m_isSessionActive = false;
     QString m_username;
     bool m_useHardwareEncoding = true;
+    int m_encoderPreset = 0;
+    bool m_autoApprove = false;
     double m_resolutionScale = 1.0;
     void* m_clientWindow = nullptr;
     QStringList m_networkInterfaces;
