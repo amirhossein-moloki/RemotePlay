@@ -16,6 +16,8 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
     try {
         m_username = QString::fromStdString(Config::getInstance().getString("username", "User"));
         m_useHardwareEncoding = Config::getInstance().getBool("useHardwareEncoding", true);
+        m_encoderPreset = Config::getInstance().getInt("encoderPreset", 0);
+        m_autoApprove = Config::getInstance().getBool("autoApprove", false);
         m_resolutionScale = Config::getInstance().getDouble("resolutionScale", 1.0);
 
         Parsec_SetConnectionCallback([](const char* username, const char* ip, uint16_t port) {
@@ -88,6 +90,8 @@ void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps
     config.bitrate = bitrate;
     config.fps = fps;
     config.useHardwareEncoding = m_useHardwareEncoding;
+    config.encoderPreset = m_encoderPreset;
+    config.autoApprove = m_autoApprove;
     config.resolutionScale = (float)m_resolutionScale;
     config.targetWidth = 0;
     config.targetHeight = 0;
@@ -115,6 +119,7 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
     config.bitrate = bitrate;
     config.fps = fps;
     config.useHardwareEncoding = m_useHardwareEncoding;
+    config.encoderPreset = m_encoderPreset;
     config.resolutionScale = (float)m_resolutionScale;
     strncpy(config.selectedIp, interfaceIp.toStdString().c_str(), sizeof(config.selectedIp) - 1);
     strncpy(config.hostIp, hostIp.toStdString().c_str(), sizeof(config.hostIp) - 1);
@@ -151,6 +156,26 @@ void SystemService::setUseHardwareEncoding(bool use)
         Config::getInstance().setBool("useHardwareEncoding", use);
         Config::getInstance().save("config.ini");
         emit useHardwareEncodingChanged();
+    }
+}
+
+void SystemService::setEncoderPreset(int preset)
+{
+    if (m_encoderPreset != preset) {
+        m_encoderPreset = preset;
+        Config::getInstance().setInt("encoderPreset", preset);
+        Config::getInstance().save("config.ini");
+        emit encoderPresetChanged();
+    }
+}
+
+void SystemService::setAutoApprove(bool approve)
+{
+    if (m_autoApprove != approve) {
+        m_autoApprove = approve;
+        Config::getInstance().setBool("autoApprove", approve);
+        Config::getInstance().save("config.ini");
+        emit autoApproveChanged();
     }
 }
 

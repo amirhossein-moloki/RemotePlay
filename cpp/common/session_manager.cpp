@@ -330,14 +330,19 @@ void SessionManager::runHost(ParsecConfig config) {
                             });
 
                             if (it == m_pendingClients.end()) {
-                                if (m_pendingClients.size() < 32) {
-                                    m_pendingClients.push_back({senderIp, senderPort, username, false, true});
-                                    if (m_connectionCallback) {
-                                        m_connectionCallback(username.c_str(), senderIp.c_str(), senderPort);
+                                if (config.autoApprove) {
+                                    approved = true;
+                                    shouldRespond = true;
+                                } else {
+                                    if (m_pendingClients.size() < 32) {
+                                        m_pendingClients.push_back({senderIp, senderPort, username, false, true});
+                                        if (m_connectionCallback) {
+                                            m_connectionCallback(username.c_str(), senderIp.c_str(), senderPort);
+                                        }
                                     }
+                                    // Don't respond yet, wait for approval
+                                    continue;
                                 }
-                                // Don't respond yet, wait for approval
-                                continue;
                             } else if (!it->waiting) {
                                 approved = it->approved;
                                 shouldRespond = true;
@@ -413,7 +418,7 @@ void SessionManager::runHost(ParsecConfig config) {
         return;
     }
 
-    if (!ctx.encoder.Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, config.bitrate, ctx.capture.GetDevice())) {
+    if (!ctx.encoder.Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, config.bitrate, ctx.capture.GetDevice(), config.encoderPreset)) {
         reportError(ParsecError::HARDWARE_INIT_FAILED, "Hardware encoder initialization failed. Your GPU might not support the requested resolution or bitrate.");
         m_running = false;
     }

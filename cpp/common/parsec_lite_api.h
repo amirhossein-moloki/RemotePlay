@@ -24,6 +24,8 @@ struct ParsecConfig {
     float resolutionScale;
     bool isHost;
     bool useHardwareEncoding;
+    bool autoApprove;
+    int encoderPreset; // 0: Performance, 1: Balanced, 2: Quality
     void* windowHandle; // HWND on Windows
 };
 
