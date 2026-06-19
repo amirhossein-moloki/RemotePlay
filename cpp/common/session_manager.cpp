@@ -443,7 +443,7 @@ void SessionManager::runHost(ParsecConfig config) {
         return;
     }
 
-    if (!ctx.encoder.Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, ctx.capture.GetDevice())) {
+    if (!ctx.encoder.Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, ctx.capture.GetDevice(), config.useHardwareEncoding)) {
         reportError(ParsecError::HARDWARE_INIT_FAILED, "Encoder initialization failed. No compatible hardware or software encoders could be started.");
         m_running = false;
     }

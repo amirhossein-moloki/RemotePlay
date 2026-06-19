@@ -11,15 +11,14 @@ extern "C" {
 namespace Host {
 
 EncoderManager::EncoderManager() {
-    DetectCapabilities();
 }
 
 EncoderManager::~EncoderManager() {
     Shutdown();
 }
 
-void EncoderManager::DetectCapabilities() {
-    LOG_INFO("EncoderManager", "Detecting hardware capabilities...");
+void EncoderManager::DetectCapabilities(bool useHardware) {
+    LOG_INFO("EncoderManager", "Detecting capabilities (Hardware: " + std::string(useHardware ? "On" : "Off") + ")...");
     m_capabilities.clear();
 
 #ifdef PARSEC_LITE_ENABLE_FFMPEG
@@ -41,9 +40,11 @@ void EncoderManager::DetectCapabilities() {
         return success;
     };
 
-    if (checkCodec("h264_nvenc")) m_capabilities.push_back({EncoderBackend::NVENC, "h264_nvenc", true});
-    if (checkCodec("h264_qsv"))   m_capabilities.push_back({EncoderBackend::QSV, "h264_qsv", true});
-    if (checkCodec("h264_amf"))   m_capabilities.push_back({EncoderBackend::AMF, "h264_amf", true});
+    if (useHardware) {
+        if (checkCodec("h264_nvenc")) m_capabilities.push_back({EncoderBackend::NVENC, "h264_nvenc", true});
+        if (checkCodec("h264_qsv"))   m_capabilities.push_back({EncoderBackend::QSV, "h264_qsv", true});
+        if (checkCodec("h264_amf"))   m_capabilities.push_back({EncoderBackend::AMF, "h264_amf", true});
+    }
     if (checkCodec("libx264"))    m_capabilities.push_back({EncoderBackend::Software, "libx264", true});
 #endif
 
@@ -54,13 +55,15 @@ void EncoderManager::DetectCapabilities() {
     LOG_INFO("EncoderManager", "Capability profile built.");
 }
 
-bool EncoderManager::Initialize(int initialWidth, int height, int fps, void* d3d11Device) {
+bool EncoderManager::Initialize(int initialWidth, int height, int fps, void* d3d11Device, bool useHardware) {
     m_baseWidth = initialWidth;
     m_baseHeight = height;
     m_fps = fps;
     m_d3d11Device = d3d11Device;
     m_currentTier = QualityTier::TierA_HighPerformance;
     m_backendIndex = 0;
+
+    DetectCapabilities(useHardware);
 
     return SelectAndInitEncoder();
 }
