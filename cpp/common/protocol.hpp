@@ -61,6 +61,7 @@ struct FeedbackHeader {
     uint32_t lastReceivedFrameId;
     float lossRate;
     uint32_t rttMs;
+    float avgDecodeTimeMs;
 };
 
 // Input Packet Header

@@ -128,19 +128,33 @@ bool EncoderManager::EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& o
     return true;
 }
 
-void EncoderManager::UpdatePerformanceMetrics(float frameDropRate, float avgEncodeTimeMs) {
-    m_lastFrameDropRate = frameDropRate;
-    m_lastAvgEncodeTimeMs = avgEncodeTimeMs;
+void EncoderManager::UpdatePerformanceMetrics(float frameDropRate, float avgEncodeTimeMs, float clientDecodeTimeMs) {
+    if (frameDropRate >= 0) m_lastFrameDropRate = frameDropRate;
+    if (avgEncodeTimeMs >= 0) m_lastAvgEncodeTimeMs = avgEncodeTimeMs;
 
     uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 
     // Only adjust every 5 seconds to avoid flapping
     if (now - m_lastAdjustmentTime < 5000) return;
 
-    if (frameDropRate > 0.10f || avgEncodeTimeMs > (1000.0f / m_fps) * 0.8f) {
+    bool needsDowngrade = false;
+    float frameBudgetMs = 1000.0f / m_fps;
+
+    // Check host-side performance
+    if (m_lastFrameDropRate > 0.10f || m_lastAvgEncodeTimeMs > frameBudgetMs * 0.8f) {
+        needsDowngrade = true;
+    }
+
+    // Check client-side performance (if available)
+    if (clientDecodeTimeMs > 0 && clientDecodeTimeMs > frameBudgetMs * 0.8f) {
+        LOG_INFO("EncoderManager", "Client struggling with decode time (" + std::to_string(clientDecodeTimeMs) + "ms). Downgrading...");
+        needsDowngrade = true;
+    }
+
+    if (needsDowngrade) {
         AdjustTier(false); // Lower quality
         m_lastAdjustmentTime = now;
-    } else if (frameDropRate < 0.01f && avgEncodeTimeMs < (1000.0f / m_fps) * 0.4f) {
+    } else if (m_lastFrameDropRate < 0.01f && m_lastAvgEncodeTimeMs < frameBudgetMs * 0.4f) {
         // Potentially improve quality if we're doing very well
         // AdjustTier(true);
     }
