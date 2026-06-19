@@ -22,6 +22,7 @@ set(COMMON_SOURCES
 set(HOST_SOURCES
     cpp/host/capture_dxgi.cpp
     cpp/host/encoder_hw.cpp
+    cpp/host/encoder_manager.cpp
     cpp/host/input_injector.cpp
 )
 
