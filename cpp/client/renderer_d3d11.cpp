@@ -64,6 +64,10 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
 }
 
 void RendererD3D11::NewFrame() {
+    // Clear backbuffer to a dark color to avoid white screens when no frames are arriving
+    float clearColor[4] = { 0.043f, 0.063f, 0.125f, 1.0f }; // Matches Theme Background #0B1020
+    m_context->ClearRenderTargetView(m_backBufferView, clearColor);
+
     ImGui_ImplD3D11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
@@ -82,13 +86,24 @@ void RendererD3D11::Render(ID3D11Texture2D* texture) {
 
     m_context->OMSetRenderTargets(1, &m_backBufferView, nullptr);
 
-    // Copy the decoded texture to the backbuffer
-    // In a production app, we would use a shader to handle colorspace conversion if needed
+    D3D11_TEXTURE2D_DESC srcDesc, dstDesc;
+    texture->GetDesc(&srcDesc);
+
     ID3D11Texture2D* backBuffer = nullptr;
     m_swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
-    m_context->CopyResource(backBuffer, texture);
-    backBuffer->Release();
+    backBuffer->GetDesc(&dstDesc);
 
+    if (srcDesc.Width == dstDesc.Width && srcDesc.Height == dstDesc.Height && srcDesc.Format == dstDesc.Format) {
+        m_context->CopyResource(backBuffer, texture);
+    } else {
+        // Simple fallback: CopySubresourceRegion if dimensions match but something else doesn't,
+        // or just skip if it's completely incompatible (requires a full scaler/converter).
+        // For now, we've improved DecoderHW to output compatible RGBA textures if software path is used.
+        D3D11_BOX box = { 0, 0, 0, std::min(srcDesc.Width, dstDesc.Width), std::min(srcDesc.Height, dstDesc.Height), 1 };
+        m_context->CopySubresourceRegion(backBuffer, 0, 0, 0, 0, texture, 0, &box);
+    }
+
+    backBuffer->Release();
 }
 
 void RendererD3D11::Shutdown() {

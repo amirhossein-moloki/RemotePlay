@@ -524,6 +524,8 @@ void SessionManager::runClient(ParsecConfig config) {
             jitterBuffer.PushFrame(std::move(frame));
         }
 
+        if (useRenderer) renderer.NewFrame();
+
         auto frame = jitterBuffer.PopFrame();
         if (frame) {
             uint64_t decodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
@@ -536,15 +538,15 @@ void SessionManager::runClient(ParsecConfig config) {
                 Profiler::getInstance().recordTime("EndToEnd_Latency", (double)(now - frame->captureTimestamp));
 
                 if (useRenderer && outTexture) {
-                    renderer.NewFrame();
                     renderer.Render((ID3D11Texture2D*)outTexture);
-                    renderer.EndFrame();
                 }
             }
             receiver.ReturnToPool(std::move(frame));
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
+
+        if (useRenderer) renderer.EndFrame();
     }
 
     m_activeInputCapture = nullptr;
