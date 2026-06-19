@@ -19,7 +19,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include "host/capture_dxgi.hpp"
-#include "host/encoder_hw.hpp"
+#include "host/encoder_manager.hpp"
 #include "host/input_injector.hpp"
 #include "client/receiver.hpp"
 #include "client/decoder_hw.hpp"
@@ -108,7 +108,7 @@ void SessionManager::runHost(ParsecConfig config) {
     struct HostContext {
         Network::NetworkManager net;
         Host::CaptureDXGI capture;
-        Host::FFmpegHardwareEncoder encoder;
+        Host::EncoderManager encoder;
         Host::InputInjector injector;
         std::mutex clientsMutex;
         std::set<std::pair<std::string, uint16_t>> clients;
@@ -177,14 +177,32 @@ void SessionManager::runHost(ParsecConfig config) {
 
         uint32_t frameCount = 0;
         auto lastFpsCheck = std::chrono::high_resolution_clock::now();
-        Profiler::getInstance().recordValue("Host_Bitrate", (double)config.bitrate / 1000.0);
 
+        uint32_t lastProcessedFrameCount = 0;
         while (m_running) {
             frameCount++;
             auto now = std::chrono::high_resolution_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFpsCheck).count();
             if (elapsed >= 1000) {
                 Profiler::getInstance().recordValue("FPS", (double)frameCount * 1000.0 / elapsed);
+
+                // Calculate Frame Drop Rate (simplified: captured vs encoded)
+                // In a real scenario, we'd track actual dropped frames in the queue
+                float dropRate = 0.0f;
+                uint32_t currentTotal = frameCount;
+                if (currentTotal > 0) {
+                    // This is a rough heuristic for the example
+                    auto fpsStats = Profiler::getInstance().getStats("FPS");
+                    if (fpsStats.latest < config.fps * 0.8) dropRate = 0.2f;
+                }
+
+                // Adaptive Performance Monitoring
+                auto encodeStats = Profiler::getInstance().getStats("Encode_Time");
+                ctx.encoder.UpdatePerformanceMetrics(dropRate, (float)encodeStats.avg / 1000.0f);
+
+                // Update real-time bitrate telemetry based on current profile
+                Profiler::getInstance().recordValue("Host_Bitrate", (double)ctx.encoder.GetCurrentBitrate() / 1000.0);
+
                 frameCount = 0;
                 lastFpsCheck = now;
             }
@@ -198,21 +216,19 @@ void SessionManager::runHost(ParsecConfig config) {
                 uint64_t endCaptureTs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
                 Profiler::getInstance().recordTime("Capture_Time", (double)(endCaptureTs - captureTs));
 
-                if (ctx.encoder.IsInitialized()) {
-                    static thread_local std::vector<Host::EncodedPacket> packets;
-                    packets.clear();
-                    uint64_t encodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-                    if (ctx.encoder.EncodeFrame(tex, packets, ctx.packetPool)) {
-                        uint64_t encodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-                        Profiler::getInstance().recordTime("Encode_Time", (double)(encodeEnd - encodeStart));
-                        for (auto& p : packets) {
-                            p.captureTimestamp = endCaptureTs; // Use end of capture as ref
-                            p.encodeStartTimestamp = encodeStart;
-                            p.encodeEndTimestamp = encodeEnd;
-                        }
-                        if (!ctx.encodeQueue.push(std::move(packets))) {
-                            for (auto& p : packets) ctx.packetPool.release(std::move(p.packet));
-                        }
+                static thread_local std::vector<Host::EncodedPacket> packets;
+                packets.clear();
+                uint64_t encodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                if (ctx.encoder.EncodeFrame(tex, packets, ctx.packetPool)) {
+                    uint64_t encodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                    Profiler::getInstance().recordTime("Encode_Time", (double)(encodeEnd - encodeStart));
+                    for (auto& p : packets) {
+                        p.captureTimestamp = endCaptureTs; // Use end of capture as ref
+                        p.encodeStartTimestamp = encodeStart;
+                        p.encodeEndTimestamp = encodeEnd;
+                    }
+                    if (!ctx.encodeQueue.push(std::move(packets))) {
+                        for (auto& p : packets) ctx.packetPool.release(std::move(p.packet));
                     }
                 }
                 ctx.capture.ReleaseFrame();
@@ -418,8 +434,8 @@ void SessionManager::runHost(ParsecConfig config) {
         return;
     }
 
-    if (!ctx.encoder.Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, config.bitrate, ctx.capture.GetDevice(), config.encoderPreset)) {
-        reportError(ParsecError::HARDWARE_INIT_FAILED, "Hardware encoder initialization failed. Your GPU might not support the requested resolution or bitrate.");
+    if (!ctx.encoder.Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, ctx.capture.GetDevice())) {
+        reportError(ParsecError::HARDWARE_INIT_FAILED, "Encoder initialization failed. No compatible hardware or software encoders could be started.");
         m_running = false;
     }
 

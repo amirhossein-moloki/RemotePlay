@@ -39,7 +39,9 @@ FFmpegHardwareEncoder::~FFmpegHardwareEncoder() {
     delete m_internal;
 }
 
-bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitrateKbps, void* d3d11Device, int preset) {
+bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitrateKbps, void* d3d11Device, int preset, const std::string& codecName) {
+    Shutdown(); // Reset state
+
     m_width = width;
     m_height = height;
     m_fps = fps;
@@ -54,14 +56,23 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
         const AVCodec* codec = nullptr;
         bool isSoftware = false;
 
-        if (!softwareFallback) {
+        if (!codecName.empty()) {
+            codec = avcodec_find_encoder_by_name(codecName.c_str());
+            if (codec && (std::string(codec->name).find("264") == std::string::npos && std::string(codec->name).find("x264") == std::string::npos)) {
+                 // Check if it's software libx264
+                 if (std::string(codec->name) == "libx264") isSoftware = true;
+            }
+            if (codecName == "libx264") isSoftware = true;
+        }
+
+        if (!codec && !softwareFallback) {
             codec = avcodec_find_encoder_by_name("h264_nvenc");
             if (!codec) codec = avcodec_find_encoder_by_name("h264_amf");
             if (!codec) codec = avcodec_find_encoder_by_name("h264_qsv");
         }
 
         if (!codec) {
-            if (!softwareFallback) LOG_WARN("Encoder", "No hardware H.264 encoder found. Trying software...");
+            if (!softwareFallback) LOG_WARN("Encoder", "No requested or hardware H.264 encoder found. Trying software...");
             codec = avcodec_find_encoder_by_name("libx264");
             if (!codec) codec = avcodec_find_encoder(AV_CODEC_ID_H264);
             isSoftware = true;

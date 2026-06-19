@@ -23,7 +23,7 @@ struct EncodedPacket {
 class EncoderHW {
 public:
     virtual ~EncoderHW() {}
-    virtual bool Initialize(int width, int height, int fps, int bitrateKbps, void* d3d11Device = nullptr, int preset = 0) = 0;
+    virtual bool Initialize(int width, int height, int fps, int bitrateKbps, void* d3d11Device = nullptr, int preset = 0, const std::string& codecName = "") = 0;
     virtual bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) = 0;
     virtual void SetBitrate(int bitrateKbps) = 0;
     virtual void Shutdown() = 0;
@@ -35,7 +35,7 @@ public:
     FFmpegHardwareEncoder();
     ~FFmpegHardwareEncoder() override;
 
-    bool Initialize(int width, int height, int fps, int bitrateKbps, void* d3d11Device = nullptr, int preset = 0) override;
+    bool Initialize(int width, int height, int fps, int bitrateKbps, void* d3d11Device = nullptr, int preset = 0, const std::string& codecName = "") override;
     bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) override;
     void SetBitrate(int bitrateKbps) override;
     void Shutdown() override;
