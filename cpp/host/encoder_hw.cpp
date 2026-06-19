@@ -171,6 +171,7 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
         if (desc.Width == (UINT)m_width && desc.Height == (UINT)m_height) {
             encodeFrame->data[0] = (uint8_t*)texturePtr;
             encodeFrame->format = AV_PIX_FMT_D3D11;
+            encodeFrame->hw_frames_ctx = av_buffer_ref(m_internal->codecCtx->hw_frames_ctx);
         } else {
             // We need to scale. For now, hardware path without zero-copy
             // or implementing D3D11 scaling.
