@@ -71,10 +71,10 @@ void RendererD3D11::NewFrame() {
     DXGI_SWAP_CHAIN_DESC sd;
     m_swapChain->GetDesc(&sd);
     if (sd.SwapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD || sd.SwapEffect == DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL) {
-        IDXGISwapChain1* sc1 = nullptr;
-        if (SUCCEEDED(m_swapChain->QueryInterface(__uuidof(IDXGISwapChain1), (void**)&sc1))) {
-            m_currentBufferIndex = sc1->GetCurrentBackBufferIndex();
-            sc1->Release();
+        IDXGISwapChain3* sc3 = nullptr;
+        if (SUCCEEDED(m_swapChain->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&sc3))) {
+            m_currentBufferIndex = sc3->GetCurrentBackBufferIndex();
+            sc3->Release();
         }
     } else {
         m_currentBufferIndex = 0;
@@ -152,15 +152,12 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
                 if (m_inputView) m_inputView->Release();
                 D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC inputViewDesc = {};
                 inputViewDesc.FourCC = 0;
-                if (srcDesc.ArraySize > 1) {
-                    inputViewDesc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2DARRAY;
-                    inputViewDesc.Texture2DArray.MipSlice = 0;
-                    inputViewDesc.Texture2DArray.ArraySlice = arrayIndex;
-                } else {
-                    inputViewDesc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
-                    inputViewDesc.Texture2D.MipSlice = 0;
-                    inputViewDesc.Texture2D.ArraySlice = 0; // Ignore arrayIndex if not an array
-                }
+                // Use D3D11_VPIV_DIMENSION_TEXTURE2D for both single textures and arrays as
+                // D3D11_VPIV_DIMENSION_TEXTURE2DARRAY is not defined in the target SDK.
+                // D3D11_TEX2D_VPIV (Texture2D) contains ArraySlice which handles both cases.
+                inputViewDesc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
+                inputViewDesc.Texture2D.MipSlice = 0;
+                inputViewDesc.Texture2D.ArraySlice = (srcDesc.ArraySize > 1) ? arrayIndex : 0;
                 m_videoDevice->CreateVideoProcessorInputView(texture, m_videoEnumerator, &inputViewDesc, &m_inputView);
                 m_lastInputTexture = texture;
                 m_lastInputArrayIndex = arrayIndex;
