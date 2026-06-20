@@ -74,8 +74,10 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr) {
     return true;
 }
 
-bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture) {
+bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture, int* outIndex) {
     if (!m_internal->codecCtx) return false;
+
+    if (outIndex) *outIndex = 0;
 
     av_packet_unref(m_internal->pkt);
     m_internal->pkt->data = (uint8_t*)data;
@@ -99,6 +101,7 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture)
 
     if (m_internal->frame->format == AV_PIX_FMT_D3D11) {
         *outTexture = m_internal->frame->data[0]; // ID3D11Texture2D*
+        if (outIndex) *outIndex = (int)(intptr_t)m_internal->frame->data[1];
     } else {
         // Software frame fallback: Convert to RGBA and upload to D3D11 texture
         if (m_internal->device) {
@@ -176,7 +179,7 @@ bool DecoderHW::Initialize(void* p) {
     LOG_ERROR("Decoder", "FFmpeg support not compiled in. Decoder is disabled.");
     return false;
 }
-bool DecoderHW::DecodeFrame(const uint8_t* d, size_t s, void** o) { return false; }
+bool DecoderHW::DecodeFrame(const uint8_t* d, size_t s, void** o, int* i) { return false; }
 bool DecoderHW::IsHardware() const { return false; }
 void DecoderHW::Shutdown() {}
 #endif

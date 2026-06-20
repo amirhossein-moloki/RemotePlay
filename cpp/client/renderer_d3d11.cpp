@@ -48,10 +48,12 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
         return false;
     }
 
-    ID3D11Texture2D* pBackBuffer = nullptr;
-    m_swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer);
-    m_device->CreateRenderTargetView(pBackBuffer, nullptr, &m_backBufferView);
-    pBackBuffer->Release();
+    for (int i = 0; i < 2; i++) {
+        ID3D11Texture2D* pBackBuffer = nullptr;
+        m_swapChain->GetBuffer(i, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer);
+        m_device->CreateRenderTargetView(pBackBuffer, nullptr, &m_backBufferViews[i]);
+        pBackBuffer->Release();
+    }
 
     // Initialize ImGui
     IMGUI_CHECKVERSION();
@@ -65,9 +67,22 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
 }
 
 void RendererD3D11::NewFrame() {
+    // Determine current backbuffer index for Flip Model
+    DXGI_SWAP_CHAIN_DESC sd;
+    m_swapChain->GetDesc(&sd);
+    if (sd.SwapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD || sd.SwapEffect == DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL) {
+        IDXGISwapChain1* sc1 = nullptr;
+        if (SUCCEEDED(m_swapChain->QueryInterface(__uuidof(IDXGISwapChain1), (void**)&sc1))) {
+            m_currentBufferIndex = sc1->GetCurrentBackBufferIndex();
+            sc1->Release();
+        }
+    } else {
+        m_currentBufferIndex = 0;
+    }
+
     // Clear backbuffer to a dark color to avoid white screens when no frames are arriving
     float clearColor[4] = { 0.043f, 0.063f, 0.125f, 1.0f }; // Matches Theme Background #0B1020
-    m_context->ClearRenderTargetView(m_backBufferView, clearColor);
+    m_context->ClearRenderTargetView(m_backBufferViews[m_currentBufferIndex], clearColor);
 
     ImGui_ImplD3D11_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -76,7 +91,7 @@ void RendererD3D11::NewFrame() {
 
 void RendererD3D11::EndFrame() {
     ImGui::Render();
-    m_context->OMSetRenderTargets(1, &m_backBufferView, nullptr);
+    m_context->OMSetRenderTargets(1, &m_backBufferViews[m_currentBufferIndex], nullptr);
     ImGui_ImplD3D11_RenderDrawData(ImGui::GetDrawData());
     // Use DXGI_PRESENT_ALLOW_TEARING for lowest possible latency with Flip Discard
     m_swapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
@@ -117,14 +132,14 @@ bool RendererD3D11::SetupVideoProcessor(int width, int height) {
     return SUCCEEDED(hr);
 }
 
-void RendererD3D11::Render(ID3D11Texture2D* texture) {
+void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
     if (!texture || !m_context) return;
 
     D3D11_TEXTURE2D_DESC srcDesc;
     texture->GetDesc(&srcDesc);
 
     ID3D11Texture2D* backBuffer = nullptr;
-    m_swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
+    m_swapChain->GetBuffer(m_currentBufferIndex, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
     if (!backBuffer) return;
 
     D3D11_TEXTURE2D_DESC dstDesc;
@@ -132,34 +147,41 @@ void RendererD3D11::Render(ID3D11Texture2D* texture) {
 
     if (srcDesc.Format == DXGI_FORMAT_NV12) {
         if (SetupVideoProcessor(srcDesc.Width, srcDesc.Height)) {
-            // Recreate input view only if texture changed
-            if (texture != m_lastInputTexture) {
+            // Recreate input view only if texture or array index changed
+            if (texture != m_lastInputTexture || arrayIndex != m_lastInputArrayIndex) {
                 if (m_inputView) m_inputView->Release();
                 D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC inputViewDesc = {};
                 inputViewDesc.FourCC = 0;
-                inputViewDesc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
-                inputViewDesc.Texture2D.MipSlice = 0;
-                inputViewDesc.Texture2D.ArraySlice = 0;
+                if (srcDesc.ArraySize > 1) {
+                    inputViewDesc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2DARRAY;
+                    inputViewDesc.Texture2DArray.MipSlice = 0;
+                    inputViewDesc.Texture2DArray.ArraySlice = arrayIndex;
+                } else {
+                    inputViewDesc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
+                    inputViewDesc.Texture2D.MipSlice = 0;
+                    inputViewDesc.Texture2D.ArraySlice = 0; // Ignore arrayIndex if not an array
+                }
                 m_videoDevice->CreateVideoProcessorInputView(texture, m_videoEnumerator, &inputViewDesc, &m_inputView);
                 m_lastInputTexture = texture;
+                m_lastInputArrayIndex = arrayIndex;
             }
 
-            // Recreate output view only if backBuffer changed (e.g. resize)
-            if (backBuffer != m_lastOutputTexture) {
-                if (m_outputView) m_outputView->Release();
+            // Recreate output view for the current backbuffer if the texture changed (e.g. resize)
+            if (backBuffer != m_lastOutputTextures[m_currentBufferIndex]) {
+                if (m_outputViews[m_currentBufferIndex]) m_outputViews[m_currentBufferIndex]->Release();
                 D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outputViewDesc = {};
                 outputViewDesc.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
                 outputViewDesc.Texture2D.MipSlice = 0;
-                m_videoDevice->CreateVideoProcessorOutputView(backBuffer, m_videoEnumerator, &outputViewDesc, &m_outputView);
-                m_lastOutputTexture = backBuffer;
+                m_videoDevice->CreateVideoProcessorOutputView(backBuffer, m_videoEnumerator, &outputViewDesc, &m_outputViews[m_currentBufferIndex]);
+                m_lastOutputTextures[m_currentBufferIndex] = backBuffer;
             }
 
-            if (m_inputView && m_outputView) {
+            if (m_inputView && m_outputViews[m_currentBufferIndex]) {
                 D3D11_VIDEO_PROCESSOR_STREAM stream = {};
                 stream.Enable = TRUE;
                 stream.pInputSurface = m_inputView;
 
-                m_videoContext->VideoProcessorBlt(m_videoProcessor, m_outputView, 0, 1, &stream);
+                m_videoContext->VideoProcessorBlt(m_videoProcessor, m_outputViews[m_currentBufferIndex], 0, 1, &stream);
             }
         }
     } else {
@@ -180,18 +202,23 @@ void RendererD3D11::Shutdown() {
     ImGui::DestroyContext();
 
     if (m_inputView) m_inputView->Release();
-    if (m_outputView) m_outputView->Release();
+    for (int i = 0; i < 2; i++) {
+        if (m_outputViews[i]) m_outputViews[i]->Release();
+        m_outputViews[i] = nullptr;
+    }
     if (m_videoProcessor) m_videoProcessor->Release();
     if (m_videoEnumerator) m_videoEnumerator->Release();
     if (m_videoContext) m_videoContext->Release();
     if (m_videoDevice) m_videoDevice->Release();
 
-    if (m_backBufferView) m_backBufferView->Release();
+    for (int i = 0; i < 2; i++) {
+        if (m_backBufferViews[i]) m_backBufferViews[i]->Release();
+        m_backBufferViews[i] = nullptr;
+    }
     if (m_swapChain) m_swapChain->Release();
     if (m_context) m_context->Release();
     if (m_device) m_device->Release();
 
-    m_backBufferView = nullptr;
     m_swapChain = nullptr;
     m_context = nullptr;
     m_device = nullptr;

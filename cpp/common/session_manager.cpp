@@ -629,7 +629,8 @@ void SessionManager::runClient(ParsecConfig config) {
         if (frame) {
             uint64_t decodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
             void* outTexture = nullptr;
-            if (decoder.DecodeFrame(frame->buffer.data(), frame->totalSize, &outTexture)) {
+            int arrayIndex = 0;
+            if (decoder.DecodeFrame(frame->buffer.data(), frame->totalSize, &outTexture, &arrayIndex)) {
                 uint64_t decodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
                 Profiler::getInstance().recordTime("Decode_Time", (double)(decodeEnd - decodeStart));
 
@@ -637,7 +638,7 @@ void SessionManager::runClient(ParsecConfig config) {
                 Profiler::getInstance().recordTime("EndToEnd_Latency", (double)(now - frame->captureTimestamp));
 
                 if (useRenderer && outTexture) {
-                    renderer.Render((ID3D11Texture2D*)outTexture);
+                    renderer.Render((ID3D11Texture2D*)outTexture, arrayIndex);
                 }
             }
             receiver.ReturnToPool(std::move(frame));
