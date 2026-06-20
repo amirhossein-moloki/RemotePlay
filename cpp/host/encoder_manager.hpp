@@ -3,9 +3,22 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <mutex>
 #include "encoder_hw.hpp"
 
 namespace Host {
+
+enum class StreamingState {
+    IDLE,
+    PREFLIGHT_VALIDATION,
+    READY,
+    STARTING,
+    STREAMING,
+    DEGRADED,
+    RECOVERING,
+    EMERGENCY_FALLBACK,
+    SHUTDOWN
+};
 
 enum class QualityTier {
     TierA_HighPerformance,
@@ -54,7 +67,10 @@ public:
 
     void Shutdown();
 
+    StreamingState GetState() const { return m_state; }
+
 private:
+    void SetState(StreamingState newState);
     void DetectCapabilities(bool useHardware);
     bool PreflightEncoderValidation(int width, int height, int fps, void* d3d11Device);
     bool SelectAndInitEncoder();
@@ -66,7 +82,9 @@ private:
 
     std::vector<EncoderCapability> m_capabilities;
     std::unique_ptr<EncoderHW> m_encoder;
+    mutable std::mutex m_encoderMutex;
 
+    StreamingState m_state = StreamingState::IDLE;
     QualityTier m_currentTier = QualityTier::TierA_HighPerformance;
     EncoderBackend m_currentBackend = EncoderBackend::None;
     size_t m_backendIndex = 0; // Current index in prioritized capabilities
