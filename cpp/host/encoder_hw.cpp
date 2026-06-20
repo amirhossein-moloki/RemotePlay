@@ -241,12 +241,23 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
         }
 
         if (m_internal->stagingTex && m_internal->d3d11Context) {
-            m_internal->d3d11Context->CopyResource(m_internal->stagingTex, (ID3D11Texture2D*)texturePtr);
-            // On Windows, device loss is handled by checking the device's removed reason
+            // Check for device loss BEFORE copying
             if (m_internal->d3d11Device) {
                 HRESULT hr = m_internal->d3d11Device->GetDeviceRemovedReason();
                 if (FAILED(hr)) {
-                    LOG_ERROR("Encoder", "D3D11 Device Lost during CopyResource! Reason: 0x" + std::to_string(hr));
+                    char hex[16]; snprintf(hex, sizeof(hex), "0x%08X", (uint32_t)hr);
+                    LOG_ERROR("Encoder", "D3D11 Device Lost before CopyResource! Reason: " + std::string(hex));
+                    return false;
+                }
+            }
+
+            m_internal->d3d11Context->CopyResource(m_internal->stagingTex, (ID3D11Texture2D*)texturePtr);
+
+            if (m_internal->d3d11Device) {
+                HRESULT hr = m_internal->d3d11Device->GetDeviceRemovedReason();
+                if (FAILED(hr)) {
+                    char hex[16]; snprintf(hex, sizeof(hex), "0x%08X", (uint32_t)hr);
+                    LOG_ERROR("Encoder", "D3D11 Device Lost during CopyResource! Reason: " + std::string(hex));
                     return false;
                 }
             }
