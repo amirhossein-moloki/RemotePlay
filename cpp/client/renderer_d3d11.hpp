@@ -12,7 +12,7 @@ public:
     ~RendererD3D11();
 
     bool Initialize(HWND hwnd, int width, int height);
-    void Render(ID3D11Texture2D* texture);
+    void Render(ID3D11Texture2D* texture, int arrayIndex);
     void Shutdown();
 
     ID3D11Device* GetDevice() { return m_device; }
@@ -24,7 +24,8 @@ private:
     ID3D11Device* m_device = nullptr;
     ID3D11DeviceContext* m_context = nullptr;
     IDXGISwapChain* m_swapChain = nullptr;
-    ID3D11RenderTargetView* m_backBufferView = nullptr;
+    ID3D11RenderTargetView* m_backBufferViews[2] = { nullptr, nullptr };
+    int m_currentBufferIndex = 0;
 
     // Video processing for NV12 to RGBA conversion
     ID3D11VideoDevice* m_videoDevice = nullptr;
@@ -34,9 +35,10 @@ private:
 
     // Cached views for performance
     ID3D11VideoProcessorInputView* m_inputView = nullptr;
-    ID3D11VideoProcessorOutputView* m_outputView = nullptr;
+    ID3D11VideoProcessorOutputView* m_outputViews[2] = { nullptr, nullptr };
+    ID3D11Texture2D* m_lastOutputTextures[2] = { nullptr, nullptr };
     ID3D11Texture2D* m_lastInputTexture = nullptr;
-    ID3D11Texture2D* m_lastOutputTexture = nullptr;
+    int m_lastInputArrayIndex = -1;
 
     bool SetupVideoProcessor(int width, int height);
 };

@@ -15,7 +15,7 @@ public:
     ~DecoderHW();
 
     bool Initialize(void* d3d11DevicePtr = nullptr);
-    bool DecodeFrame(const uint8_t* data, size_t size, void** outTexture);
+    bool DecodeFrame(const uint8_t* data, size_t size, void** outTexture, int* outIndex);
     bool IsHardware() const;
     void Shutdown();
 
