@@ -75,14 +75,7 @@ void SessionManager::reportError(ParsecError error, const std::string& message) 
 }
 
 void SessionManager::approveConnection(const std::string& ip, uint16_t port, bool approved) {
-    std::lock_guard<std::mutex> lock(m_pendingClientsMutex);
-    for (auto& client : m_pendingClients) {
-        if (client.ip == ip && client.port == port) {
-            client.approved = approved;
-            client.waiting = false;
-            break;
-        }
-    }
+    // Deprecated: All connections are now auto-approved
 }
 
 bool SessionManager::getTelemetry(ParsecTelemetry* outTelemetry) {
@@ -347,88 +340,30 @@ void SessionManager::runHost(ParsecConfig config) {
                     }
 
                     if (!alreadyActive) {
-                        bool approved = false;
-                        bool shouldRespond = false;
-                        {
-                            std::lock_guard<std::mutex> pLock(m_pendingClientsMutex);
-                            auto it = std::find_if(m_pendingClients.begin(), m_pendingClients.end(), [&](const PendingClient& pc) {
-                                return pc.ip == senderIp && pc.port == senderPort;
-                            });
+                        // AUTO-APPROVE: We now always approve and initialize immediately
+                        auto newState = std::make_shared<ClientState>();
+                        newState->ip = senderIp;
+                        newState->port = senderPort;
+                        newState->encoder = std::make_unique<Host::EncoderManager>();
 
-                            if (it == m_pendingClients.end()) {
-                                if (config.autoApprove) {
-                                    approved = true;
-                                    shouldRespond = true;
-                                } else {
-                                    if (m_pendingClients.size() < 32) {
-                                        m_pendingClients.push_back({senderIp, senderPort, username, false, true});
-                                        if (m_connectionCallback) {
-                                            m_connectionCallback(username.c_str(), senderIp.c_str(), senderPort);
-                                        }
-                                    }
-                                    // Don't respond yet, wait for approval
-                                    continue;
-                                }
-                            } else if (!it->waiting) {
-                                approved = it->approved;
-                                shouldRespond = true;
-                                if (!approved) m_pendingClients.erase(it); // Remove rejected
-                            } else {
-                                // Still waiting for approval
-                                continue;
+                        if (newState->encoder->Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, ctx.capture.GetDevice(), config.useHardwareEncoding)) {
+                            {
+                                std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+                                ctx.clients.push_back(newState);
                             }
-                        }
+                            newState->encoder->RequestKeyframe();
+                            LOG_INFO("Session", "Auto-approved and initialized per-client encoder for " + senderIp);
 
-                        if (shouldRespond) {
                             Protocol::HandshakeResponsePacket hrp;
                             hrp.type = (uint8_t)Protocol::PacketType::HandshakeResponse;
-                            hrp.approved = approved ? 1 : 0;
+                            hrp.approved = 1;
                             ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
-
-                            if (approved) {
-                                // SAFER THREADING: Use a shared_ptr for the context if possible,
-                                // but here we must ensure the host is still running.
-                                // Instead of detaching, we perform initialization and THEN send approval.
-                                // However, to avoid blocking the receiver thread, we'll use a safer approach:
-                                // A task queue would be ideal, but for now we will ensure the thread is joined on shutdown.
-
-                                auto newState = std::make_shared<ClientState>();
-                                newState->ip = senderIp;
-                                newState->port = senderPort;
-                                newState->encoder = std::make_unique<Host::EncoderManager>();
-
-                                // Execute initialization. We still do it on the receiver thread for now
-                                // to ensure the handshake response is only sent IF initialization succeeds.
-                                // To prevent massive blocking, the Preflight Validation is already done
-                                // globally or cached. Here it's per-client.
-
-                                if (newState->encoder->Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, ctx.capture.GetDevice(), config.useHardwareEncoding)) {
-                                    {
-                                        std::lock_guard<std::mutex> lock(ctx.clientsMutex);
-                                        ctx.clients.push_back(newState);
-                                    }
-                                    newState->encoder->RequestKeyframe();
-                                    LOG_INFO("Session", "Successfully initialized per-client encoder for " + senderIp);
-
-                                    Protocol::HandshakeResponsePacket hrp;
-                                    hrp.type = (uint8_t)Protocol::PacketType::HandshakeResponse;
-                                    hrp.approved = 1;
-                                    ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
-                                } else {
-                                    LOG_ERROR("Session", "Failed to initialize per-client encoder for " + senderIp + ". Rejecting connection.");
-                                    Protocol::HandshakeResponsePacket hrp;
-                                    hrp.type = (uint8_t)Protocol::PacketType::HandshakeResponse;
-                                    hrp.approved = 0;
-                                    ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
-                                }
-
-                                // Remove from pending
-                                std::lock_guard<std::mutex> pLock(m_pendingClientsMutex);
-                                auto it = std::find_if(m_pendingClients.begin(), m_pendingClients.end(), [&](const PendingClient& pc) {
-                                    return pc.ip == senderIp && pc.port == senderPort;
-                                });
-                                if (it != m_pendingClients.end()) m_pendingClients.erase(it);
-                            }
+                        } else {
+                            LOG_ERROR("Session", "Failed to initialize per-client encoder for " + senderIp + ". Rejecting connection.");
+                            Protocol::HandshakeResponsePacket hrp;
+                            hrp.type = (uint8_t)Protocol::PacketType::HandshakeResponse;
+                            hrp.approved = 0;
+                            ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
                         }
                     } else {
                         // Already active, re-send approval in case the first one was lost

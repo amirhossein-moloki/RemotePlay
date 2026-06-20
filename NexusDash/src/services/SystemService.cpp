@@ -17,17 +17,7 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
         m_username = QString::fromStdString(Config::getInstance().getString("username", "User"));
         m_useHardwareEncoding = Config::getInstance().getBool("useHardwareEncoding", true);
         m_encoderPreset = Config::getInstance().getInt("encoderPreset", 0);
-        m_autoApprove = Config::getInstance().getBool("autoApprove", false);
         m_resolutionScale = Config::getInstance().getDouble("resolutionScale", 1.0);
-
-        Parsec_SetConnectionCallback([](const char* username, const char* ip, uint16_t port) {
-            // Bridge to Qt main thread
-            QMetaObject::invokeMethod(AppEngine::instance()->system(), "connectionRequested",
-                                      Qt::QueuedConnection,
-                                      Q_ARG(QString, QString::fromUtf8(username)),
-                                      Q_ARG(QString, QString::fromUtf8(ip)),
-                                      Q_ARG(int, (int)port));
-        });
 
         Parsec_SetErrorCallback([](ParsecError error, const char* message) {
             QString technicalMsg = QString::fromUtf8(message);
@@ -91,7 +81,7 @@ void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps
     config.fps = fps;
     config.useHardwareEncoding = m_useHardwareEncoding;
     config.encoderPreset = m_encoderPreset;
-    config.autoApprove = m_autoApprove;
+    config.autoApprove = true;
     config.resolutionScale = (float)m_resolutionScale;
     config.targetWidth = 0;
     config.targetHeight = 0;
@@ -134,11 +124,6 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
     addLog("INFO", "Client", "Connecting to " + hostIp);
 }
 
-void SystemService::approveConnection(const QString& ip, int port, bool approved)
-{
-    Parsec_ApproveConnection(ip.toStdString().c_str(), (uint16_t)port, approved);
-}
-
 void SystemService::setUsername(const QString& username)
 {
     if (m_username != username) {
@@ -166,16 +151,6 @@ void SystemService::setEncoderPreset(int preset)
         Config::getInstance().setInt("encoderPreset", preset);
         Config::getInstance().save("config.ini");
         emit encoderPresetChanged();
-    }
-}
-
-void SystemService::setAutoApprove(bool approve)
-{
-    if (m_autoApprove != approve) {
-        m_autoApprove = approve;
-        Config::getInstance().setBool("autoApprove", approve);
-        Config::getInstance().save("config.ini");
-        emit autoApproveChanged();
     }
 }
 
