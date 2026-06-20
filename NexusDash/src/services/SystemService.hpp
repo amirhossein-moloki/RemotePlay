@@ -74,7 +74,6 @@ class SystemService : public QObject
     Q_PROPERTY(QString username READ username WRITE setUsername NOTIFY usernameChanged)
     Q_PROPERTY(bool useHardwareEncoding READ useHardwareEncoding WRITE setUseHardwareEncoding NOTIFY useHardwareEncodingChanged)
     Q_PROPERTY(int encoderPreset READ encoderPreset WRITE setEncoderPreset NOTIFY encoderPresetChanged)
-    Q_PROPERTY(bool autoApprove READ autoApprove WRITE setAutoApprove NOTIFY autoApproveChanged)
     Q_PROPERTY(double resolutionScale READ resolutionScale WRITE setResolutionScale NOTIFY resolutionScaleChanged)
     Q_PROPERTY(QAbstractListModel* logModel READ logModel CONSTANT)
 
@@ -90,7 +89,6 @@ public:
     Q_INVOKABLE void startHost(const QString& interfaceInfo, int bitrate, int fps);
     Q_INVOKABLE void startClient(const QString& interfaceInfo, const QString& hostIp, int bitrate, int fps);
     Q_INVOKABLE void stopSession();
-    Q_INVOKABLE void approveConnection(const QString& ip, int port, bool approved);
 
     double cpuUsage() const { return m_cpuUsage; }
     double memoryUsage() const { return m_memoryUsage; }
@@ -108,8 +106,6 @@ public:
     void setUseHardwareEncoding(bool use);
     int encoderPreset() const { return m_encoderPreset; }
     void setEncoderPreset(int preset);
-    bool autoApprove() const { return m_autoApprove; }
-    void setAutoApprove(bool approve);
     double resolutionScale() const { return m_resolutionScale; }
     void setResolutionScale(double scale);
 
@@ -134,9 +130,7 @@ signals:
     void usernameChanged();
     void useHardwareEncodingChanged();
     void encoderPresetChanged();
-    void autoApproveChanged();
     void resolutionScaleChanged();
-    void connectionRequested(const QString& username, const QString& ip, int port);
     void errorOccurred(const QString& title, const QString& message);
 
 private:
@@ -150,7 +144,6 @@ private:
     QString m_username;
     bool m_useHardwareEncoding = true;
     int m_encoderPreset = 0;
-    bool m_autoApprove = false;
     double m_resolutionScale = 1.0;
     void* m_clientWindow = nullptr;
     QStringList m_networkInterfaces;

@@ -7,6 +7,15 @@ ApplicationWindow {
     id: window
     width: 1200
     height: 800
+
+    property bool reallyQuit: false
+
+    onClosing: (close) => {
+        if (!reallyQuit) {
+            close.accepted = false
+            exitConfirmDialog.open()
+        }
+    }
     minimumWidth: 1000
     minimumHeight: 700
     visible: true
@@ -135,13 +144,6 @@ ApplicationWindow {
 
     Connections {
         target: backend.system
-        function onConnectionRequested(username, ip, port) {
-            connectionDialog.pendingIp = ip
-            connectionDialog.pendingPort = port
-            connectionDialog.message = "User '" + username + "' (" + ip + ") is requesting to connect to your session."
-            connectionDialog.open()
-        }
-
         function onErrorOccurred(title, message) {
             errorDialog.title = title
             errorDialog.message = message
@@ -161,29 +163,26 @@ ApplicationWindow {
     }
 
     NexusDialog {
-        id: connectionDialog
-        title: "Connection Request"
-        property string pendingIp: ""
-        property int pendingPort: 0
+        id: exitConfirmDialog
+        title: qsTr("Exit NexusDash")
+        message: qsTr("Are you sure you want to exit NexusDash?")
 
         footer: DialogButtonBox {
             background: Rectangle { color: "transparent" }
             alignment: Qt.AlignHCenter
             NexusButton {
-                text: "Accept"
+                text: qsTr("Exit")
                 primary: true
                 onClicked: {
-                    backend.system.approveConnection(connectionDialog.pendingIp, connectionDialog.pendingPort, true)
-                    connectionDialog.accept()
+                    backend.system.stopSession()
+                    reallyQuit = true
+                    Qt.quit()
                 }
             }
             NexusButton {
-                text: "Reject"
+                text: qsTr("Cancel")
                 primary: false
-                onClicked: {
-                    backend.system.approveConnection(connectionDialog.pendingIp, connectionDialog.pendingPort, false)
-                    connectionDialog.reject()
-                }
+                onClicked: exitConfirmDialog.close()
             }
         }
     }

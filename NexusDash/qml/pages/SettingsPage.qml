@@ -112,32 +112,6 @@ ScrollView {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 2
-                            Text {
-                                text: "Auto-Approve Connections"
-                                font.family: Theme.fontFamily
-                                color: Theme.textPrimary
-                                font.pixelSize: 13
-                            }
-                            Text {
-                                text: "Automatically accept incoming stream requests"
-                                font.family: Theme.fontFamily
-                                color: Theme.textSecondary
-                                font.pixelSize: 11
-                            }
-                        }
-                        Switch {
-                            checked: backend.system.autoApprove
-                            onClicked: backend.system.autoApprove = checked
-                        }
-                    }
-
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
-
-                    RowLayout {
-                        Layout.fillWidth: true
                         Text {
                             text: "Accent Color"
                             font.family: Theme.fontFamily
