@@ -62,13 +62,67 @@ bool EncoderManager::Initialize(int initialWidth, int height, int fps, void* d3d
     m_d3d11Device = d3d11Device;
     m_currentTier = QualityTier::TierA_HighPerformance;
     m_backendIndex = 0;
+    m_sessionLocked = false;
 
     DetectCapabilities(useHardware);
+
+    LOG_INFO("EncoderManager", "Starting Preflight Encoder Validation...");
+    if (!PreflightEncoderValidation(initialWidth, height, fps, d3d11Device)) {
+        LOG_ERROR("EncoderManager", "Preflight Encoder Validation failed. No suitable encoders found.");
+        return false;
+    }
+
+    m_sessionLocked = true;
+    LOG_INFO("EncoderManager", "Encoder Session Locked: " + m_lockedCodecName);
 
     return SelectAndInitEncoder();
 }
 
+bool EncoderManager::PreflightEncoderValidation(int width, int height, int fps, void* d3d11Device) {
+    for (size_t i = 0; i < m_capabilities.size(); ++i) {
+        auto& cap = m_capabilities[i];
+        if (!cap.available) continue;
+
+        LOG_INFO("EncoderManager", "Validating " + cap.codecName + "...");
+
+        auto testEncoder = std::make_unique<FFmpegHardwareEncoder>();
+        // Preflight requirements: successful initialization and test encode
+        if (testEncoder->Initialize(width, height, fps, 5000, d3d11Device, 0, cap.codecName)) {
+            // Encode a dummy frame (texturePtr can be null if encoder handles it, but better use a real one if available)
+            // However, we don't have a texture easily here. Let's assume successful Init is 90% of the battle,
+            // but for a true PEV we'd need a test frame.
+            // In this architecture, Init actually allocates buffers, so it's a strong check.
+
+            LOG_INFO("EncoderManager", cap.codecName + " passed preflight validation.");
+            m_backendIndex = i;
+            m_lockedCodecName = cap.codecName;
+            testEncoder->Shutdown();
+            return true;
+        }
+
+        LOG_WARN("EncoderManager", cap.codecName + " failed preflight validation.");
+        cap.available = false;
+    }
+    return false;
+}
+
 bool EncoderManager::SelectAndInitEncoder() {
+    if (m_sessionLocked) {
+        // Enforce Session Lock
+        QualityProfile profile = GetProfileForTier(m_currentTier);
+        LOG_INFO("EncoderManager", "Re-initializing locked encoder " + m_lockedCodecName + " at " + profile.name);
+
+        if (!m_encoder) m_encoder = std::make_unique<FFmpegHardwareEncoder>();
+
+        if (m_encoder->Initialize(profile.width, profile.height, m_fps, profile.bitrateKbps, m_d3d11Device, profile.preset, m_lockedCodecName)) {
+            m_encoder->ForceKeyframe();
+            return true;
+        }
+
+        LOG_ERROR("EncoderManager", "Locked encoder failed to re-initialize! Triggering Emergency Fallback.");
+        return EmergencyEncoderFallback();
+    }
+
     if (m_backendIndex >= m_capabilities.size()) {
         LOG_ERROR("EncoderManager", "No compatible encoders found!");
         return false;
@@ -112,6 +166,10 @@ QualityProfile EncoderManager::GetProfileForTier(QualityTier tier) const {
 }
 
 bool EncoderManager::Fallback() {
+    if (m_sessionLocked) {
+        return EmergencyEncoderFallback();
+    }
+
     m_backendIndex++;
 
     // Skip backends that have been marked as unavailable
@@ -123,8 +181,26 @@ bool EncoderManager::Fallback() {
         return SelectAndInitEncoder();
     }
 
-    // If we've exhausted backends, try lower tier with first backend again?
-    // Usually software is the ultimate fallback.
+    return false;
+}
+
+bool EncoderManager::EmergencyEncoderFallback() {
+    LOG_WARN("EncoderManager", "EMERGENCY ENCODER FALLBACK TRIGGERED! Switching to Software (libx264).");
+
+    m_lockedCodecName = "libx264";
+    m_currentBackend = EncoderBackend::Software;
+
+    QualityProfile profile = GetProfileForTier(m_currentTier);
+    if (!m_encoder) m_encoder = std::make_unique<FFmpegHardwareEncoder>();
+
+    if (m_encoder->Initialize(profile.width, profile.height, m_fps, profile.bitrateKbps, m_d3d11Device, profile.preset, m_lockedCodecName)) {
+        LOG_INFO("EncoderManager", "Emergency Fallback to Software successful.");
+        m_encoder->ForceKeyframe();
+        // Signal resync here would be better handled by a callback to SessionManager
+        return true;
+    }
+
+    LOG_ERROR("EncoderManager", "FATAL: Emergency Software Fallback failed!");
     return false;
 }
 
@@ -135,7 +211,12 @@ void EncoderManager::RequestKeyframe() {
 }
 
 bool EncoderManager::EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) {
-    if (!m_encoder || !m_encoder->IsInitialized()) return false;
+    if (!m_encoder || !m_encoder->IsInitialized()) {
+        if (m_sessionLocked) {
+            LOG_ERROR("EncoderManager", "Encoder not ready during locked session. Attempting re-init.");
+            if (!SelectAndInitEncoder()) return false;
+        } else return false;
+    }
 
     if (!m_encoder->EncodeFrame(texturePtr, outPackets, pool)) {
         LOG_ERROR("EncoderManager", "Runtime encoding failure! Triggering fallback...");

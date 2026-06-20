@@ -242,6 +242,14 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
 
         if (m_internal->stagingTex && m_internal->d3d11Context) {
             m_internal->d3d11Context->CopyResource(m_internal->stagingTex, (ID3D11Texture2D*)texturePtr);
+            // On Windows, device loss is handled by checking the device's removed reason
+            if (m_internal->d3d11Device) {
+                HRESULT hr = m_internal->d3d11Device->GetDeviceRemovedReason();
+                if (FAILED(hr)) {
+                    LOG_ERROR("Encoder", "D3D11 Device Lost during CopyResource! Reason: 0x" + std::to_string(hr));
+                    return false;
+                }
+            }
 
             D3D11_MAPPED_SUBRESOURCE mapped;
             if (SUCCEEDED(m_internal->d3d11Context->Map(m_internal->stagingTex, 0, D3D11_MAP_READ, 0, &mapped))) {

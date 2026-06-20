@@ -13,6 +13,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <set>
+#include <map>
 #include <algorithm>
 #include <cstring>
 
@@ -105,15 +106,21 @@ bool SessionManager::getTelemetry(ParsecTelemetry* outTelemetry) {
 void SessionManager::runHost(ParsecConfig config) {
     LOG_INFO("Session", "Starting Host Session");
 
+    struct ClientState {
+        std::string ip;
+        uint16_t port;
+        std::unique_ptr<Host::EncoderManager> encoder;
+        LockFreeQueue<std::vector<Host::EncodedPacket>, 4> encodeQueue;
+        uint32_t frameId = 0;
+    };
+
     struct HostContext {
         Network::NetworkManager net;
         Host::CaptureDXGI capture;
-        Host::EncoderManager encoder;
         Host::InputInjector injector;
         std::mutex clientsMutex;
-        std::set<std::pair<std::string, uint16_t>> clients;
+        std::vector<std::shared_ptr<ClientState>> clients;
         LockFreeQueue<CapturedFrame, 2> captureQueue;
-        LockFreeQueue<std::vector<Host::EncodedPacket>, 2> encodeQueue;
         LockFreeQueue<OutgoingPacket, 4096> sendQueue;
         PacketPool packetPool{200, 1024 * 1024};
         PacketPool udpPool{1000, 1500};
@@ -196,12 +203,14 @@ void SessionManager::runHost(ParsecConfig config) {
                     if (fpsStats.latest < config.fps * 0.8) dropRate = 0.2f;
                 }
 
-                // Adaptive Performance Monitoring
-                auto encodeStats = Profiler::getInstance().getStats("Encode_Time");
-                ctx.encoder.UpdatePerformanceMetrics(dropRate, (float)encodeStats.avg / 1000.0f);
-
-                // Update real-time bitrate telemetry based on current profile
-                Profiler::getInstance().recordValue("Host_Bitrate", (double)ctx.encoder.GetCurrentBitrate() / 1000.0);
+                // Per-client adaptive performance monitoring is now handled via feedback packets
+                // For local telemetry, we can show an average or first client
+                {
+                    std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+                    if (!ctx.clients.empty()) {
+                        Profiler::getInstance().recordValue("Host_Bitrate", (double)ctx.clients[0]->encoder->GetCurrentBitrate() / 1000.0);
+                    }
+                }
 
                 frameCount = 0;
                 lastFpsCheck = now;
@@ -210,25 +219,30 @@ void SessionManager::runHost(ParsecConfig config) {
             ID3D11Texture2D* tex = nullptr;
             uint64_t captureTs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 
-            // Encode on this thread to keep DXGI affinity and reduce latency
+            // Encode independently for each client to keep DXGI affinity and support per-client profiles
             HRESULT hr = ctx.capture.AcquireFrame(&tex);
             if (SUCCEEDED(hr)) {
                 uint64_t endCaptureTs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
                 Profiler::getInstance().recordTime("Capture_Time", (double)(endCaptureTs - captureTs));
 
-                static thread_local std::vector<Host::EncodedPacket> packets;
-                packets.clear();
-                uint64_t encodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-                if (ctx.encoder.EncodeFrame(tex, packets, ctx.packetPool)) {
-                    uint64_t encodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-                    Profiler::getInstance().recordTime("Encode_Time", (double)(encodeEnd - encodeStart));
-                    for (auto& p : packets) {
-                        p.captureTimestamp = endCaptureTs; // Use end of capture as ref
-                        p.encodeStartTimestamp = encodeStart;
-                        p.encodeEndTimestamp = encodeEnd;
-                    }
-                    if (!ctx.encodeQueue.push(std::move(packets))) {
-                        for (auto& p : packets) ctx.packetPool.release(std::move(p.packet));
+                {
+                    std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+                    for (auto& client : ctx.clients) {
+                        static thread_local std::vector<Host::EncodedPacket> packets;
+                        packets.clear();
+                        uint64_t encodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                        if (client->encoder->EncodeFrame(tex, packets, ctx.packetPool)) {
+                            uint64_t encodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                            Profiler::getInstance().recordTime("Encode_Time", (double)(encodeEnd - encodeStart));
+                            for (auto& p : packets) {
+                                p.captureTimestamp = endCaptureTs;
+                                p.encodeStartTimestamp = encodeStart;
+                                p.encodeEndTimestamp = encodeEnd;
+                            }
+                            if (!client->encodeQueue.push(std::move(packets))) {
+                                for (auto& p : packets) ctx.packetPool.release(std::move(p.packet));
+                            }
+                        }
                     }
                 }
                 ctx.capture.ReleaseFrame();
@@ -245,52 +259,48 @@ void SessionManager::runHost(ParsecConfig config) {
 
 
     std::thread packetizerThread = std::thread([&]() {
-        uint32_t frameId = 0;
-        std::vector<Host::EncodedPacket> frames;
-        while (m_running || !ctx.encodeQueue.empty()) {
-            if (ctx.encodeQueue.pop(frames)) {
-                for (auto& frame : frames) {
-                    uint16_t totalFrags = (uint16_t)((frame.packet->size + Protocol::MAX_UDP_PAYLOAD - 1) / Protocol::MAX_UDP_PAYLOAD);
-                    std::vector<std::unique_ptr<PacketPool::Packet>> fragments;
-                    for (uint16_t i = 0; i < totalFrags; ++i) {
-                        auto udpPkt = ctx.udpPool.acquire();
-                        if (!udpPkt) break;
-                        Protocol::VideoHeader* vh = (Protocol::VideoHeader*)udpPkt->data.data();
-                        vh->type = (uint8_t)Protocol::PacketType::Video;
-                        vh->frameId = frameId;
-                        vh->fragmentIndex = i;
-                        vh->totalFragments = totalFrags;
-                        vh->packetSequence = ctx.globalPacketSequence++;
-                        vh->captureTimestamp = frame.captureTimestamp;
-                        vh->encodeStartTimestamp = frame.encodeStartTimestamp;
-                        vh->encodeEndTimestamp = frame.encodeEndTimestamp;
-                        vh->flags = frame.isKeyframe ? 0x01 : 0x00;
-                        vh->dataSize = (uint16_t)std::min((uint32_t)Protocol::MAX_UDP_PAYLOAD, (uint32_t)(frame.packet->size - i * Protocol::MAX_UDP_PAYLOAD));
-                        memcpy(udpPkt->data.data() + sizeof(Protocol::VideoHeader), frame.packet->data.data() + (i * Protocol::MAX_UDP_PAYLOAD), vh->dataSize);
-                        udpPkt->size = sizeof(Protocol::VideoHeader) + vh->dataSize;
-                        fragments.push_back(std::move(udpPkt));
-                    }
+        while (m_running) {
+            bool worked = false;
+            std::vector<std::shared_ptr<ClientState>> activeClients;
+            {
+                std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+                activeClients = ctx.clients;
+            }
 
-                    {
-                        std::lock_guard<std::mutex> lock(ctx.clientsMutex);
-                        for (const auto& client : ctx.clients) {
-                            for (auto& frag : fragments) {
-                                auto sendPkt = ctx.udpPool.acquire();
-                                if (sendPkt) {
-                                    sendPkt->size = frag->size;
-                                    memcpy(sendPkt->data.data(), frag->data.data(), frag->size);
-                                    if (!ctx.sendQueue.push({std::move(sendPkt), client.first, client.second})) {
-                                        ctx.udpPool.release(std::move(sendPkt));
-                                    }
-                                }
+            for (auto& client : activeClients) {
+                std::vector<Host::EncodedPacket> frames;
+                if (client->encodeQueue.pop(frames)) {
+                    worked = true;
+                    for (auto& frame : frames) {
+                        uint16_t totalFrags = (uint16_t)((frame.packet->size + Protocol::MAX_UDP_PAYLOAD - 1) / Protocol::MAX_UDP_PAYLOAD);
+                        for (uint16_t i = 0; i < totalFrags; ++i) {
+                            auto udpPkt = ctx.udpPool.acquire();
+                            if (!udpPkt) break;
+                            Protocol::VideoHeader* vh = (Protocol::VideoHeader*)udpPkt->data.data();
+                            vh->type = (uint8_t)Protocol::PacketType::Video;
+                            vh->frameId = client->frameId;
+                            vh->fragmentIndex = i;
+                            vh->totalFragments = totalFrags;
+                            vh->packetSequence = ctx.globalPacketSequence++;
+                            vh->captureTimestamp = frame.captureTimestamp;
+                            vh->encodeStartTimestamp = frame.encodeStartTimestamp;
+                            vh->encodeEndTimestamp = frame.encodeEndTimestamp;
+                            vh->flags = frame.isKeyframe ? 0x01 : 0x00;
+                            vh->dataSize = (uint16_t)std::min((uint32_t)Protocol::MAX_UDP_PAYLOAD, (uint32_t)(frame.packet->size - i * Protocol::MAX_UDP_PAYLOAD));
+                            memcpy(udpPkt->data.data() + sizeof(Protocol::VideoHeader), frame.packet->data.data() + (i * Protocol::MAX_UDP_PAYLOAD), vh->dataSize);
+                            udpPkt->size = sizeof(Protocol::VideoHeader) + vh->dataSize;
+
+                            if (!ctx.sendQueue.push({std::move(udpPkt), client->ip, client->port})) {
+                                ctx.udpPool.release(std::move(udpPkt));
                             }
                         }
+                        ctx.packetPool.release(std::move(frame.packet));
                     }
-                    for (auto& frag : fragments) ctx.udpPool.release(std::move(frag));
-                    ctx.packetPool.release(std::move(frame.packet));
+                    client->frameId++;
                 }
-                frameId++;
-            } else {
+            }
+
+            if (!worked) {
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
         }
@@ -333,7 +343,7 @@ void SessionManager::runHost(ParsecConfig config) {
                     bool alreadyActive = false;
                     {
                         std::lock_guard<std::mutex> lock(ctx.clientsMutex);
-                        if (ctx.clients.count({senderIp, senderPort})) alreadyActive = true;
+                        for(auto& c : ctx.clients) if(c->ip == senderIp && c->port == senderPort) { alreadyActive = true; break; }
                     }
 
                     if (!alreadyActive) {
@@ -376,9 +386,19 @@ void SessionManager::runHost(ParsecConfig config) {
                             ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
 
                             if (approved) {
-                                std::lock_guard<std::mutex> lock(ctx.clientsMutex);
-                                ctx.clients.insert({senderIp, senderPort});
-                                ctx.encoder.RequestKeyframe();
+                                auto newState = std::make_shared<ClientState>();
+                                newState->ip = senderIp;
+                                newState->port = senderPort;
+                                newState->encoder = std::make_unique<Host::EncoderManager>();
+                                if (newState->encoder->Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, ctx.capture.GetDevice(), config.useHardwareEncoding)) {
+                                    std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+                                    ctx.clients.push_back(newState);
+                                    newState->encoder->RequestKeyframe();
+                                } else {
+                                    LOG_ERROR("Session", "Failed to initialize per-client encoder for " + senderIp);
+                                    approved = false; // Override approval if encoder fails
+                                }
+
                                 // Remove from pending after adding to clients
                                 std::lock_guard<std::mutex> pLock(m_pendingClientsMutex);
                                 auto it = std::find_if(m_pendingClients.begin(), m_pendingClients.end(), [&](const PendingClient& pc) {
@@ -418,8 +438,16 @@ void SessionManager::runHost(ParsecConfig config) {
                     Profiler::getInstance().recordValue("Network_LossRate", fh->lossRate);
                     Profiler::getInstance().recordValue("Network_RTT", (double)fh->rttMs);
 
-                    // Pass to encoder manager for adaptive quality
-                    ctx.encoder.UpdatePerformanceMetrics(fh->lossRate, -1.0f, fh->avgDecodeTimeMs);
+                    // Pass to specific client's encoder manager for independent ABR
+                    {
+                        std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+                        for(auto& c : ctx.clients) {
+                            if(c->ip == senderIp && c->port == senderPort) {
+                                c->encoder->UpdatePerformanceMetrics(fh->lossRate, -1.0f, fh->avgDecodeTimeMs);
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -443,10 +471,7 @@ void SessionManager::runHost(ParsecConfig config) {
         return;
     }
 
-    if (!ctx.encoder.Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, ctx.capture.GetDevice(), config.useHardwareEncoding)) {
-        reportError(ParsecError::HARDWARE_INIT_FAILED, "Encoder initialization failed. No compatible hardware or software encoders could be started.");
-        m_running = false;
-    }
+    // Encoder initialization is now per-client during handshake
 
     if (captureThread.joinable()) captureThread.join();
     if (packetizerThread.joinable()) packetizerThread.join();
