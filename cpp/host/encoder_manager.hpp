@@ -50,15 +50,18 @@ public:
     QualityTier GetCurrentTier() const { return m_currentTier; }
     EncoderBackend GetCurrentBackend() const { return m_currentBackend; }
     int GetCurrentBitrate() const { return GetProfileForTier(m_currentTier).bitrateKbps; }
+    std::string GetLockedCodecName() const { return m_lockedCodecName; }
 
     void Shutdown();
 
 private:
     void DetectCapabilities(bool useHardware);
+    bool PreflightEncoderValidation(int width, int height, int fps, void* d3d11Device);
     bool SelectAndInitEncoder();
     QualityProfile GetProfileForTier(QualityTier tier) const;
 
     bool Fallback();
+    bool EmergencyEncoderFallback();
     void AdjustTier(bool improve);
 
     std::vector<EncoderCapability> m_capabilities;
@@ -67,6 +70,8 @@ private:
     QualityTier m_currentTier = QualityTier::TierA_HighPerformance;
     EncoderBackend m_currentBackend = EncoderBackend::None;
     size_t m_backendIndex = 0; // Current index in prioritized capabilities
+    bool m_sessionLocked = false;
+    std::string m_lockedCodecName;
 
     int m_baseWidth = 1920;
     int m_baseHeight = 1080;
