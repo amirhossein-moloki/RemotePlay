@@ -410,7 +410,7 @@ void FFmpegHardwareEncoder::Shutdown() {
 struct FFmpegHardwareEncoder::InternalData {};
 FFmpegHardwareEncoder::FFmpegHardwareEncoder() : m_internal(nullptr) {}
 FFmpegHardwareEncoder::~FFmpegHardwareEncoder() {}
-bool FFmpegHardwareEncoder::Initialize(int w, int h, int f, int b, void* d) {
+bool FFmpegHardwareEncoder::Initialize(int w, int h, int f, int b, void* d, int p, const std::string& c) {
     LOG_ERROR("Encoder", "FFmpeg support not compiled in. Hardware encoding is disabled.");
     return false;
 }
