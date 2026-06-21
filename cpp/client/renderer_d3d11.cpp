@@ -20,50 +20,82 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
         return false;
     }
 
+    RECT rect;
+    if (GetClientRect(hwnd, &rect)) {
+        width = rect.right - rect.left;
+        height = rect.bottom - rect.top;
+    }
+
+    if (width <= 0 || height <= 0) {
+        LOG_WARN("Renderer", "Invalid window dimensions (" + std::to_string(width) + "x" + std::to_string(height) + "). Defaulting to 1280x720.");
+        width = 1280;
+        height = 720;
+    }
+
     DXGI_SWAP_CHAIN_DESC sd = {};
-    sd.BufferCount = 2; // Required for Flip Model
     sd.BufferDesc.Width = width;
     sd.BufferDesc.Height = height;
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    sd.BufferDesc.RefreshRate.Numerator = 60;
-    sd.BufferDesc.RefreshRate.Denominator = 1;
+    sd.BufferDesc.RefreshRate.Numerator = 0;
+    sd.BufferDesc.RefreshRate.Denominator = 0;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.OutputWindow = hwnd;
     sd.SampleDesc.Count = 1;
     sd.SampleDesc.Quality = 0;
     sd.Windowed = TRUE;
-    sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD; // Modern low-latency flip model
-    sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // Allow VSync Off (Variable Refresh Rate)
+    sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 
-    UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+    UINT deviceFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 #ifdef _DEBUG
-    flags |= D3D11_CREATE_DEVICE_DEBUG;
+    deviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
-    HRESULT hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, nullptr, 0,
-                                               D3D11_SDK_VERSION, &sd, &m_swapChain, &m_device, nullptr, &m_context);
+    struct FallbackOption {
+        DXGI_SWAP_EFFECT effect;
+        UINT bufferCount;
+        bool tearing;
+    };
 
-    // Fallback: If creation fails with tearing flag, try without it
-    if (FAILED(hr) && (sd.Flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING)) {
-        LOG_WARN("Renderer", "Failed to create swap chain with ALLOW_TEARING. Retrying without it...");
-        sd.Flags &= ~DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
-        hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, nullptr, 0,
+    std::vector<FallbackOption> fallbacks = {
+        { DXGI_SWAP_EFFECT_FLIP_DISCARD, 2, true },
+        { DXGI_SWAP_EFFECT_FLIP_DISCARD, 2, false },
+        { DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, 2, false },
+        { DXGI_SWAP_EFFECT_DISCARD, 1, false }
+    };
+
+    HRESULT hr = E_FAIL;
+    for (const auto& opt : fallbacks) {
+        sd.SwapEffect = opt.effect;
+        sd.BufferCount = opt.bufferCount;
+        if (opt.tearing) sd.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+        else sd.Flags &= ~DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+
+        hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, deviceFlags, nullptr, 0,
                                            D3D11_SDK_VERSION, &sd, &m_swapChain, &m_device, nullptr, &m_context);
+        if (SUCCEEDED(hr)) {
+            m_bufferCount = sd.BufferCount;
+            m_tearingSupported = opt.tearing;
+            LOG_INFO("Renderer", "Swap chain created: Effect=" + std::to_string(sd.SwapEffect) +
+                     " Buffers=" + std::to_string(sd.BufferCount) +
+                     " Tearing=" + std::to_string(opt.tearing) +
+                     " Resolution=" + std::to_string(width) + "x" + std::to_string(height));
+            break;
+        }
     }
 
     if (FAILED(hr)) {
         std::stringstream ss;
         ss << "0x" << std::hex << hr;
-        LOG_ERROR("Renderer", "Failed to create D3D11 device and swap chain. HR: " + ss.str());
+        LOG_ERROR("Renderer", "All D3D11 swap chain fallback options failed. HR: " + ss.str());
         return false;
     }
 
-    for (int i = 0; i < 2; i++) {
+    for (UINT i = 0; i < m_bufferCount; i++) {
         ID3D11Texture2D* pBackBuffer = nullptr;
         hr = m_swapChain->GetBuffer(i, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer);
         if (FAILED(hr) || !pBackBuffer) {
             std::stringstream ss;
-            ss << "0x" << std::hex << hr;
+            ss << "0x" << std::hex << (FAILED(hr) ? hr : E_FAIL);
             LOG_ERROR("Renderer", "Failed to get swap chain buffer " + std::to_string(i) + ". HR: " + ss.str());
             return false;
         }
@@ -93,19 +125,20 @@ void RendererD3D11::NewFrame() {
     if (!m_swapChain || !m_context) return;
 
     // Determine current backbuffer index for Flip Model
-    DXGI_SWAP_CHAIN_DESC sd;
-    m_swapChain->GetDesc(&sd);
-    if (sd.SwapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD || sd.SwapEffect == DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL) {
+    if (m_bufferCount > 1) {
         IDXGISwapChain3* sc3 = nullptr;
         if (SUCCEEDED(m_swapChain->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&sc3))) {
             m_currentBufferIndex = sc3->GetCurrentBackBufferIndex();
             sc3->Release();
+        } else {
+            // Fallback for older swap effects or if QueryInterface fails
+            m_currentBufferIndex = 0;
         }
     } else {
         m_currentBufferIndex = 0;
     }
 
-    if (m_currentBufferIndex < 0 || m_currentBufferIndex >= 2) m_currentBufferIndex = 0;
+    if (m_currentBufferIndex < 0 || m_currentBufferIndex >= (int)m_bufferCount) m_currentBufferIndex = 0;
 
     // Clear backbuffer to a dark color to avoid white screens when no frames are arriving
     if (m_backBufferViews[m_currentBufferIndex]) {
@@ -126,8 +159,9 @@ void RendererD3D11::EndFrame() {
         m_context->OMSetRenderTargets(1, &m_backBufferViews[m_currentBufferIndex], nullptr);
     }
     ImGui_ImplD3D11_RenderDrawData(ImGui::GetDrawData());
-    // Use DXGI_PRESENT_ALLOW_TEARING for lowest possible latency with Flip Discard
-    m_swapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
+    // Use DXGI_PRESENT_ALLOW_TEARING only if supported
+    UINT presentFlags = (m_tearingSupported) ? DXGI_PRESENT_ALLOW_TEARING : 0;
+    m_swapChain->Present(0, presentFlags);
 }
 
 bool RendererD3D11::SetupVideoProcessor(int width, int height) {
@@ -265,7 +299,7 @@ void RendererD3D11::Shutdown() {
     if (m_inputView) m_inputView->Release();
     m_inputView = nullptr;
     m_lastInputTexture = nullptr;
-    for (int i = 0; i < 2; i++) {
+    for (UINT i = 0; i < m_bufferCount; i++) {
         if (m_outputViews[i]) m_outputViews[i]->Release();
         m_outputViews[i] = nullptr;
         m_lastOutputTextures[i] = nullptr;
@@ -275,7 +309,7 @@ void RendererD3D11::Shutdown() {
     if (m_videoContext) m_videoContext->Release();
     if (m_videoDevice) m_videoDevice->Release();
 
-    for (int i = 0; i < 2; i++) {
+    for (UINT i = 0; i < m_bufferCount; i++) {
         if (m_backBufferViews[i]) m_backBufferViews[i]->Release();
         m_backBufferViews[i] = nullptr;
     }

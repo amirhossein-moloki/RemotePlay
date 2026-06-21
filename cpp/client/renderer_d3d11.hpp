@@ -27,6 +27,8 @@ private:
     IDXGISwapChain* m_swapChain = nullptr;
     ID3D11RenderTargetView* m_backBufferViews[2] = { nullptr, nullptr };
     int m_currentBufferIndex = 0;
+    UINT m_bufferCount = 2;
+    bool m_tearingSupported = false;
 
     // Video processing for NV12 to RGBA conversion
     ID3D11VideoDevice* m_videoDevice = nullptr;
