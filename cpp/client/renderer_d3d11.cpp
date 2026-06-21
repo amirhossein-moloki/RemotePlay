@@ -73,10 +73,15 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
         hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, deviceFlags, nullptr, 0,
                                            D3D11_SDK_VERSION, &sd, &m_swapChain, &m_device, nullptr, &m_context);
         if (SUCCEEDED(hr)) {
-            m_bufferCount = sd.BufferCount;
+            DXGI_SWAP_CHAIN_DESC actualSd;
+            if (SUCCEEDED(m_swapChain->GetDesc(&actualSd))) {
+                m_bufferCount = std::min(actualSd.BufferCount, 8U);
+            } else {
+                m_bufferCount = sd.BufferCount;
+            }
             m_tearingSupported = opt.tearing;
             LOG_INFO("Renderer", "Swap chain created: Effect=" + std::to_string(sd.SwapEffect) +
-                     " Buffers=" + std::to_string(sd.BufferCount) +
+                     " Buffers=" + std::to_string(m_bufferCount) +
                      " Tearing=" + std::to_string(opt.tearing) +
                      " Resolution=" + std::to_string(width) + "x" + std::to_string(height));
             break;
@@ -96,8 +101,14 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
         if (FAILED(hr) || !pBackBuffer) {
             std::stringstream ss;
             ss << "0x" << std::hex << (FAILED(hr) ? hr : E_FAIL);
-            LOG_ERROR("Renderer", "Failed to get swap chain buffer " + std::to_string(i) + ". HR: " + ss.str());
-            return false;
+            if (i > 0) {
+                LOG_WARN("Renderer", "Failed to get swap chain buffer " + std::to_string(i) + ". HR: " + ss.str() + ". Continuing with " + std::to_string(i) + " buffers.");
+                m_bufferCount = i;
+                break;
+            } else {
+                LOG_ERROR("Renderer", "Failed to get swap chain buffer " + std::to_string(i) + ". HR: " + ss.str());
+                return false;
+            }
         }
 
         hr = m_device->CreateRenderTargetView(pBackBuffer, nullptr, &m_backBufferViews[i]);

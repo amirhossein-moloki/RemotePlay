@@ -25,7 +25,7 @@ private:
     ID3D11Device* m_device = nullptr;
     ID3D11DeviceContext* m_context = nullptr;
     IDXGISwapChain* m_swapChain = nullptr;
-    ID3D11RenderTargetView* m_backBufferViews[2] = { nullptr, nullptr };
+    ID3D11RenderTargetView* m_backBufferViews[8] = { nullptr };
     int m_currentBufferIndex = 0;
     UINT m_bufferCount = 2;
     bool m_tearingSupported = false;
@@ -38,8 +38,8 @@ private:
 
     // Cached views for performance
     ID3D11VideoProcessorInputView* m_inputView = nullptr;
-    ID3D11VideoProcessorOutputView* m_outputViews[2] = { nullptr, nullptr };
-    ID3D11Texture2D* m_lastOutputTextures[2] = { nullptr, nullptr };
+    ID3D11VideoProcessorOutputView* m_outputViews[8] = { nullptr };
+    ID3D11Texture2D* m_lastOutputTextures[8] = { nullptr };
     ID3D11Texture2D* m_lastInputTexture = nullptr;
     int m_lastInputArrayIndex = -1;
 
