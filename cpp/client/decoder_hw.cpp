@@ -47,7 +47,7 @@ DecoderHW::~DecoderHW() {
     delete m_internal;
 }
 
-bool DecoderHW::Initialize(void* d3d11DevicePtr) {
+bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
     const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
     if (!codec) {
         LOG_ERROR("Decoder", "Failed to find H.264 decoder.");
@@ -60,7 +60,7 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr) {
         return false;
     }
 
-    if (d3d11DevicePtr) {
+    if (useHardware && d3d11DevicePtr) {
         m_internal->hwDeviceCtx = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
         if (m_internal->hwDeviceCtx) {
             AVHWDeviceContext* deviceCtx = (AVHWDeviceContext*)m_internal->hwDeviceCtx->data;

@@ -499,14 +499,14 @@ void SessionManager::runClient(ParsecConfig config) {
             reportError(ParsecError::HARDWARE_INIT_FAILED, "Renderer initialization failed. Please check your GPU drivers and system compatibility.");
             m_running = false;
             return;
-        } else if (!decoder.Initialize(renderer.GetDevice())) {
+        } else if (!decoder.Initialize(renderer.GetDevice(), config.useHardwareEncoding)) {
             LOG_ERROR("Session", "Failed to initialize decoder. Stopping session.");
             reportError(ParsecError::HARDWARE_INIT_FAILED, "Hardware decoder initialization failed. Please ensure your GPU supports H.264 decoding.");
             m_running = false;
             return;
         }
     } else {
-        decoder.Initialize(nullptr);
+        decoder.Initialize(nullptr, config.useHardwareEncoding);
     }
 
     std::atomic<uint32_t> lastFrameId{0};
