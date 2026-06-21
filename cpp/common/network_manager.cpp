@@ -1,4 +1,5 @@
 #include "network_manager.hpp"
+#include "logger.hpp"
 #include <iostream>
 #include <cstring>
 
@@ -96,7 +97,10 @@ NetworkManager::~NetworkManager() {
 bool NetworkManager::Bind(const std::string& ip, uint16_t port) {
     m_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 #ifdef _WIN32
-    if (m_socket == INVALID_SOCKET) return false;
+    if (m_socket == INVALID_SOCKET) {
+        LOG_ERROR("Network", "Failed to create socket. Error: " + std::to_string(WSAGetLastError()));
+        return false;
+    }
 
     // Set receive timeout to allow threads to exit gracefully
     DWORD timeout = 500; // ms
@@ -111,11 +115,18 @@ bool NetworkManager::Bind(const std::string& ip, uint16_t port) {
 #endif
 
     sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
+    if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) <= 0) {
+        LOG_ERROR("Network", "Invalid IP address: " + ip);
+        return false;
+    }
 
     if (bind(m_socket, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+#ifdef _WIN32
+        LOG_ERROR("Network", "Failed to bind to " + ip + ":" + std::to_string(port) + ". Error: " + std::to_string(WSAGetLastError()));
+#endif
         return false;
     }
     return true;
@@ -123,9 +134,12 @@ bool NetworkManager::Bind(const std::string& ip, uint16_t port) {
 
 int NetworkManager::SendTo(const void* data, size_t size, const std::string& targetIp, uint16_t targetPort) {
     sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(targetPort);
-    inet_pton(AF_INET, targetIp.c_str(), &addr.sin_addr);
+    if (inet_pton(AF_INET, targetIp.c_str(), &addr.sin_addr) <= 0) {
+        return -1;
+    }
     return sendto(m_socket, (const char*)data, (int)size, 0, (struct sockaddr*)&addr, sizeof(addr));
 }
 
@@ -174,12 +188,26 @@ int NetworkManager::SendBatch(const BatchItem* items, size_t count) {
 
 int NetworkManager::ReceiveFrom(void* buffer, size_t maxSize, std::string& senderIp, uint16_t& senderPort) {
     sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
 #ifdef _WIN32
     int addrLen = sizeof(addr);
 #else
     socklen_t addrLen = sizeof(addr);
 #endif
     int bytesReceived = recvfrom(m_socket, (char*)buffer, (int)maxSize, 0, (struct sockaddr*)&addr, &addrLen);
+
+    if (bytesReceived < 0) {
+#ifdef _WIN32
+        int err = WSAGetLastError();
+        if (err != WSAETIMEDOUT && err != WSAEWOULDBLOCK) {
+            LOG_ERROR("Network", "recvfrom failed with error: " + std::to_string(err));
+        }
+#else
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            LOG_ERROR("Network", "recvfrom failed with error: " + std::to_string(errno));
+        }
+#endif
+    }
 
     if (bytesReceived > 0) {
         char buf[INET_ADDRSTRLEN];

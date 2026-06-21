@@ -43,6 +43,7 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
         }
 
         // Enumerate network interfaces
+        m_networkInterfaces << QString("[0.0.0.0] All Interfaces - Active");
         auto interfaces = Network::NetworkManager::EnumerateInterfaces();
         for (const auto& iface : interfaces) {
             // Construct detailed string: "[IP] Name - Status"
@@ -86,7 +87,9 @@ void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps
     config.targetWidth = 0;
     config.targetHeight = 0;
     strncpy(config.selectedIp, interfaceIp.toStdString().c_str(), sizeof(config.selectedIp) - 1);
+    config.selectedIp[sizeof(config.selectedIp) - 1] = '\0';
     strncpy(config.username, m_username.toStdString().c_str(), sizeof(config.username) - 1);
+    config.username[sizeof(config.username) - 1] = '\0';
 
     Parsec_StartSession(config);
     m_isSessionActive = true;
@@ -112,8 +115,11 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
     config.encoderPreset = m_encoderPreset;
     config.resolutionScale = (float)m_resolutionScale;
     strncpy(config.selectedIp, interfaceIp.toStdString().c_str(), sizeof(config.selectedIp) - 1);
+    config.selectedIp[sizeof(config.selectedIp) - 1] = '\0';
     strncpy(config.hostIp, hostIp.toStdString().c_str(), sizeof(config.hostIp) - 1);
+    config.hostIp[sizeof(config.hostIp) - 1] = '\0';
     strncpy(config.username, m_username.toStdString().c_str(), sizeof(config.username) - 1);
+    config.username[sizeof(config.username) - 1] = '\0';
 
     m_clientWindow = Parsec_CreateClientWindow("NexusDash Stream Viewer", 1280, 720);
     config.windowHandle = m_clientWindow;

@@ -372,6 +372,7 @@ void SessionManager::runHost(ParsecConfig config) {
                 if (type == Protocol::PacketType::Handshake && len >= (int)sizeof(Protocol::HandshakePacket)) {
                     Protocol::HandshakePacket* hp = (Protocol::HandshakePacket*)buf;
                     std::string username(hp->username, strnlen(hp->username, sizeof(hp->username)));
+                    LOG_INFO("Session", "Received Handshake from " + senderIp + " (Username: " + username + ")");
 
                     bool alreadyActive = false;
                     {
@@ -538,6 +539,7 @@ void SessionManager::runClient(ParsecConfig config) {
                     lastFrameId = std::max((uint32_t)lastFrameId, vh->frameId);
                 } else if (type == Protocol::PacketType::HandshakeResponse && len >= (int)sizeof(Protocol::HandshakeResponsePacket)) {
                     Protocol::HandshakeResponsePacket* hrp = (Protocol::HandshakeResponsePacket*)buf;
+                    LOG_INFO("Session", "Received HandshakeResponse from " + senderIp + ". Approved: " + std::to_string((int)hrp->approved));
                     if (hrp->approved) handshakeApproved = true;
                     else handshakeRejected = true;
                 }
@@ -552,11 +554,13 @@ void SessionManager::runClient(ParsecConfig config) {
 
     auto startHandshake = std::chrono::steady_clock::now();
     auto lastHandshakeSend = std::chrono::steady_clock::now();
+    LOG_INFO("Session", "Sending Handshake to " + std::string(config.hostIp));
     net.SendTo(&hp, sizeof(hp), config.hostIp, 5005);
 
     while (m_running && !handshakeApproved && !handshakeRejected) {
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::seconds>(now - lastHandshakeSend).count() >= 1) {
+             LOG_INFO("Session", "Retransmitting Handshake to " + std::string(config.hostIp));
              net.SendTo(&hp, sizeof(hp), config.hostIp, 5005);
              lastHandshakeSend = now;
         }
