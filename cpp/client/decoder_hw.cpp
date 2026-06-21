@@ -11,6 +11,7 @@ extern "C" {
 #include <libavutil/imgutils.h>
 }
 #endif
+#include <cstdint>
 
 namespace Client {
 
@@ -75,7 +76,11 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr) {
 }
 
 bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture, int* outIndex) {
-    if (!m_internal->codecCtx) return false;
+    if (!m_internal->codecCtx) {
+        LOG_ERROR("StreamTrace", "DECODER_INPUT_INVALID codecCtx=null size=" + std::to_string(size));
+        return false;
+    }
+    LOG_INFO("StreamTrace", "DECODER_INPUT bytes=" + std::to_string(size));
 
     if (outIndex) *outIndex = 0;
 
@@ -84,6 +89,8 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
     m_internal->pkt->size = (int)size;
 
     int ret = avcodec_send_packet(m_internal->codecCtx, m_internal->pkt);
+    LOG_INFO("StreamTrace", "AV_SEND_PACKET ret=" + std::to_string(ret) +
+             " bytes=" + std::to_string(size));
     if (ret < 0) {
         if (ret != AVERROR(EAGAIN)) {
             LOG_WARN("Decoder", "avcodec_send_packet failed (code: " + std::to_string(ret) + ")");
@@ -92,6 +99,7 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
     }
 
     ret = avcodec_receive_frame(m_internal->codecCtx, m_internal->frame);
+    LOG_INFO("StreamTrace", "AV_RECEIVE_FRAME ret=" + std::to_string(ret));
     if (ret < 0) {
         if (ret != AVERROR(EAGAIN)) {
             LOG_WARN("Decoder", "Decoding error (code: " + std::to_string(ret) + "). Possible missing SPS/PPS headers; awaiting next keyframe.");
@@ -99,9 +107,15 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
         return false;
     }
 
+    LOG_INFO("StreamTrace", "AV_RECEIVE_FRAME_OK width=" + std::to_string(m_internal->frame->width) +
+             " height=" + std::to_string(m_internal->frame->height) +
+             " format=" + std::to_string(m_internal->frame->format));
+
     if (m_internal->frame->format == AV_PIX_FMT_D3D11) {
         *outTexture = m_internal->frame->data[0]; // ID3D11Texture2D*
         if (outIndex) *outIndex = (int)(intptr_t)m_internal->frame->data[1];
+        LOG_INFO("StreamTrace", "DECODER_TEXTURE_OUT hw=1 texture=" + std::to_string(reinterpret_cast<uintptr_t>(*outTexture)) +
+                 " arrayIndex=" + std::to_string(outIndex ? *outIndex : 0));
     } else {
         // Software frame fallback: Convert to RGBA and upload to D3D11 texture
         if (m_internal->device) {
@@ -137,6 +151,9 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
 
             m_internal->context->UpdateSubresource(m_internal->swTexture, 0, nullptr, m_internal->rgbaFrame->data[0], m_internal->rgbaFrame->linesize[0], 0);
             *outTexture = m_internal->swTexture;
+            LOG_INFO("StreamTrace", "DECODER_TEXTURE_OUT hw=0 texture=" + std::to_string(reinterpret_cast<uintptr_t>(*outTexture)));
+        } else {
+            LOG_ERROR("StreamTrace", "DECODER_TEXTURE_OUT_FAIL no_d3d11_device_for_software_frame");
         }
     }
 

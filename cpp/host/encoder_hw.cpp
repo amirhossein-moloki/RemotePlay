@@ -13,6 +13,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 #endif
+#include <cstdint>
 
 namespace Host {
 
@@ -199,7 +200,14 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
 }
 
 bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) {
-    if (!m_internal->codecCtx || !texturePtr) return false;
+    if (!m_internal->codecCtx || !texturePtr) {
+        LOG_ERROR("StreamTrace", "ENCODER_HW_INPUT_INVALID codecCtx=" + std::to_string(reinterpret_cast<uintptr_t>(m_internal->codecCtx)) +
+                  " texture=" + std::to_string(reinterpret_cast<uintptr_t>(texturePtr)));
+        return false;
+    }
+
+    LOG_INFO("StreamTrace", "ENCODER_HW_INPUT texture=" + std::to_string(reinterpret_cast<uintptr_t>(texturePtr)) +
+             " target=" + std::to_string(m_width) + "x" + std::to_string(m_height));
 
     AVFrame* encodeFrame = m_internal->frame;
     av_frame_unref(encodeFrame);
@@ -211,6 +219,10 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
 
         D3D11_TEXTURE2D_DESC desc;
         ((ID3D11Texture2D*)texturePtr)->GetDesc(&desc);
+
+        LOG_INFO("StreamTrace", "ENCODER_HW_TEXTURE_DESC width=" + std::to_string(desc.Width) +
+                 " height=" + std::to_string(desc.Height) +
+                 " format=" + std::to_string(desc.Format));
 
         if (desc.Width == (UINT)m_width && desc.Height == (UINT)m_height) {
             encodeFrame->data[0] = (uint8_t*)texturePtr;
@@ -328,6 +340,12 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
     }
 
     int ret = avcodec_send_frame(m_internal->codecCtx, encodeFrame);
+    LOG_INFO("StreamTrace", "AV_SEND_FRAME ret=" + std::to_string(ret) +
+             " pts=" + std::to_string(encodeFrame->pts) +
+             " frameCounter=" + std::to_string(m_internal->frameCounter));
+    if (ret < 0) {
+        LOG_ERROR("StreamTrace", "AV_SEND_FRAME_FAIL ret=" + std::to_string(ret));
+    }
     if (encodeFrame == m_internal->frame) {
         // We only unref if it was the wrapper frame. The software frame is reused.
         av_frame_unref(encodeFrame);
@@ -336,8 +354,17 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
 
     while (ret >= 0) {
         ret = avcodec_receive_packet(m_internal->codecCtx, m_internal->pkt);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
-        if (ret < 0) return false;
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+            LOG_INFO("StreamTrace", "AV_RECEIVE_PACKET_DONE ret=" + std::to_string(ret) +
+                     " outputPackets=" + std::to_string(outPackets.size()));
+            break;
+        }
+        if (ret < 0) {
+            LOG_ERROR("StreamTrace", "AV_RECEIVE_PACKET_FAIL ret=" + std::to_string(ret));
+            return false;
+        }
+        LOG_INFO("StreamTrace", "AV_RECEIVE_PACKET_OK size=" + std::to_string(m_internal->pkt->size) +
+                 " flags=" + std::to_string(m_internal->pkt->flags));
 
         auto pktBuffer = pool.acquire();
         if (pktBuffer) {
@@ -359,6 +386,8 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
                 }
                 outPackets.push_back(std::move(ep));
             } else {
+                LOG_ERROR("StreamTrace", "ENCODED_PACKET_TOO_LARGE size=" + std::to_string(m_internal->pkt->size) +
+                          " poolCapacity=" + std::to_string(pktBuffer->data.size()));
                 // In production, we might want to log this once or handle it by expanding the pool
                 pool.release(std::move(pktBuffer));
             }
@@ -410,12 +439,13 @@ void FFmpegHardwareEncoder::Shutdown() {
 struct FFmpegHardwareEncoder::InternalData {};
 FFmpegHardwareEncoder::FFmpegHardwareEncoder() : m_internal(nullptr) {}
 FFmpegHardwareEncoder::~FFmpegHardwareEncoder() {}
-bool FFmpegHardwareEncoder::Initialize(int w, int h, int f, int b, void* d) {
+bool FFmpegHardwareEncoder::Initialize(int w, int h, int f, int b, void* d, int preset, const std::string& codecName) {
     LOG_ERROR("Encoder", "FFmpeg support not compiled in. Hardware encoding is disabled.");
     return false;
 }
 bool FFmpegHardwareEncoder::EncodeFrame(void* t, std::vector<EncodedPacket>& o, PacketPool& p) { return false; }
 void FFmpegHardwareEncoder::SetBitrate(int b) {}
+void FFmpegHardwareEncoder::ForceKeyframe() {}
 void FFmpegHardwareEncoder::Shutdown() {}
 #endif
 

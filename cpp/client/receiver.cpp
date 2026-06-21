@@ -1,6 +1,7 @@
 #include "receiver.hpp"
 #include <iostream>
 #include "common/profiler.hpp"
+#include "common/logger.hpp"
 
 namespace Client {
 
@@ -35,6 +36,9 @@ Receiver::Receiver(size_t poolSize) {
 
 void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t* payload) {
     ScopeTimer timer("Receiver_ProcessPacket");
+    LOG_INFO("StreamTrace", "REASSEMBLY_FRAGMENT_IN frameId=" + std::to_string(header.frameId) +
+             " fragment=" + std::to_string(header.fragmentIndex) + "/" + std::to_string(header.totalFragments) +
+             " bytes=" + std::to_string(header.dataSize));
     std::lock_guard<std::mutex> lock(m_mutex);
 
     if (!m_firstFrameReceived) {
@@ -74,6 +78,9 @@ void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t*
             frame->fragmentMap[header.fragmentIndex] = true;
             frame->fragmentSizes[header.fragmentIndex] = header.dataSize;
             frame->fragmentsReceived++;
+            LOG_INFO("StreamTrace", "REASSEMBLY_FRAGMENT_STORED frameId=" + std::to_string(header.frameId) +
+                     " received=" + std::to_string(frame->fragmentsReceived) +
+                     "/" + std::to_string(frame->totalFragments));
 
             if (header.fragmentIndex == header.totalFragments - 1) {
                 frame->totalSize = offset + header.dataSize;
@@ -88,6 +95,9 @@ void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t*
     if (frame->fragmentsReceived == frame->totalFragments) {
         frame->isComplete = true;
         m_lastCompletedFrameId = std::max(m_lastCompletedFrameId, header.frameId);
+        LOG_INFO("StreamTrace", "REASSEMBLY_FRAME_COMPLETE frameId=" + std::to_string(header.frameId) +
+                 " totalSize=" + std::to_string(frame->totalSize) +
+                 " fragments=" + std::to_string(frame->totalFragments));
     }
 }
 
@@ -211,6 +221,8 @@ Receiver::FramePtr Receiver::GetNextFrame() {
         // Advance read pointer
         m_nextFrameIdToRead = newestComplete + 1;
 
+        LOG_INFO("StreamTrace", "REASSEMBLY_FRAME_POP frameId=" + std::to_string(frameRaw->frameId) +
+                 " totalSize=" + std::to_string(frameRaw->totalSize));
         return FramePtr(frameRaw, FrameDeleter{this});
     }
 
