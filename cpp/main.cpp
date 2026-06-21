@@ -19,6 +19,7 @@ void ShowUsage() {
     std::cout << "Options:" << std::endl;
     std::cout << "  --host           Start in Host Mode" << std::endl;
     std::cout << "  --client <IP>    Start in Client Mode connecting to <IP>" << std::endl;
+    std::cout << "  --standalone     Start Host and Client in the same process (loopback)" << std::endl;
     std::cout << "  --list           List available network interfaces" << std::endl;
 }
 
@@ -74,6 +75,26 @@ int main(int argc, char* argv[]) {
         config.isHost = true;
         strncpy(config.selectedIp, selectedIp.c_str(), sizeof(config.selectedIp) - 1);
         Parsec_StartSession(config);
+    } else if (args[1] == "--standalone") {
+        config.isHost = true;
+        config.runBoth = true;
+        strncpy(config.selectedIp, "127.0.0.1", sizeof(config.selectedIp) - 1);
+        strncpy(config.hostIp, "127.0.0.1", sizeof(config.hostIp) - 1);
+
+        void* hwnd = Parsec_CreateClientWindow("Parsec-Lite Standalone", 1280, 720);
+        config.windowHandle = hwnd;
+
+        Parsec_StartSession(config);
+
+        MSG msg;
+        while (GetMessageA(&msg, NULL, 0, 0)) {
+            TranslateMessage(&msg);
+            DispatchMessageA(&msg);
+            if (msg.message == WM_QUIT) break;
+        }
+        Parsec_StopSession();
+        Parsec_Shutdown();
+        return 0;
     } else if (args.size() > 2 && args[1] == "--client") {
         config.isHost = false;
         strncpy(config.selectedIp, selectedIp.c_str(), sizeof(config.selectedIp) - 1);

@@ -35,7 +35,8 @@ private:
     void runClient(ParsecConfig config);
 
     std::atomic<bool> m_running{false};
-    std::thread m_sessionThread;
+    std::thread m_hostThread;
+    std::thread m_clientThread;
     ParsecConfig m_currentConfig;
     void* m_activeInputCapture = nullptr; // Client side
     ParsecConnectionCallback m_connectionCallback = nullptr;

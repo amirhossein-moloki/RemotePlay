@@ -23,6 +23,7 @@ struct ParsecConfig {
     int targetHeight;
     float resolutionScale;
     bool isHost;
+    bool runBoth;
     bool useHardwareEncoding;
     bool autoApprove;
     int encoderPreset; // 0: Performance, 1: Balanced, 2: Quality
