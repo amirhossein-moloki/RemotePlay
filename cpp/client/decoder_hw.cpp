@@ -16,6 +16,17 @@ extern "C" {
 namespace Client {
 
 #ifdef PARSEC_LITE_ENABLE_FFMPEG
+
+static enum AVPixelFormat get_format(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts) {
+    const enum AVPixelFormat *p;
+    for (p = pix_fmts; *p != -1; p++) {
+        if (*p == AV_PIX_FMT_D3D11) {
+            return *p;
+        }
+    }
+    return AV_PIX_FMT_NONE;
+}
+
 struct DecoderHW::InternalData {
     AVCodecContext* codecCtx = nullptr;
     AVBufferRef* hwDeviceCtx = nullptr;
@@ -38,10 +49,16 @@ DecoderHW::~DecoderHW() {
 
 bool DecoderHW::Initialize(void* d3d11DevicePtr) {
     const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
-    if (!codec) return false;
+    if (!codec) {
+        LOG_ERROR("Decoder", "Failed to find H.264 decoder.");
+        return false;
+    }
 
     m_internal->codecCtx = avcodec_alloc_context3(codec);
-    if (!m_internal->codecCtx) return false;
+    if (!m_internal->codecCtx) {
+        LOG_ERROR("Decoder", "Failed to allocate codec context.");
+        return false;
+    }
 
     if (d3d11DevicePtr) {
         m_internal->hwDeviceCtx = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
@@ -52,23 +69,34 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr) {
             d3d11Ctx->device->AddRef();
 
             if (av_hwdevice_ctx_init(m_internal->hwDeviceCtx) < 0) {
+                LOG_ERROR("Decoder", "Failed to initialize HW device context.");
                 av_buffer_unref(&m_internal->hwDeviceCtx);
             } else {
                 m_internal->codecCtx->hw_device_ctx = av_buffer_ref(m_internal->hwDeviceCtx);
+                m_internal->codecCtx->get_format = get_format;
             }
         }
     }
 
     if (avcodec_open2(m_internal->codecCtx, codec, NULL) < 0) {
+        LOG_ERROR("Decoder", "Failed to open codec.");
         return false;
     }
 
     m_internal->pkt = av_packet_alloc();
     m_internal->frame = av_frame_alloc();
 
+    if (!m_internal->pkt || !m_internal->frame) {
+        LOG_ERROR("Decoder", "Failed to allocate packet or frame.");
+        return false;
+    }
+
     if (d3d11DevicePtr) {
         m_internal->device = (ID3D11Device*)d3d11DevicePtr;
         m_internal->device->GetImmediateContext(&m_internal->context);
+        if (!m_internal->context) {
+            LOG_ERROR("Decoder", "Failed to get immediate context.");
+        }
     }
 
     LOG_INFO("Decoder", "FFmpeg Decoder initialized.");
@@ -76,8 +104,8 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr) {
 }
 
 bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture, int* outIndex) {
-    if (!m_internal->codecCtx) {
-        LOG_ERROR("StreamTrace", "DECODER_INPUT_INVALID codecCtx=null size=" + std::to_string(size));
+    if (!m_internal || !m_internal->codecCtx || !m_internal->pkt || !m_internal->frame) {
+        LOG_ERROR("StreamTrace", "DECODER_INPUT_INVALID internal state null. size=" + std::to_string(size));
         return false;
     }
     LOG_INFO("StreamTrace", "DECODER_INPUT bytes=" + std::to_string(size));
@@ -91,6 +119,11 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
     int ret = avcodec_send_packet(m_internal->codecCtx, m_internal->pkt);
     LOG_INFO("StreamTrace", "AV_SEND_PACKET ret=" + std::to_string(ret) +
              " bytes=" + std::to_string(size));
+
+    // Clear data/size to avoid accidental reuse of 'data' pointer which might be invalid after this call
+    m_internal->pkt->data = nullptr;
+    m_internal->pkt->size = 0;
+
     if (ret < 0) {
         if (ret != AVERROR(EAGAIN)) {
             LOG_WARN("Decoder", "avcodec_send_packet failed (code: " + std::to_string(ret) + ")");
@@ -101,7 +134,7 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
     ret = avcodec_receive_frame(m_internal->codecCtx, m_internal->frame);
     LOG_INFO("StreamTrace", "AV_RECEIVE_FRAME ret=" + std::to_string(ret));
     if (ret < 0) {
-        if (ret != AVERROR(EAGAIN)) {
+        if (ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
             LOG_WARN("Decoder", "Decoding error (code: " + std::to_string(ret) + "). Possible missing SPS/PPS headers; awaiting next keyframe.");
         }
         return false;
@@ -112,13 +145,18 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
              " format=" + std::to_string(m_internal->frame->format));
 
     if (m_internal->frame->format == AV_PIX_FMT_D3D11) {
-        *outTexture = m_internal->frame->data[0]; // ID3D11Texture2D*
-        if (outIndex) *outIndex = (int)(intptr_t)m_internal->frame->data[1];
-        LOG_INFO("StreamTrace", "DECODER_TEXTURE_OUT hw=1 texture=" + std::to_string(reinterpret_cast<uintptr_t>(*outTexture)) +
-                 " arrayIndex=" + std::to_string(outIndex ? *outIndex : 0));
+        if (m_internal->frame->data[0]) {
+            *outTexture = m_internal->frame->data[0]; // ID3D11Texture2D*
+            if (outIndex) *outIndex = (int)(intptr_t)m_internal->frame->data[1];
+            LOG_INFO("StreamTrace", "DECODER_TEXTURE_OUT hw=1 texture=" + std::to_string(reinterpret_cast<uintptr_t>(*outTexture)) +
+                     " arrayIndex=" + std::to_string(outIndex ? *outIndex : 0));
+        } else {
+            LOG_ERROR("StreamTrace", "DECODER_TEXTURE_OUT_FAIL hw_frame_data_null");
+            return false;
+        }
     } else {
         // Software frame fallback: Convert to RGBA and upload to D3D11 texture
-        if (m_internal->device) {
+        if (m_internal->device && m_internal->context) {
             if (!m_internal->swsCtx || m_internal->rgbaFrame->width != m_internal->frame->width || m_internal->rgbaFrame->height != m_internal->frame->height) {
                 if (m_internal->swsCtx) sws_freeContext(m_internal->swsCtx);
                 if (m_internal->rgbaFrame) av_frame_free(&m_internal->rgbaFrame);
@@ -127,12 +165,20 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
                 m_internal->swsCtx = sws_getContext(m_internal->frame->width, m_internal->frame->height, (AVPixelFormat)m_internal->frame->format,
                                                    m_internal->frame->width, m_internal->frame->height, AV_PIX_FMT_RGBA,
                                                    SWS_FAST_BILINEAR, NULL, NULL, NULL);
+                if (!m_internal->swsCtx) {
+                    LOG_ERROR("Decoder", "Failed to create sws context.");
+                    return false;
+                }
 
                 m_internal->rgbaFrame = av_frame_alloc();
+                if (!m_internal->rgbaFrame) return false;
                 m_internal->rgbaFrame->format = AV_PIX_FMT_RGBA;
                 m_internal->rgbaFrame->width = m_internal->frame->width;
                 m_internal->rgbaFrame->height = m_internal->frame->height;
-                av_frame_get_buffer(m_internal->rgbaFrame, 0);
+                if (av_frame_get_buffer(m_internal->rgbaFrame, 0) < 0) {
+                    LOG_ERROR("Decoder", "Failed to allocate software fallback buffer.");
+                    return false;
+                }
 
                 D3D11_TEXTURE2D_DESC desc = {};
                 desc.Width = m_internal->frame->width;
@@ -143,7 +189,11 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
                 desc.SampleDesc.Count = 1;
                 desc.Usage = D3D11_USAGE_DEFAULT;
                 desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-                m_internal->device->CreateTexture2D(&desc, nullptr, &m_internal->swTexture);
+                HRESULT hr = m_internal->device->CreateTexture2D(&desc, nullptr, &m_internal->swTexture);
+                if (FAILED(hr)) {
+                    LOG_ERROR("Decoder", "Failed to create fallback texture.");
+                    return false;
+                }
             }
 
             sws_scale(m_internal->swsCtx, m_internal->frame->data, m_internal->frame->linesize, 0, m_internal->frame->height,
@@ -153,7 +203,8 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
             *outTexture = m_internal->swTexture;
             LOG_INFO("StreamTrace", "DECODER_TEXTURE_OUT hw=0 texture=" + std::to_string(reinterpret_cast<uintptr_t>(*outTexture)));
         } else {
-            LOG_ERROR("StreamTrace", "DECODER_TEXTURE_OUT_FAIL no_d3d11_device_for_software_frame");
+            LOG_ERROR("StreamTrace", "DECODER_TEXTURE_OUT_FAIL no_d3d11_device_or_context_for_software_frame");
+            return false;
         }
     }
 
