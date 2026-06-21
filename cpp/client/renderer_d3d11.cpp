@@ -35,13 +35,22 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
     sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD; // Modern low-latency flip model
     sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // Allow VSync Off (Variable Refresh Rate)
 
-    UINT flags = 0;
+    UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 #ifdef _DEBUG
     flags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
     HRESULT hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, nullptr, 0,
                                                D3D11_SDK_VERSION, &sd, &m_swapChain, &m_device, nullptr, &m_context);
+
+    // Fallback: If creation fails with tearing flag, try without it
+    if (FAILED(hr) && (sd.Flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING)) {
+        LOG_WARN("Renderer", "Failed to create swap chain with ALLOW_TEARING. Retrying without it...");
+        sd.Flags &= ~DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+        hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, nullptr, 0,
+                                           D3D11_SDK_VERSION, &sd, &m_swapChain, &m_device, nullptr, &m_context);
+    }
+
     if (FAILED(hr)) {
         std::stringstream ss;
         ss << "0x" << std::hex << hr;
@@ -52,11 +61,19 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
     for (int i = 0; i < 2; i++) {
         ID3D11Texture2D* pBackBuffer = nullptr;
         hr = m_swapChain->GetBuffer(i, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer);
-        if (SUCCEEDED(hr) && pBackBuffer) {
-            hr = m_device->CreateRenderTargetView(pBackBuffer, nullptr, &m_backBufferViews[i]);
-            pBackBuffer->Release();
-            if (FAILED(hr)) return false;
-        } else {
+        if (FAILED(hr) || !pBackBuffer) {
+            std::stringstream ss;
+            ss << "0x" << std::hex << hr;
+            LOG_ERROR("Renderer", "Failed to get swap chain buffer " + std::to_string(i) + ". HR: " + ss.str());
+            return false;
+        }
+
+        hr = m_device->CreateRenderTargetView(pBackBuffer, nullptr, &m_backBufferViews[i]);
+        pBackBuffer->Release();
+        if (FAILED(hr)) {
+            std::stringstream ss;
+            ss << "0x" << std::hex << hr;
+            LOG_ERROR("Renderer", "Failed to create render target view for buffer " + std::to_string(i) + ". HR: " + ss.str());
             return false;
         }
     }
