@@ -50,19 +50,26 @@ void SessionManager::startSession(ParsecConfig config) {
 
     m_running = true;
     m_currentConfig = config;
-    m_sessionThread = std::thread([this, config]() {
+
+    if (config.runBoth) {
+        m_hostThread = std::thread([this, config]() { runHost(config); });
+        m_clientThread = std::thread([this, config]() { runClient(config); });
+    } else {
         if (config.isHost) {
-            runHost(config);
+            m_hostThread = std::thread([this, config]() { runHost(config); });
         } else {
-            runClient(config);
+            m_clientThread = std::thread([this, config]() { runClient(config); });
         }
-    });
+    }
 }
 
 void SessionManager::stopSession() {
     m_running = false;
-    if (m_sessionThread.joinable()) {
-        m_sessionThread.join();
+    if (m_hostThread.joinable()) {
+        m_hostThread.join();
+    }
+    if (m_clientThread.joinable()) {
+        m_clientThread.join();
     }
     std::lock_guard<std::mutex> lock(m_pendingClientsMutex);
     m_pendingClients.clear();

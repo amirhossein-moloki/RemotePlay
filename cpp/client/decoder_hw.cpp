@@ -243,7 +243,7 @@ void DecoderHW::Shutdown() {
 struct DecoderHW::InternalData {};
 DecoderHW::DecoderHW() : m_internal(nullptr) {}
 DecoderHW::~DecoderHW() {}
-bool DecoderHW::Initialize(void* p) {
+bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
     LOG_ERROR("Decoder", "FFmpeg support not compiled in. Decoder is disabled.");
     return false;
 }
