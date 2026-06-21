@@ -17,6 +17,7 @@ set(COMMON_SOURCES
     cpp/common/logger.cpp
     cpp/common/config.cpp
     cpp/common/session_manager.cpp
+    cpp/common/crash_handler.cpp
 )
 
 set(HOST_SOURCES
