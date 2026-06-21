@@ -570,64 +570,81 @@ void SessionManager::runClient(ParsecConfig config) {
     LOG_INFO("Session", "Handshake approved, starting stream");
 
     auto lastFeedbackTime = std::chrono::steady_clock::now();
+    uint32_t traceFrameCount = 0;
 
     while (m_running) {
-        auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFeedbackTime).count() >= 1000) {
-            Protocol::FeedbackHeader fh;
-            fh.type = (uint8_t)Protocol::PacketType::Feedback;
-            fh.lastReceivedFrameId = lastFrameId;
+        try {
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFeedbackTime).count() >= 1000) {
+                Protocol::FeedbackHeader fh;
+                fh.type = (uint8_t)Protocol::PacketType::Feedback;
+                fh.lastReceivedFrameId = lastFrameId;
 
-            auto stats = Profiler::getInstance().getStats("Network_LossRate");
-            fh.lossRate = (float)stats.latest;
+                auto stats = Profiler::getInstance().getStats("Network_LossRate");
+                fh.lossRate = (float)stats.latest;
 
-            stats = Profiler::getInstance().getStats("Network_RTT");
-            fh.rttMs = (uint32_t)stats.latest;
+                stats = Profiler::getInstance().getStats("Network_RTT");
+                fh.rttMs = (uint32_t)stats.latest;
 
-            stats = Profiler::getInstance().getStats("Decode_Time");
-            fh.avgDecodeTimeMs = (float)stats.avg / 1000.0f; // us to ms
+                stats = Profiler::getInstance().getStats("Decode_Time");
+                fh.avgDecodeTimeMs = (float)stats.avg / 1000.0f; // us to ms
 
-            net.SendTo(&fh, sizeof(fh), config.hostIp, 5005);
-            lastFeedbackTime = now;
-        }
-
-        while (auto frame = receiver.GetNextFrame()) {
-            jitterBuffer.PushFrame(std::move(frame));
-        }
-
-        if (useRenderer) renderer.NewFrame();
-
-        auto frame = jitterBuffer.PopFrame();
-        if (frame) {
-            uint64_t decodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-            void* outTexture = nullptr;
-            int arrayIndex = 0;
-            LOG_INFO("StreamTrace", "DECODE_IN frameId=" + std::to_string(frame->frameId) +
-                     " bytes=" + std::to_string(frame->totalSize));
-            if (decoder.DecodeFrame(frame->buffer.data(), frame->totalSize, &outTexture, &arrayIndex)) {
-                uint64_t decodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-                LOG_INFO("StreamTrace", "DECODE_OUT frameId=" + std::to_string(frame->frameId) +
-                         " texture=" + std::to_string(reinterpret_cast<uintptr_t>(outTexture)) +
-                         " arrayIndex=" + std::to_string(arrayIndex) +
-                         " decodeUs=" + std::to_string(decodeEnd - decodeStart));
-                Profiler::getInstance().recordTime("Decode_Time", (double)(decodeEnd - decodeStart));
-
-                uint64_t now = decodeEnd;
-                Profiler::getInstance().recordTime("EndToEnd_Latency", (double)(now - frame->captureTimestamp));
-
-                if (useRenderer && outTexture) {
-                    renderer.Render((ID3D11Texture2D*)outTexture, arrayIndex);
-                }
-            } else {
-                LOG_ERROR("StreamTrace", "DECODE_FAIL frameId=" + std::to_string(frame->frameId) +
-                          " bytes=" + std::to_string(frame->totalSize));
+                net.SendTo(&fh, sizeof(fh), config.hostIp, 5005);
+                lastFeedbackTime = now;
             }
-            receiver.ReturnToPool(std::move(frame));
-        } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
 
-        if (useRenderer) renderer.EndFrame();
+            while (auto frame = receiver.GetNextFrame()) {
+                if (traceFrameCount < 10) LOG_INFO("ClientTrace", "Frame Reassembled: " + std::to_string(frame->frameId));
+                jitterBuffer.PushFrame(std::move(frame));
+            }
+
+            if (useRenderer) renderer.NewFrame();
+
+            auto frame = jitterBuffer.PopFrame();
+            if (frame) {
+                uint32_t currentFid = frame->frameId;
+                uint64_t decodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                void* outTexture = nullptr;
+                int arrayIndex = 0;
+
+                if (traceFrameCount < 10) LOG_INFO("ClientTrace", "Decoding Frame: " + std::to_string(currentFid));
+
+                LOG_INFO("StreamTrace", "DECODER_IN frameId=" + std::to_string(frame->frameId) +
+                         " bytes=" + std::to_string(frame->totalSize));
+                if (decoder.DecodeFrame(frame->buffer.data(), frame->totalSize, &outTexture, &arrayIndex)) {
+                    uint64_t decodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                    LOG_INFO("StreamTrace", "DECODER_OUT frameId=" + std::to_string(frame->frameId) +
+                             " texture=" + std::to_string(reinterpret_cast<uintptr_t>(outTexture)) +
+                             " arrayIndex=" + std::to_string(arrayIndex) +
+                             " decodeUs=" + std::to_string(decodeEnd - decodeStart));
+                    Profiler::getInstance().recordTime("Decode_Time", (double)(decodeEnd - decodeStart));
+
+                    uint64_t now = decodeEnd;
+                    Profiler::getInstance().recordTime("EndToEnd_Latency", (double)(now - frame->captureTimestamp));
+
+                    if (useRenderer && outTexture) {
+                        if (traceFrameCount < 10) LOG_INFO("ClientTrace", "Rendering Frame: " + std::to_string(currentFid));
+                        renderer.Render((ID3D11Texture2D*)outTexture, arrayIndex);
+                    }
+
+                    if (traceFrameCount < 10) traceFrameCount++;
+                } else {
+                    LOG_ERROR("StreamTrace", "DECODE_FAIL frameId=" + std::to_string(frame->frameId) +
+                              " bytes=" + std::to_string(frame->totalSize));
+                }
+                receiver.ReturnToPool(std::move(frame));
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+
+            if (useRenderer) renderer.EndFrame();
+        } catch (const std::exception& e) {
+            LOG_ERROR("Session", "Standard Exception in Client Loop: " + std::string(e.what()));
+            m_running = false;
+        } catch (...) {
+            LOG_ERROR("Session", "Unknown Exception in Client Loop");
+            m_running = false;
+        }
     }
 
     m_activeInputCapture = nullptr;

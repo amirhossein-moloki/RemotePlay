@@ -51,9 +51,14 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
 
     for (int i = 0; i < 2; i++) {
         ID3D11Texture2D* pBackBuffer = nullptr;
-        m_swapChain->GetBuffer(i, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer);
-        m_device->CreateRenderTargetView(pBackBuffer, nullptr, &m_backBufferViews[i]);
-        pBackBuffer->Release();
+        hr = m_swapChain->GetBuffer(i, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer);
+        if (SUCCEEDED(hr) && pBackBuffer) {
+            hr = m_device->CreateRenderTargetView(pBackBuffer, nullptr, &m_backBufferViews[i]);
+            pBackBuffer->Release();
+            if (FAILED(hr)) return false;
+        } else {
+            return false;
+        }
     }
 
     // Initialize ImGui
@@ -68,6 +73,8 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
 }
 
 void RendererD3D11::NewFrame() {
+    if (!m_swapChain || !m_context) return;
+
     // Determine current backbuffer index for Flip Model
     DXGI_SWAP_CHAIN_DESC sd;
     m_swapChain->GetDesc(&sd);
@@ -81,9 +88,13 @@ void RendererD3D11::NewFrame() {
         m_currentBufferIndex = 0;
     }
 
+    if (m_currentBufferIndex < 0 || m_currentBufferIndex >= 2) m_currentBufferIndex = 0;
+
     // Clear backbuffer to a dark color to avoid white screens when no frames are arriving
-    float clearColor[4] = { 0.043f, 0.063f, 0.125f, 1.0f }; // Matches Theme Background #0B1020
-    m_context->ClearRenderTargetView(m_backBufferViews[m_currentBufferIndex], clearColor);
+    if (m_backBufferViews[m_currentBufferIndex]) {
+        float clearColor[4] = { 0.043f, 0.063f, 0.125f, 1.0f }; // Matches Theme Background #0B1020
+        m_context->ClearRenderTargetView(m_backBufferViews[m_currentBufferIndex], clearColor);
+    }
 
     ImGui_ImplD3D11_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -91,8 +102,12 @@ void RendererD3D11::NewFrame() {
 }
 
 void RendererD3D11::EndFrame() {
+    if (!m_context || !m_swapChain) return;
+
     ImGui::Render();
-    m_context->OMSetRenderTargets(1, &m_backBufferViews[m_currentBufferIndex], nullptr);
+    if (m_backBufferViews[m_currentBufferIndex]) {
+        m_context->OMSetRenderTargets(1, &m_backBufferViews[m_currentBufferIndex], nullptr);
+    }
     ImGui_ImplD3D11_RenderDrawData(ImGui::GetDrawData());
     // Use DXGI_PRESENT_ALLOW_TEARING for lowest possible latency with Flip Discard
     m_swapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
@@ -134,9 +149,8 @@ bool RendererD3D11::SetupVideoProcessor(int width, int height) {
 }
 
 void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
-    if (!texture || !m_context) {
-        LOG_ERROR("StreamTrace", "RENDER_INPUT_INVALID texture=" + std::to_string(reinterpret_cast<uintptr_t>(texture)) +
-                  " context=" + std::to_string(reinterpret_cast<uintptr_t>(m_context)));
+    if (!texture || !m_context || !m_swapChain) {
+        LOG_ERROR("StreamTrace", "RENDER_INPUT_INVALID resources null.");
         return;
     }
     LOG_INFO("StreamTrace", "RENDER_INPUT texture=" + std::to_string(reinterpret_cast<uintptr_t>(texture)) +
@@ -149,8 +163,11 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
              " format=" + std::to_string(srcDesc.Format));
 
     ID3D11Texture2D* backBuffer = nullptr;
-    m_swapChain->GetBuffer(m_currentBufferIndex, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
-    if (!backBuffer) return;
+    HRESULT hr = m_swapChain->GetBuffer(m_currentBufferIndex, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
+    if (FAILED(hr) || !backBuffer) {
+        LOG_ERROR("Renderer", "Failed to get swap chain buffer.");
+        return;
+    }
 
     D3D11_TEXTURE2D_DESC dstDesc;
     backBuffer->GetDesc(&dstDesc);
@@ -160,27 +177,40 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
             // Recreate input view only if texture or array index changed
             if (texture != m_lastInputTexture || arrayIndex != m_lastInputArrayIndex) {
                 if (m_inputView) m_inputView->Release();
+                m_inputView = nullptr;
+
                 D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC inputViewDesc = {};
                 inputViewDesc.FourCC = 0;
-                // Use D3D11_VPIV_DIMENSION_TEXTURE2D for both single textures and arrays as
-                // D3D11_VPIV_DIMENSION_TEXTURE2DARRAY is not defined in the target SDK.
-                // D3D11_TEX2D_VPIV (Texture2D) contains ArraySlice which handles both cases.
                 inputViewDesc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
                 inputViewDesc.Texture2D.MipSlice = 0;
                 inputViewDesc.Texture2D.ArraySlice = (srcDesc.ArraySize > 1) ? arrayIndex : 0;
-                m_videoDevice->CreateVideoProcessorInputView(texture, m_videoEnumerator, &inputViewDesc, &m_inputView);
-                m_lastInputTexture = texture;
-                m_lastInputArrayIndex = arrayIndex;
+
+                hr = m_videoDevice->CreateVideoProcessorInputView(texture, m_videoEnumerator, &inputViewDesc, &m_inputView);
+                if (FAILED(hr)) {
+                    LOG_ERROR("Renderer", "Failed to create video processor input view.");
+                    m_lastInputTexture = nullptr;
+                } else {
+                    m_lastInputTexture = texture;
+                    m_lastInputArrayIndex = arrayIndex;
+                }
             }
 
-            // Recreate output view for the current backbuffer if the texture changed (e.g. resize)
+            // Recreate output view for the current backbuffer if the texture changed (e.g. resize or new backbuffer ptr)
             if (backBuffer != m_lastOutputTextures[m_currentBufferIndex]) {
                 if (m_outputViews[m_currentBufferIndex]) m_outputViews[m_currentBufferIndex]->Release();
+                m_outputViews[m_currentBufferIndex] = nullptr;
+
                 D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outputViewDesc = {};
                 outputViewDesc.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
                 outputViewDesc.Texture2D.MipSlice = 0;
-                m_videoDevice->CreateVideoProcessorOutputView(backBuffer, m_videoEnumerator, &outputViewDesc, &m_outputViews[m_currentBufferIndex]);
-                m_lastOutputTextures[m_currentBufferIndex] = backBuffer;
+
+                hr = m_videoDevice->CreateVideoProcessorOutputView(backBuffer, m_videoEnumerator, &outputViewDesc, &m_outputViews[m_currentBufferIndex]);
+                if (FAILED(hr)) {
+                    LOG_ERROR("Renderer", "Failed to create video processor output view.");
+                    m_lastOutputTextures[m_currentBufferIndex] = nullptr;
+                } else {
+                    m_lastOutputTextures[m_currentBufferIndex] = backBuffer;
+                }
             }
 
             if (m_inputView && m_outputViews[m_currentBufferIndex]) {
@@ -216,9 +246,12 @@ void RendererD3D11::Shutdown() {
     ImGui::DestroyContext();
 
     if (m_inputView) m_inputView->Release();
+    m_inputView = nullptr;
+    m_lastInputTexture = nullptr;
     for (int i = 0; i < 2; i++) {
         if (m_outputViews[i]) m_outputViews[i]->Release();
         m_outputViews[i] = nullptr;
+        m_lastOutputTextures[i] = nullptr;
     }
     if (m_videoProcessor) m_videoProcessor->Release();
     if (m_videoEnumerator) m_videoEnumerator->Release();

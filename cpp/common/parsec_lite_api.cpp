@@ -9,12 +9,16 @@
 #include "session_manager.hpp"
 #include "logger.hpp"
 #include "config.hpp"
+#include "crash_handler.hpp"
 
 extern "C" {
 
 PARSEC_API bool Parsec_Initialize() {
     Logger::getInstance().init("parsec-lite-core.log");
     Config::getInstance().load("config.ini");
+#ifdef _WIN32
+    CrashDiagnostics::CrashHandler::Initialize();
+#endif
     return true;
 }
 
