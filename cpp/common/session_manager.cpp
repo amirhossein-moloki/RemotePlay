@@ -13,6 +13,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <set>
+#include <cstdint>
 #include <map>
 #include <algorithm>
 #include <cstring>
@@ -218,23 +219,44 @@ void SessionManager::runHost(ParsecConfig config) {
                 uint64_t endCaptureTs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
                 Profiler::getInstance().recordTime("Capture_Time", (double)(endCaptureTs - captureTs));
 
+                D3D11_TEXTURE2D_DESC capturedDesc;
+                tex->GetDesc(&capturedDesc);
+                LOG_INFO("StreamTrace", "CAPTURE_OK frameAttempt=" + std::to_string(frameCount) +
+                         " texture=" + std::to_string(capturedDesc.Width) + "x" + std::to_string(capturedDesc.Height) +
+                         " captureUs=" + std::to_string(endCaptureTs - captureTs));
+
                 {
                     std::lock_guard<std::mutex> lock(ctx.clientsMutex);
                     for (auto& client : ctx.clients) {
                         static thread_local std::vector<Host::EncodedPacket> packets;
                         packets.clear();
                         uint64_t encodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                        LOG_INFO("StreamTrace", "ENCODE_IN frameId=" + std::to_string(client->frameId) +
+                                 " client=" + client->ip + ":" + std::to_string(client->port));
                         if (client->encoder->EncodeFrame(tex, packets, ctx.packetPool)) {
                             uint64_t encodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
                             Profiler::getInstance().recordTime("Encode_Time", (double)(encodeEnd - encodeStart));
+                            size_t encodedBytes = 0;
+                            for (const auto& p : packets) {
+                                if (p.packet) encodedBytes += p.packet->size;
+                            }
+                            LOG_INFO("StreamTrace", "ENCODE_OUT frameId=" + std::to_string(client->frameId) +
+                                     " packetCount=" + std::to_string(packets.size()) +
+                                     " encodedBytes=" + std::to_string(encodedBytes) +
+                                     " encodeUs=" + std::to_string(encodeEnd - encodeStart));
                             for (auto& p : packets) {
                                 p.captureTimestamp = endCaptureTs;
                                 p.encodeStartTimestamp = encodeStart;
                                 p.encodeEndTimestamp = encodeEnd;
                             }
                             if (!client->encodeQueue.push(std::move(packets))) {
+                                LOG_ERROR("StreamTrace", "ENCODE_QUEUE_DROP frameId=" + std::to_string(client->frameId));
                                 for (auto& p : packets) ctx.packetPool.release(std::move(p.packet));
+                            } else {
+                                LOG_INFO("StreamTrace", "ENCODE_QUEUE_PUSH frameId=" + std::to_string(client->frameId));
                             }
+                        } else {
+                            LOG_ERROR("StreamTrace", "ENCODE_FAIL frameId=" + std::to_string(client->frameId));
                         }
                     }
                 }
@@ -284,7 +306,13 @@ void SessionManager::runHost(ParsecConfig config) {
                             udpPkt->size = sizeof(Protocol::VideoHeader) + vh->dataSize;
 
                             if (!ctx.sendQueue.push({std::move(udpPkt), client->ip, client->port})) {
+                                LOG_ERROR("StreamTrace", "SEND_QUEUE_DROP frameId=" + std::to_string(client->frameId) +
+                                          " fragment=" + std::to_string(i) + "/" + std::to_string(totalFrags));
                                 ctx.udpPool.release(std::move(udpPkt));
+                            } else {
+                                LOG_INFO("StreamTrace", "SEND_QUEUE_PUSH frameId=" + std::to_string(client->frameId) +
+                                         " fragment=" + std::to_string(i) + "/" + std::to_string(totalFrags) +
+                                         " bytes=" + std::to_string(vh->dataSize));
                             }
                         }
                         ctx.packetPool.release(std::move(frame.packet));
@@ -313,7 +341,12 @@ void SessionManager::runHost(ParsecConfig config) {
                 count++;
             }
             if (count > 0) {
-                ctx.net.SendBatch(batch, count);
+                int sendResult = ctx.net.SendBatch(batch, count);
+                LOG_INFO("StreamTrace", "UDP_SEND_BATCH requested=" + std::to_string(count) +
+                         " result=" + std::to_string(sendResult));
+                if (sendResult < 0) {
+                    LOG_ERROR("StreamTrace", "UDP_SEND_FAIL requested=" + std::to_string(count));
+                }
                 for (size_t i = 0; i < count; ++i) ctx.udpPool.release(std::move(ops[i].packet));
             } else {
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
@@ -486,6 +519,10 @@ void SessionManager::runClient(ParsecConfig config) {
                 Protocol::PacketType type = (Protocol::PacketType)buf[0];
                 if (type == Protocol::PacketType::Video && len >= (int)sizeof(Protocol::VideoHeader)) {
                     Protocol::VideoHeader* vh = (Protocol::VideoHeader*)buf;
+                    LOG_INFO("StreamTrace", "UDP_RECV_VIDEO frameId=" + std::to_string(vh->frameId) +
+                             " fragment=" + std::to_string(vh->fragmentIndex) + "/" + std::to_string(vh->totalFragments) +
+                             " payloadBytes=" + std::to_string(vh->dataSize) +
+                             " datagramBytes=" + std::to_string(len));
                     receiver.ProcessPacket(*vh, buf + sizeof(Protocol::VideoHeader));
                     lastFrameId = std::max((uint32_t)lastFrameId, vh->frameId);
                 } else if (type == Protocol::PacketType::HandshakeResponse && len >= (int)sizeof(Protocol::HandshakeResponsePacket)) {
@@ -565,8 +602,14 @@ void SessionManager::runClient(ParsecConfig config) {
             uint64_t decodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
             void* outTexture = nullptr;
             int arrayIndex = 0;
+            LOG_INFO("StreamTrace", "DECODE_IN frameId=" + std::to_string(frame->frameId) +
+                     " bytes=" + std::to_string(frame->totalSize));
             if (decoder.DecodeFrame(frame->buffer.data(), frame->totalSize, &outTexture, &arrayIndex)) {
                 uint64_t decodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                LOG_INFO("StreamTrace", "DECODE_OUT frameId=" + std::to_string(frame->frameId) +
+                         " texture=" + std::to_string(reinterpret_cast<uintptr_t>(outTexture)) +
+                         " arrayIndex=" + std::to_string(arrayIndex) +
+                         " decodeUs=" + std::to_string(decodeEnd - decodeStart));
                 Profiler::getInstance().recordTime("Decode_Time", (double)(decodeEnd - decodeStart));
 
                 uint64_t now = decodeEnd;
@@ -575,6 +618,9 @@ void SessionManager::runClient(ParsecConfig config) {
                 if (useRenderer && outTexture) {
                     renderer.Render((ID3D11Texture2D*)outTexture, arrayIndex);
                 }
+            } else {
+                LOG_ERROR("StreamTrace", "DECODE_FAIL frameId=" + std::to_string(frame->frameId) +
+                          " bytes=" + std::to_string(frame->totalSize));
             }
             receiver.ReturnToPool(std::move(frame));
         } else {

@@ -7,6 +7,7 @@
 #include "third_party/imgui/imgui.h"
 #include "third_party/imgui/imgui_impl_win32.h"
 #include "third_party/imgui/imgui_impl_d3d11.h"
+#include <cstdint>
 
 namespace Client {
 
@@ -133,10 +134,19 @@ bool RendererD3D11::SetupVideoProcessor(int width, int height) {
 }
 
 void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
-    if (!texture || !m_context) return;
+    if (!texture || !m_context) {
+        LOG_ERROR("StreamTrace", "RENDER_INPUT_INVALID texture=" + std::to_string(reinterpret_cast<uintptr_t>(texture)) +
+                  " context=" + std::to_string(reinterpret_cast<uintptr_t>(m_context)));
+        return;
+    }
+    LOG_INFO("StreamTrace", "RENDER_INPUT texture=" + std::to_string(reinterpret_cast<uintptr_t>(texture)) +
+             " arrayIndex=" + std::to_string(arrayIndex));
 
     D3D11_TEXTURE2D_DESC srcDesc;
     texture->GetDesc(&srcDesc);
+    LOG_INFO("StreamTrace", "RENDER_TEXTURE_DESC width=" + std::to_string(srcDesc.Width) +
+             " height=" + std::to_string(srcDesc.Height) +
+             " format=" + std::to_string(srcDesc.Format));
 
     ID3D11Texture2D* backBuffer = nullptr;
     m_swapChain->GetBuffer(m_currentBufferIndex, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
@@ -178,15 +188,22 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
                 stream.Enable = TRUE;
                 stream.pInputSurface = m_inputView;
 
-                m_videoContext->VideoProcessorBlt(m_videoProcessor, m_outputViews[m_currentBufferIndex], 0, 1, &stream);
+                HRESULT bltHr = m_videoContext->VideoProcessorBlt(m_videoProcessor, m_outputViews[m_currentBufferIndex], 0, 1, &stream);
+                if (SUCCEEDED(bltHr)) {
+                    LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH video_processor result=ok");
+                } else {
+                    LOG_ERROR("StreamTrace", "RENDER_PRESENT_PATH video_processor result=fail hr=" + std::to_string((long)bltHr));
+                }
             }
         }
     } else {
         if (srcDesc.Width == dstDesc.Width && srcDesc.Height == dstDesc.Height && srcDesc.Format == dstDesc.Format) {
             m_context->CopyResource(backBuffer, texture);
+            LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH copy_resource result=ok");
         } else {
             D3D11_BOX box = { 0, 0, 0, std::min(srcDesc.Width, dstDesc.Width), std::min(srcDesc.Height, dstDesc.Height), 1 };
             m_context->CopySubresourceRegion(backBuffer, 0, 0, 0, 0, texture, 0, &box);
+            LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH copy_subresource result=ok");
         }
     }
 
