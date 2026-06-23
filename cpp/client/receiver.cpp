@@ -15,6 +15,7 @@ void FrameData::Reset() {
     encodeEndTimestamp = 0;
     receiveTimestamp = 0;
     isComplete = false;
+    isKeyframe = false;
     std::fill(fragmentMap.begin(), fragmentMap.end(), false);
     std::fill(fragmentSizes.begin(), fragmentSizes.end(), 0);
 }
@@ -61,6 +62,7 @@ void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t*
         newFrame->captureTimestamp = header.captureTimestamp;
         newFrame->encodeStartTimestamp = header.encodeStartTimestamp;
         newFrame->encodeEndTimestamp = header.encodeEndTimestamp;
+        newFrame->isKeyframe = (header.flags & 0x01) != 0;
         newFrame->receiveTimestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 
         if (newFrame->fragmentMap.size() < header.totalFragments) {
@@ -191,35 +193,13 @@ void Receiver::TryRecover(uint32_t frameId, uint16_t groupStart) {
 Receiver::FramePtr Receiver::GetNextFrame() {
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    uint32_t newestComplete = 0;
-    bool found = false;
-
-    for (uint32_t i = 0; i < 32; ++i) {
-        uint32_t fid = m_nextFrameIdToRead + i;
-        auto* framePtr = m_frameRing.get(fid);
-        if (*framePtr && (*framePtr)->frameId == fid && (*framePtr)->isComplete) {
-            newestComplete = fid;
-            found = true;
-        }
-    }
-
-    if (found) {
-        // Return skipped frames to pool
-        for (uint32_t fid = m_nextFrameIdToRead; fid < newestComplete; ++fid) {
-            FrameData** framePtr = m_frameRing.get(fid);
-            if (*framePtr && (*framePtr)->frameId == fid) {
-                ReturnToPoolInternalRaw(*framePtr);
-                *framePtr = nullptr;
-            }
-        }
-
-        // Pop the target frame
-        FrameData** framePtr = m_frameRing.get(newestComplete);
+    // Enforce strict ordering: only pop the next expected frame if it is complete.
+    // Skipping frames here causes H.264 decoding artifacts (flickering).
+    auto* framePtr = m_frameRing.get(m_nextFrameIdToRead);
+    if (*framePtr && (*framePtr)->frameId == m_nextFrameIdToRead && (*framePtr)->isComplete) {
         FrameData* frameRaw = *framePtr;
         *framePtr = nullptr;
-
-        // Advance read pointer
-        m_nextFrameIdToRead = newestComplete + 1;
+        m_nextFrameIdToRead++;
 
         LOG_INFO("StreamTrace", "REASSEMBLY_FRAME_POP frameId=" + std::to_string(frameRaw->frameId) +
                  " totalSize=" + std::to_string(frameRaw->totalSize));
@@ -227,6 +207,38 @@ Receiver::FramePtr Receiver::GetNextFrame() {
     }
 
     return FramePtr(nullptr, FrameDeleter{this});
+}
+
+uint32_t Receiver::FindLatestAvailableKeyframe() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    uint32_t latestKeyframeId = 0;
+    bool found = false;
+
+    // Scan the ring buffer for the newest complete keyframe ahead of our current read pointer
+    for (uint32_t i = 0; i < 64; ++i) {
+        uint32_t fid = m_nextFrameIdToRead + i;
+        FrameData** framePtr = m_frameRing.get(fid);
+        if (*framePtr && (*framePtr)->frameId == fid && (*framePtr)->isComplete && (*framePtr)->isKeyframe) {
+            latestKeyframeId = fid;
+            found = true;
+        }
+    }
+
+    return found ? latestKeyframeId : 0;
+}
+
+void Receiver::ForceAdvanceTo(uint32_t frameId) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (frameId <= m_nextFrameIdToRead) return;
+
+    for (uint32_t fid = m_nextFrameIdToRead; fid < frameId; ++fid) {
+        FrameData** framePtr = m_frameRing.get(fid);
+        if (*framePtr && (*framePtr)->frameId == fid) {
+            ReturnToPoolInternalRaw(*framePtr);
+            *framePtr = nullptr;
+        }
+    }
+    m_nextFrameIdToRead = frameId;
 }
 
 void Receiver::FrameDeleter::operator()(FrameData* frame) const {

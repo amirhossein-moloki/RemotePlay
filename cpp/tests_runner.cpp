@@ -129,11 +129,9 @@ void TestReceiverFEC() {
     std::cout << "Receiver FEC Tests Passed!" << std::endl;
 }
 
-void TestReceiverSkipping() {
-    std::cout << "Running Receiver Skipping Tests..." << std::endl;
+void TestReceiverStrictOrdering() {
+    std::cout << "Running Receiver Strict Ordering Tests..." << std::endl;
     Client::Receiver receiver(10);
-
-    auto noopDeleter = [](Client::FrameData*){};
 
     Protocol::VideoHeader vh;
     vh.type = (uint8_t)Protocol::PacketType::Video;
@@ -147,11 +145,36 @@ void TestReceiverSkipping() {
     vh.frameId = 12;
     receiver.ProcessPacket(vh, data);
 
+    // Frame 10 should be returned first
     Client::Receiver::FramePtr frame = receiver.GetNextFrame();
+    assert(frame != nullptr);
+    assert(frame->frameId == 10);
+
+    // Frame 11 is missing, so frame 12 should NOT be returned yet (Head-of-Line blocking)
+    frame = receiver.GetNextFrame();
+    assert(frame == nullptr);
+
+    // After forcing advance to 12, frame 12 should be returned
+    receiver.ForceAdvanceTo(12);
+    frame = receiver.GetNextFrame();
     assert(frame != nullptr);
     assert(frame->frameId == 12);
 
-    std::cout << "Receiver Skipping Tests Passed!" << std::endl;
+    // Test FindLatestAvailableKeyframe
+    vh.frameId = 15;
+    vh.flags = 0x01; // Keyframe
+    receiver.ProcessPacket(vh, data);
+    vh.frameId = 20;
+    vh.flags = 0x01; // Keyframe
+    receiver.ProcessPacket(vh, data);
+    vh.frameId = 18;
+    vh.flags = 0x00; // Normal frame
+    receiver.ProcessPacket(vh, data);
+
+    uint32_t latestKey = receiver.FindLatestAvailableKeyframe();
+    assert(latestKey == 20);
+
+    std::cout << "Receiver Strict Ordering Tests Passed!" << std::endl;
 }
 
 void TestGamepadProtocol() {
@@ -183,8 +206,6 @@ void TestJitterBuffer() {
     std::cout << "Running JitterBuffer Tests..." << std::endl;
     Client::JitterBuffer jb(3);
 
-    auto noopDeleter = [](Client::FrameData*){};
-
     auto f1 = new Client::FrameData(); f1->frameId = 1;
     f1->buffer.resize(100); f1->fragmentMap.resize(1); f1->fragmentSizes.resize(1);
     auto f2 = new Client::FrameData(); f2->frameId = 2;
@@ -198,17 +219,25 @@ void TestJitterBuffer() {
     jb.PushFrame(Client::Receiver::FramePtr(f2, Client::Receiver::FrameDeleter()));
     jb.PushFrame(Client::Receiver::FramePtr(f3, Client::Receiver::FrameDeleter()));
 
-    // Test timing pop - wait for threshold (targetDelayMs defaults to 7.5ms since jitter is 5ms)
+    // Test strict ordering: PopFrame must return 1, not newest (3)
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     auto p1 = jb.PopFrame();
     assert(p1 != nullptr);
-    assert(p1->frameId == 3); // Current PopFrame pops newest available if threshold met
+    assert(p1->frameId == 1);
+
+    auto p2 = jb.PopFrame();
+    assert(p2 != nullptr);
+    assert(p2->frameId == 2);
+
+    auto p3 = jb.PopFrame();
+    assert(p3 != nullptr);
+    assert(p3->frameId == 3);
 
     jb.PushFrame(Client::Receiver::FramePtr(f4, Client::Receiver::FrameDeleter()));
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    auto p2 = jb.PopFrame();
-    assert(p2 != nullptr);
-    assert(p2->frameId == 4);
+    auto p4 = jb.PopFrame();
+    assert(p4 != nullptr);
+    assert(p4->frameId == 4);
 
     std::cout << "JitterBuffer Tests Passed!" << std::endl;
 }
@@ -238,7 +267,7 @@ int main() {
         TestSafeQueue();
         TestPacketPool();
         TestReceiverFEC();
-        TestReceiverSkipping();
+        TestReceiverStrictOrdering();
         TestJitterBuffer();
         TestGamepadProtocol();
         TestHandshakeProtocol();

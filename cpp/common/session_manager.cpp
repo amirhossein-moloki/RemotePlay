@@ -443,6 +443,10 @@ void SessionManager::runHost(ParsecConfig config) {
                         for(auto& c : ctx.clients) {
                             if(c->ip == senderIp && c->port == senderPort) {
                                 c->encoder->UpdatePerformanceMetrics(fh->lossRate, -1.0f, fh->avgDecodeTimeMs);
+                                if (fh->requestKeyframe) {
+                                    LOG_INFO("Session", "Keyframe requested by client " + senderIp);
+                                    c->encoder->RequestKeyframe();
+                                }
                                 break;
                             }
                         }
@@ -586,11 +590,22 @@ void SessionManager::runClient(ParsecConfig config) {
 
     auto lastFeedbackTime = std::chrono::steady_clock::now();
     uint32_t traceFrameCount = 0;
+    bool requestKeyframe = false;
+    uint32_t lastReportedMissingFrameId = 0;
 
     while (m_running) {
         try {
             auto now = std::chrono::steady_clock::now();
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFeedbackTime).count() >= 1000) {
+
+            // Detect missing frames and request keyframe if we have a gap that persists
+            uint32_t nextExpected = receiver.GetNextExpectedFrameId();
+            if (lastFrameId > nextExpected + 10 && nextExpected != lastReportedMissingFrameId) {
+                LOG_WARN("Client", "Gap detected! Expected: " + std::to_string(nextExpected) + " Latest: " + std::to_string((uint32_t)lastFrameId));
+                requestKeyframe = true;
+                lastReportedMissingFrameId = nextExpected;
+            }
+
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFeedbackTime).count() >= 1000 || requestKeyframe) {
                 Protocol::FeedbackHeader fh;
                 fh.type = (uint8_t)Protocol::PacketType::Feedback;
                 fh.lastReceivedFrameId = lastFrameId;
@@ -604,8 +619,20 @@ void SessionManager::runClient(ParsecConfig config) {
                 stats = Profiler::getInstance().getStats("Decode_Time");
                 fh.avgDecodeTimeMs = (float)stats.avg / 1000.0f; // us to ms
 
+                fh.requestKeyframe = requestKeyframe ? 1 : 0;
+
                 net.SendTo(&fh, sizeof(fh), config.hostIp, 5005);
                 lastFeedbackTime = now;
+                requestKeyframe = false;
+            }
+
+            // Recovery logic: Scan for keyframes ahead of the current blocked read pointer.
+            // This is done OUTSIDE GetNextFrame to bypass Head-of-Line blocking.
+            uint32_t latestKeyframe = receiver.FindLatestAvailableKeyframe();
+            if (latestKeyframe > 0 && latestKeyframe > receiver.GetNextExpectedFrameId()) {
+                 LOG_INFO("Client", "Keyframe recovery detected ahead of blocked stream. Advancing to " + std::to_string(latestKeyframe));
+                 receiver.ForceAdvanceTo(latestKeyframe);
+                 jitterBuffer.Reset(latestKeyframe);
             }
 
             while (auto frame = receiver.GetNextFrame()) {
@@ -646,6 +673,7 @@ void SessionManager::runClient(ParsecConfig config) {
                 } else {
                     LOG_ERROR("StreamTrace", "DECODE_FAIL frameId=" + std::to_string(frame->frameId) +
                               " bytes=" + std::to_string(frame->totalSize));
+                    requestKeyframe = true; // Request keyframe on decode failure
                 }
                 receiver.ReturnToPool(std::move(frame));
             } else {

@@ -22,6 +22,7 @@ struct FrameData {
     uint64_t encodeEndTimestamp;
     uint64_t receiveTimestamp;
     bool isComplete;
+    bool isKeyframe;
     std::vector<bool> fragmentMap;
     std::vector<uint16_t> fragmentSizes; // Store individual fragment sizes for FEC
 
@@ -47,6 +48,9 @@ public:
     };
     using FramePtr = std::unique_ptr<FrameData, FrameDeleter>;
     FramePtr GetNextFrame();
+    uint32_t GetNextExpectedFrameId() const { return m_nextFrameIdToRead; }
+    uint32_t FindLatestAvailableKeyframe();
+    void ForceAdvanceTo(uint32_t frameId);
     void ReturnToPool(FramePtr frame);
     void ReturnToPoolRaw(FrameData* frame);
 
