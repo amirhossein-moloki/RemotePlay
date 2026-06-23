@@ -60,11 +60,18 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
 
         if (!codecName.empty()) {
             codec = avcodec_find_encoder_by_name(codecName.c_str());
-            if (codec && (std::string(codec->name).find("264") == std::string::npos && std::string(codec->name).find("x264") == std::string::npos)) {
-                 // Check if it's software libx264
-                 if (std::string(codec->name) == "libx264") isSoftware = true;
+            if (codec) {
+                std::string name = codec->name;
+                if (name == "libx264" || name == "h264") isSoftware = true;
+                // If it's x264 but not one of the known hardware ones, treat as software
+                if (name.find("264") != std::string::npos &&
+                    name.find("nvenc") == std::string::npos &&
+                    name.find("amf") == std::string::npos &&
+                    name.find("qsv") == std::string::npos &&
+                    name.find("vaapi") == std::string::npos) {
+                    isSoftware = true;
+                }
             }
-            if (codecName == "libx264") isSoftware = true;
         }
 
         if (!codec && !softwareFallback) {
@@ -98,13 +105,14 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
             const char* sw_presets[] = { "ultrafast", "superfast", "veryfast" };
             av_opt_set(m_internal->codecCtx->priv_data, "preset", sw_presets[std::max(0, std::min(2, preset))], 0);
             av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
-            av_opt_set(m_internal->codecCtx->priv_data, "x264-params", "repeat-headers=1", 0);
+            av_opt_set(m_internal->codecCtx->priv_data, "x264-params", "repeat-headers=1:annexb=1:forced-idr=1", 0);
         } else {
             const char* hw_presets[] = { "p1", "p4", "p7" }; // NVENC: p1 is fastest, p7 is slowest/best
             if (std::string(codec->name).find("nvenc") != std::string::npos) {
                 av_opt_set(m_internal->codecCtx->priv_data, "preset", hw_presets[std::max(0, std::min(2, preset))], 0);
                 av_opt_set(m_internal->codecCtx->priv_data, "tune", "ull", 0);
                 av_opt_set(m_internal->codecCtx->priv_data, "repeat_config", "1", 0);
+                av_opt_set(m_internal->codecCtx->priv_data, "forced-idr", "1", 0);
             } else {
                 const char* qsv_presets[] = { "veryfast", "medium", "veryslow" };
                 const char* amf_presets[] = { "speed", "balanced", "quality" };
@@ -352,48 +360,74 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
     }
     if (ret < 0) return false;
 
+    std::vector<uint8_t> frameData;
+    bool isKeyframe = false;
+
     while (ret >= 0) {
         ret = avcodec_receive_packet(m_internal->codecCtx, m_internal->pkt);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-            LOG_INFO("StreamTrace", "AV_RECEIVE_PACKET_DONE ret=" + std::to_string(ret) +
-                     " outputPackets=" + std::to_string(outPackets.size()));
-            break;
-        }
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
         if (ret < 0) {
             LOG_ERROR("StreamTrace", "AV_RECEIVE_PACKET_FAIL ret=" + std::to_string(ret));
             return false;
         }
-        LOG_INFO("StreamTrace", "AV_RECEIVE_PACKET_OK size=" + std::to_string(m_internal->pkt->size) +
-                 " flags=" + std::to_string(m_internal->pkt->flags));
 
+        if (m_internal->pkt->flags & AV_PKT_FLAG_KEY) isKeyframe = true;
+
+        size_t oldSize = frameData.size();
+        frameData.resize(oldSize + m_internal->pkt->size);
+        memcpy(frameData.data() + oldSize, m_internal->pkt->data, m_internal->pkt->size);
+
+        av_packet_unref(m_internal->pkt);
+    }
+
+    if (!frameData.empty()) {
         auto pktBuffer = pool.acquire();
         if (pktBuffer) {
-            if (m_internal->pkt->size <= pktBuffer->data.size()) {
-                memcpy(pktBuffer->data.data(), m_internal->pkt->data, m_internal->pkt->size);
-                pktBuffer->size = m_internal->pkt->size;
+            if (frameData.size() <= pktBuffer->data.size()) {
+                memcpy(pktBuffer->data.data(), frameData.data(), frameData.size());
+                pktBuffer->size = frameData.size();
 
                 EncodedPacket ep;
                 ep.packet = std::move(pktBuffer);
-                ep.isKeyframe = (m_internal->pkt->flags & AV_PKT_FLAG_KEY);
-                // The timestamps will be populated by the caller who knows the real-world time
+                ep.isKeyframe = isKeyframe;
                 ep.captureTimestamp = 0;
                 ep.encodeStartTimestamp = 0;
                 ep.encodeEndTimestamp = 0;
 
-                // Reserve space to avoid reallocations if the vector is being reused
                 if (outPackets.capacity() < outPackets.size() + 1) {
                     outPackets.reserve(std::max((size_t)8, outPackets.capacity() * 2));
                 }
                 outPackets.push_back(std::move(ep));
+
+                // Log NAL units for debugging (only for keyframes or intermittently to reduce noise)
+                if (isKeyframe && frameData.size() >= 4) {
+                    std::string nalTypes = "";
+                    for (size_t i = 0; i + 3 < frameData.size(); ) {
+                        size_t startCodeLen = 0;
+                        if (frameData[i] == 0 && frameData[i+1] == 0 && frameData[i+2] == 0 && frameData[i+3] == 1) startCodeLen = 4;
+                        else if (frameData[i] == 0 && frameData[i+1] == 0 && frameData[i+2] == 1) startCodeLen = 3;
+
+                        if (startCodeLen > 0 && i + startCodeLen < frameData.size()) {
+                            int type = frameData[i + startCodeLen] & 0x1F;
+                            if (!nalTypes.empty()) nalTypes += ",";
+                            nalTypes += std::to_string(type);
+                            i += startCodeLen + 1;
+                        } else {
+                            i++;
+                        }
+                    }
+                    LOG_INFO("StreamTrace", "AV_RECEIVE_FRAME_BUNDLED size=" + std::to_string(frameData.size()) +
+                             " keyframe=" + std::to_string(isKeyframe) + " NALs=[" + nalTypes + "]");
+                } else {
+                    LOG_INFO("StreamTrace", "AV_RECEIVE_FRAME_BUNDLED size=" + std::to_string(frameData.size()) +
+                             " keyframe=" + std::to_string(isKeyframe));
+                }
             } else {
-                LOG_ERROR("StreamTrace", "ENCODED_PACKET_TOO_LARGE size=" + std::to_string(m_internal->pkt->size) +
+                LOG_ERROR("StreamTrace", "ENCODED_FRAME_TOO_LARGE size=" + std::to_string(frameData.size()) +
                           " poolCapacity=" + std::to_string(pktBuffer->data.size()));
-                // In production, we might want to log this once or handle it by expanding the pool
                 pool.release(std::move(pktBuffer));
             }
         }
-
-        av_packet_unref(m_internal->pkt);
     }
 
     return true;

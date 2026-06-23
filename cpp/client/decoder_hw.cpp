@@ -112,13 +112,34 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
 
     if (outIndex) *outIndex = 0;
 
+    // Log NAL units for debugging (only if suspecting issues or for keyframes)
+    std::string nalTypes = "";
+    if (size >= 4) {
+        for (size_t i = 0; i + 3 < size; ) {
+            size_t startCodeLen = 0;
+            if (data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && data[i+3] == 1) startCodeLen = 4;
+            else if (data[i] == 0 && data[i+1] == 0 && data[i+2] == 1) startCodeLen = 3;
+
+            if (startCodeLen > 0 && i + startCodeLen < size) {
+                int type = data[i + startCodeLen] & 0x1F;
+                if (!nalTypes.empty()) nalTypes += ",";
+                nalTypes += std::to_string(type);
+                i += startCodeLen + 1;
+            } else {
+                i++;
+            }
+        }
+    }
+
     av_packet_unref(m_internal->pkt);
     m_internal->pkt->data = (uint8_t*)data;
     m_internal->pkt->size = (int)size;
 
     int ret = avcodec_send_packet(m_internal->codecCtx, m_internal->pkt);
-    LOG_INFO("StreamTrace", "AV_SEND_PACKET ret=" + std::to_string(ret) +
-             " bytes=" + std::to_string(size));
+    if (nalTypes.find("5") != std::string::npos || nalTypes.find("7") != std::string::npos || ret < 0) {
+        LOG_INFO("StreamTrace", "AV_SEND_PACKET ret=" + std::to_string(ret) +
+                 " bytes=" + std::to_string(size) + " NALs=[" + nalTypes + "]");
+    }
 
     // Clear data/size to avoid accidental reuse of 'data' pointer which might be invalid after this call
     m_internal->pkt->data = nullptr;
