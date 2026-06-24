@@ -14,6 +14,7 @@ public:
 
     void PushFrame(Receiver::FramePtr frame);
     Receiver::FramePtr PopFrame();
+    void Reset(uint32_t nextExpectedId);
 
 private:
     FixedRingBuffer<Receiver::FramePtr, 32> m_ring;

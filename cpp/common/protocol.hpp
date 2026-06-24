@@ -62,6 +62,7 @@ struct FeedbackHeader {
     float lossRate;
     uint32_t rttMs;
     float avgDecodeTimeMs;
+    uint8_t requestKeyframe; // 1 to request an IDR frame, 0 otherwise
 };
 
 // Input Packet Header
