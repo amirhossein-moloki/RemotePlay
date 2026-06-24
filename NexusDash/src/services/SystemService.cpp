@@ -44,6 +44,7 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
 
         // Enumerate network interfaces
         m_networkInterfaces << QString("[0.0.0.0] All Interfaces - Active");
+        m_networkInterfaces << QString("[127.0.0.1] Local Loopback - Active");
         auto interfaces = Network::NetworkManager::EnumerateInterfaces();
         for (const auto& iface : interfaces) {
             // Construct detailed string: "[IP] Name - Status"
