@@ -27,9 +27,35 @@ public:
 
     void init(const std::string& filename, size_t maxFileSize = 5 * 1024 * 1024, int maxFiles = 3) {
         std::lock_guard<std::mutex> lock(m_mutex);
-        m_baseFilename = filename;
         m_maxFileSize = maxFileSize;
         m_maxFiles = maxFiles;
+
+        std::string target = filename;
+        for (int i = 0; i < 10; ++i) {
+            if (i > 0) {
+                size_t dot = filename.find_last_of('.');
+                if (dot != std::string::npos) {
+                    target = filename.substr(0, dot) + "-" + std::to_string(i) + filename.substr(dot);
+                } else {
+                    target = filename + "-" + std::to_string(i);
+                }
+            }
+
+            // Check if file is already locked/in-use by trying to rename it to itself.
+            // This is a common trick on Windows to check for exclusive access.
+            // Or just try to open and see.
+            std::ofstream test(target, std::ios::app);
+            if (test.is_open()) {
+                test.close();
+                // To be even safer against concurrent 'init' calls from different processes
+                // we can try to "consume" the file by keeping it open.
+                m_baseFilename = target;
+                openFile();
+                if (m_file.is_open()) return;
+            }
+        }
+
+        m_baseFilename = filename;
         openFile();
     }
 

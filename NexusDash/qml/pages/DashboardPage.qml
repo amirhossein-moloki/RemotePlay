@@ -116,7 +116,7 @@ ScrollView {
                             Layout.fillWidth: true
                             height: 80
                             clip: true
-                            model: ["192.168.1.10", "192.168.1.5"]
+                            model: ["127.0.0.1", "192.168.1.10", "192.168.1.5"]
                             delegate: Item {
                                 width: parent.width; height: 32
                                 Rectangle {
