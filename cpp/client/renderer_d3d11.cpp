@@ -172,7 +172,12 @@ void RendererD3D11::EndFrame() {
     ImGui_ImplD3D11_RenderDrawData(ImGui::GetDrawData());
     // Use DXGI_PRESENT_ALLOW_TEARING only if supported
     UINT presentFlags = (m_tearingSupported) ? DXGI_PRESENT_ALLOW_TEARING : 0;
-    m_swapChain->Present(0, presentFlags);
+    HRESULT hr = m_swapChain->Present(0, presentFlags);
+    if (FAILED(hr)) {
+        std::stringstream ss;
+        ss << "0x" << std::hex << hr;
+        LOG_ERROR("Renderer", "Present failed. HR: " + ss.str());
+    }
 }
 
 bool RendererD3D11::SetupVideoProcessor(int width, int height) {
@@ -211,8 +216,18 @@ bool RendererD3D11::SetupVideoProcessor(int width, int height) {
 }
 
 void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
-    if (!texture || !m_context || !m_swapChain) {
+    if (!m_context || !m_swapChain) {
         LOG_ERROR("StreamTrace", "RENDER_INPUT_INVALID resources null.");
+        return;
+    }
+
+    if (!texture) {
+        texture = m_lastInputTexture;
+        arrayIndex = m_lastInputArrayIndex;
+    }
+
+    if (!texture) {
+        // No cached frame available yet
         return;
     }
     LOG_INFO("StreamTrace", "RENDER_INPUT texture=" + std::to_string(reinterpret_cast<uintptr_t>(texture)) +
@@ -250,10 +265,8 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
                 hr = m_videoDevice->CreateVideoProcessorInputView(texture, m_videoEnumerator, &inputViewDesc, &m_inputView);
                 if (FAILED(hr)) {
                     LOG_ERROR("Renderer", "Failed to create video processor input view.");
-                    m_lastInputTexture = nullptr;
                 } else {
-                    m_lastInputTexture = texture;
-                    m_lastInputArrayIndex = arrayIndex;
+                    // Cache will be updated at the end of the function
                 }
             }
 
@@ -289,17 +302,26 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
             }
         }
     } else {
-        if (srcDesc.Width == dstDesc.Width && srcDesc.Height == dstDesc.Height && srcDesc.Format == dstDesc.Format) {
+        UINT srcSubresource = (srcDesc.ArraySize > 1) ? (UINT)arrayIndex : 0;
+        if (srcDesc.Width == dstDesc.Width && srcDesc.Height == dstDesc.Height && srcDesc.Format == dstDesc.Format && srcDesc.ArraySize == 1) {
             m_context->CopyResource(backBuffer, texture);
             LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH copy_resource result=ok");
         } else {
             D3D11_BOX box = { 0, 0, 0, std::min(srcDesc.Width, dstDesc.Width), std::min(srcDesc.Height, dstDesc.Height), 1 };
-            m_context->CopySubresourceRegion(backBuffer, 0, 0, 0, 0, texture, 0, &box);
-            LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH copy_subresource result=ok");
+            m_context->CopySubresourceRegion(backBuffer, 0, 0, 0, 0, texture, srcSubresource, &box);
+            LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH copy_subresource result=ok srcSub=" + std::to_string(srcSubresource));
         }
     }
 
     backBuffer->Release();
+
+    // Update cache with AddRef/Release for safety during redraws
+    if (texture != m_lastInputTexture || arrayIndex != m_lastInputArrayIndex) {
+        if (m_lastInputTexture) m_lastInputTexture->Release();
+        m_lastInputTexture = texture;
+        m_lastInputArrayIndex = arrayIndex;
+        if (m_lastInputTexture) m_lastInputTexture->AddRef();
+    }
 }
 
 void RendererD3D11::Shutdown() {
@@ -309,6 +331,7 @@ void RendererD3D11::Shutdown() {
 
     if (m_inputView) m_inputView->Release();
     m_inputView = nullptr;
+    if (m_lastInputTexture) m_lastInputTexture->Release();
     m_lastInputTexture = nullptr;
     for (UINT i = 0; i < m_bufferCount; i++) {
         if (m_outputViews[i]) m_outputViews[i]->Release();
