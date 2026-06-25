@@ -674,9 +674,11 @@ void SessionManager::runClient(ParsecConfig config) {
                     LOG_ERROR("StreamTrace", "DECODE_FAIL frameId=" + std::to_string(frame->frameId) +
                               " bytes=" + std::to_string(frame->totalSize));
                     requestKeyframe = true; // Request keyframe on decode failure
+                    if (useRenderer) renderer.Render(nullptr, 0); // Redraw last frame on decode fail
                 }
                 receiver.ReturnToPool(std::move(frame));
             } else {
+                if (useRenderer) renderer.Render(nullptr, 0); // Redraw last frame if no new frame popped
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
 

@@ -136,6 +136,17 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
     m_internal->pkt->size = (int)size;
 
     int ret = avcodec_send_packet(m_internal->codecCtx, m_internal->pkt);
+
+    // If decoder is full, we must drain it and retry
+    if (ret == AVERROR(EAGAIN)) {
+        int drainedCount = 0;
+        while (avcodec_receive_frame(m_internal->codecCtx, m_internal->frame) >= 0) {
+            drainedCount++;
+        }
+        LOG_WARN("Decoder", "avcodec_send_packet returned EAGAIN, drained " + std::to_string(drainedCount) + " frames. Retrying...");
+        ret = avcodec_send_packet(m_internal->codecCtx, m_internal->pkt);
+    }
+
     if (nalTypes.find("5") != std::string::npos || nalTypes.find("7") != std::string::npos || ret < 0) {
         LOG_INFO("StreamTrace", "AV_SEND_PACKET ret=" + std::to_string(ret) +
                  " bytes=" + std::to_string(size) + " NALs=[" + nalTypes + "]");
@@ -146,22 +157,31 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
     m_internal->pkt->size = 0;
 
     if (ret < 0) {
-        if (ret != AVERROR(EAGAIN)) {
-            LOG_WARN("Decoder", "avcodec_send_packet failed (code: " + std::to_string(ret) + ")");
-        }
+        LOG_ERROR("Decoder", "avcodec_send_packet failed (code: " + std::to_string(ret) + ")");
         return false;
     }
 
-    ret = avcodec_receive_frame(m_internal->codecCtx, m_internal->frame);
-    LOG_INFO("StreamTrace", "AV_RECEIVE_FRAME ret=" + std::to_string(ret));
-    if (ret < 0) {
-        if (ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
-            LOG_WARN("Decoder", "Decoding error (code: " + std::to_string(ret) + "). Possible missing SPS/PPS headers; awaiting next keyframe.");
+    // Receive all available frames, but we'll only return the most recent one for real-time sync
+    bool frameReady = false;
+    while (true) {
+        int recvRet = avcodec_receive_frame(m_internal->codecCtx, m_internal->frame);
+        if (recvRet == 0) {
+            frameReady = true;
+            // Continue to see if more frames are available
+            continue;
+        } else if (recvRet == AVERROR(EAGAIN) || recvRet == AVERROR_EOF) {
+            break;
+        } else {
+            LOG_ERROR("Decoder", "avcodec_receive_frame failed (code: " + std::to_string(recvRet) + ")");
+            break;
         }
+    }
+
+    if (!frameReady) {
         return false;
     }
 
-    LOG_INFO("StreamTrace", "AV_RECEIVE_FRAME_OK width=" + std::to_string(m_internal->frame->width) +
+    LOG_INFO("StreamTrace", "AV_RECEIVE_FRAME_OK (latest) width=" + std::to_string(m_internal->frame->width) +
              " height=" + std::to_string(m_internal->frame->height) +
              " format=" + std::to_string(m_internal->frame->format));
 
