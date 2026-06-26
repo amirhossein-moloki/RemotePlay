@@ -199,7 +199,7 @@ int NetworkManager::ReceiveFrom(void* buffer, size_t maxSize, std::string& sende
     if (bytesReceived < 0) {
 #ifdef _WIN32
         int err = WSAGetLastError();
-        if (err != WSAETIMEDOUT && err != WSAEWOULDBLOCK) {
+        if (err != WSAETIMEDOUT && err != WSAEWOULDBLOCK && err != WSAECONNRESET) {
             LOG_ERROR("Network", "recvfrom failed with error: " + std::to_string(err));
         }
 #else

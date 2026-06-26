@@ -43,6 +43,12 @@ void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t*
     std::lock_guard<std::mutex> lock(m_mutex);
 
     if (!m_firstFrameReceived) {
+        // Only start reassembly upon receiving a fragment from a Keyframe (IDR).
+        // This ensures the decoder starts with valid SPS/PPS headers.
+        if (!(header.flags & 0x01)) {
+            LOG_INFO("Receiver", "Ignoring initial P-frame fragment to wait for Keyframe.");
+            return;
+        }
         m_nextFrameIdToRead = header.frameId;
         m_firstFrameReceived = true;
     }

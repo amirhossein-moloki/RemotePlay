@@ -31,6 +31,7 @@ struct DecoderHW::InternalData {
     AVCodecContext* codecCtx = nullptr;
     AVBufferRef* hwDeviceCtx = nullptr;
     AVFrame* frame = nullptr;
+    AVFrame* tempFrame = nullptr;
     AVPacket* pkt = nullptr;
 
     // Software fallback resources
@@ -85,9 +86,10 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
 
     m_internal->pkt = av_packet_alloc();
     m_internal->frame = av_frame_alloc();
+    m_internal->tempFrame = av_frame_alloc();
 
-    if (!m_internal->pkt || !m_internal->frame) {
-        LOG_ERROR("Decoder", "Failed to allocate packet or frame.");
+    if (!m_internal->pkt || !m_internal->frame || !m_internal->tempFrame) {
+        LOG_ERROR("Decoder", "Failed to allocate packet or frames.");
         return false;
     }
 
@@ -164,9 +166,11 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
     // Receive all available frames, but we'll only return the most recent one for real-time sync
     bool frameReady = false;
     while (true) {
-        int recvRet = avcodec_receive_frame(m_internal->codecCtx, m_internal->frame);
+        int recvRet = avcodec_receive_frame(m_internal->codecCtx, m_internal->tempFrame);
         if (recvRet == 0) {
             frameReady = true;
+            av_frame_unref(m_internal->frame);
+            av_frame_move_ref(m_internal->frame, m_internal->tempFrame);
             // Continue to see if more frames are available
             continue;
         } else if (recvRet == AVERROR(EAGAIN) || recvRet == AVERROR_EOF) {
@@ -178,6 +182,11 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
     }
 
     if (!frameReady) {
+        return false;
+    }
+
+    if (m_internal->frame->width <= 0 || m_internal->frame->height <= 0) {
+        LOG_ERROR("Decoder", "Invalid frame dimensions: " + std::to_string(m_internal->frame->width) + "x" + std::to_string(m_internal->frame->height));
         return false;
     }
 
@@ -278,6 +287,7 @@ void DecoderHW::Shutdown() {
     }
     if (m_internal->hwDeviceCtx) av_buffer_unref(&m_internal->hwDeviceCtx);
     if (m_internal->frame) av_frame_free(&m_internal->frame);
+    if (m_internal->tempFrame) av_frame_free(&m_internal->tempFrame);
     if (m_internal->pkt) av_packet_free(&m_internal->pkt);
 }
 #else
