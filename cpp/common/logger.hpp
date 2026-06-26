@@ -60,6 +60,11 @@ public:
     }
 
     void log(LogLevel level, const std::string& module, const std::string& message) {
+        // High-frequency "StreamTrace" and "ClientTrace" modules should only log at WARN or higher by default
+        if ((module == "StreamTrace" || module == "ClientTrace") && level < LogLevel::LL_WARN) {
+            return;
+        }
+
         auto now = std::chrono::system_clock::now();
         auto now_time = std::chrono::system_clock::to_time_t(now);
         auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
@@ -82,14 +87,16 @@ public:
         std::string logLine = ss.str();
 
         std::lock_guard<std::mutex> lock(m_mutex);
-        std::cout << logLine;
+        if (level >= LogLevel::LL_WARN) {
+            std::cout << logLine;
+        }
         if (m_file.is_open()) {
             m_file << logLine;
             m_currentFileSize += logLine.size();
 
             if (m_currentFileSize >= m_maxFileSize) {
                 rotateFiles();
-            } else {
+            } else if (level >= LogLevel::LL_WARN) {
                 m_file.flush();
             }
         }
