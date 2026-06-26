@@ -414,22 +414,25 @@ void SessionManager::runHost(ParsecConfig config) {
                         ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
                     }
                 } else if (type == Protocol::PacketType::Input && len >= (int)sizeof(Protocol::InputHeader)) {
-                    Protocol::InputHeader* ih = (Protocol::InputHeader*)buf;
-                    uint8_t* payload = buf + sizeof(Protocol::InputHeader);
-                    int payloadLen = len - (int)sizeof(Protocol::InputHeader);
+                    bool isLoopback = (senderIp == "127.0.0.1" || senderIp == "::1");
+                    if (!isLoopback) {
+                        Protocol::InputHeader* ih = (Protocol::InputHeader*)buf;
+                        uint8_t* payload = buf + sizeof(Protocol::InputHeader);
+                        int payloadLen = len - (int)sizeof(Protocol::InputHeader);
 
-                    if (ih->inputType == (uint8_t)Protocol::InputType::Keyboard && payloadLen >= (int)sizeof(Protocol::KeyboardEvent)) {
-                        ctx.injector.InjectKeyboard(*(Protocol::KeyboardEvent*)payload);
-                    } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseMove && payloadLen >= (int)sizeof(Protocol::MouseMoveEvent)) {
-                        ctx.injector.InjectMouseMove(*(Protocol::MouseMoveEvent*)payload);
-                    } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseButton && payloadLen >= (int)sizeof(Protocol::MouseButtonEvent)) {
-                        ctx.injector.InjectMouseButton(*(Protocol::MouseButtonEvent*)payload);
-                    } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseScroll && payloadLen >= (int)sizeof(Protocol::MouseScrollEvent)) {
-                        ctx.injector.InjectMouseScroll(*(Protocol::MouseScrollEvent*)payload);
-                    } else if (ih->inputType == (uint8_t)Protocol::InputType::GamepadStatus && payloadLen >= (int)sizeof(Protocol::GamepadStatusEvent)) {
-                        ctx.injector.HandleGamepadStatus(senderIp, *(Protocol::GamepadStatusEvent*)payload);
-                    } else if (ih->inputType == (uint8_t)Protocol::InputType::Gamepad && payloadLen >= (int)sizeof(Protocol::GamepadState)) {
-                        ctx.injector.InjectGamepad(senderIp, *(Protocol::GamepadState*)payload);
+                        if (ih->inputType == (uint8_t)Protocol::InputType::Keyboard && payloadLen >= (int)sizeof(Protocol::KeyboardEvent)) {
+                            ctx.injector.InjectKeyboard(*(Protocol::KeyboardEvent*)payload);
+                        } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseMove && payloadLen >= (int)sizeof(Protocol::MouseMoveEvent)) {
+                            ctx.injector.InjectMouseMove(*(Protocol::MouseMoveEvent*)payload);
+                        } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseButton && payloadLen >= (int)sizeof(Protocol::MouseButtonEvent)) {
+                            ctx.injector.InjectMouseButton(*(Protocol::MouseButtonEvent*)payload);
+                        } else if (ih->inputType == (uint8_t)Protocol::InputType::MouseScroll && payloadLen >= (int)sizeof(Protocol::MouseScrollEvent)) {
+                            ctx.injector.InjectMouseScroll(*(Protocol::MouseScrollEvent*)payload);
+                        } else if (ih->inputType == (uint8_t)Protocol::InputType::GamepadStatus && payloadLen >= (int)sizeof(Protocol::GamepadStatusEvent)) {
+                            ctx.injector.HandleGamepadStatus(senderIp, *(Protocol::GamepadStatusEvent*)payload);
+                        } else if (ih->inputType == (uint8_t)Protocol::InputType::Gamepad && payloadLen >= (int)sizeof(Protocol::GamepadState)) {
+                            ctx.injector.InjectGamepad(senderIp, *(Protocol::GamepadState*)payload);
+                        }
                     }
                 } else if (type == Protocol::PacketType::Feedback && len >= (int)sizeof(Protocol::FeedbackHeader)) {
                     Protocol::FeedbackHeader* fh = (Protocol::FeedbackHeader*)buf;
@@ -496,8 +499,14 @@ void SessionManager::runClient(ParsecConfig config) {
     Client::JitterBuffer jitterBuffer(3);
     Client::DecoderHW decoder;
     Client::RendererD3D11 renderer;
-    Client::InputCapture input([&](const uint8_t* data, size_t size) {
-        net.SendTo(data, (int)size, config.hostIp, 5005);
+
+    std::string hostIpStr(config.hostIp);
+    bool isLoopback = (hostIpStr == "127.0.0.1" || hostIpStr == "localhost" || hostIpStr == "::1");
+
+    Client::InputCapture input([&, isLoopback, config](const uint8_t* data, size_t size) {
+        if (!isLoopback) {
+            net.SendTo(data, (int)size, config.hostIp, 5005);
+        }
     });
 
     bool useRenderer = (config.windowHandle != nullptr);
