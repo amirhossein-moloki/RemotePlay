@@ -65,6 +65,8 @@ int main(int argc, char* argv[]) {
     config.bitrate = 5000;
     config.fps = 60;
     config.useHardwareEncoding = true;
+    config.enableAudio = true;
+    config.audioBitrate = 128;
 
     if (args[1] == "--list") {
         for (size_t i = 0; i < interfaces.size(); ++i) {

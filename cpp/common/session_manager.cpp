@@ -23,11 +23,16 @@
 #include "host/capture_dxgi.hpp"
 #include "host/encoder_manager.hpp"
 #include "host/input_injector.hpp"
+#include "host/audio_capture_wasapi.hpp"
+#include "host/audio_encoder_ffmpeg.hpp"
 #include "client/receiver.hpp"
 #include "client/decoder_hw.hpp"
 #include "client/input_capture.hpp"
 #include "client/renderer_d3d11.hpp"
 #include "client/jitter_buffer.hpp"
+#include "client/audio_decoder_ffmpeg.hpp"
+#include "client/audio_renderer_wasapi.hpp"
+#include "client/audio_jitter_buffer.hpp"
 #endif
 
 #include <chrono>
@@ -111,13 +116,16 @@ void SessionManager::runHost(ParsecConfig config) {
         std::string ip;
         uint16_t port;
         std::unique_ptr<Host::EncoderManager> encoder;
+        std::unique_ptr<Host::FFmpegAudioEncoder> audioEncoder;
         LockFreeQueue<std::vector<Host::EncodedPacket>, 4> encodeQueue;
         uint32_t frameId = 0;
+        uint32_t audioSequence = 0;
     };
 
     struct HostContext {
         Network::NetworkManager net;
         Host::CaptureDXGI capture;
+        Host::AudioCaptureWASAPI audioCapture;
         Host::InputInjector injector;
         std::mutex clientsMutex;
         std::vector<std::shared_ptr<ClientState>> clients;
@@ -142,6 +150,37 @@ void SessionManager::runHost(ParsecConfig config) {
     }
 
     std::thread captureThread;
+    std::thread audioThread;
+
+    if (config.enableAudio) {
+        if (!ctx.audioCapture.Initialize()) {
+            reportError(ParsecError::HARDWARE_INIT_FAILED, "Failed to initialize audio capture. System audio streaming will be disabled.");
+        }
+        ctx.audioCapture.Start([&](const Audio::AudioFrame& frame) {
+            std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+            for (auto& client : ctx.clients) {
+                if (client->audioEncoder) {
+                    std::vector<uint8_t> encoded;
+                    if (client->audioEncoder->Encode(frame, encoded)) {
+                        auto udpPkt = ctx.udpPool.acquire();
+                        if (udpPkt) {
+                            Protocol::AudioHeader* ah = (Protocol::AudioHeader*)udpPkt->data.data();
+                            ah->type = (uint8_t)Protocol::PacketType::Audio;
+                            ah->sequence = client->audioSequence++;
+                            ah->captureTimestamp = frame.timestamp;
+                            ah->dataSize = (uint16_t)encoded.size();
+                            memcpy(udpPkt->data.data() + sizeof(Protocol::AudioHeader), encoded.data(), encoded.size());
+                            udpPkt->size = sizeof(Protocol::AudioHeader) + encoded.size();
+
+                            if (!ctx.sendQueue.push({std::move(udpPkt), client->ip, client->port})) {
+                                ctx.udpPool.release(std::move(udpPkt));
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
 
     captureThread = std::thread([&]() {
         // Initialize capture on this thread for DXGI thread affinity
@@ -387,6 +426,17 @@ void SessionManager::runHost(ParsecConfig config) {
                         newState->port = senderPort;
                         newState->encoder = std::make_unique<Host::EncoderManager>();
 
+                        if (config.enableAudio) {
+                            newState->audioEncoder = std::make_unique<Host::FFmpegAudioEncoder>();
+                            Audio::AudioFormat format; // We'll need to get actual format from capture or use 48k/Stereo/S16
+                            format.sampleRate = 48000;
+                            format.channels = 2;
+                            format.bitsPerSample = 16;
+                            if (!newState->audioEncoder->Initialize(format, config.audioBitrate)) {
+                                LOG_ERROR("Session", "Failed to initialize audio encoder for " + senderIp);
+                            }
+                        }
+
                         if (newState->encoder->Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, ctx.capture.GetDevice(), config.useHardwareEncoding)) {
                             {
                                 std::lock_guard<std::mutex> lock(ctx.clientsMutex);
@@ -479,6 +529,7 @@ void SessionManager::runHost(ParsecConfig config) {
 
     // Encoder initialization is now per-client during handshake
 
+    ctx.audioCapture.Stop();
     if (captureThread.joinable()) captureThread.join();
     if (packetizerThread.joinable()) packetizerThread.join();
     if (senderThread.joinable()) senderThread.join();
@@ -499,6 +550,10 @@ void SessionManager::runClient(ParsecConfig config) {
     Client::JitterBuffer jitterBuffer(3);
     Client::DecoderHW decoder;
     Client::RendererD3D11 renderer;
+
+    Client::AudioJitterBuffer audioJitterBuffer(50);
+    Client::FFmpegAudioDecoder audioDecoder;
+    Client::AudioRendererWASAPI audioRenderer;
 
     std::string hostIpStr(config.hostIp);
     bool isLoopback = (hostIpStr == "127.0.0.1" || hostIpStr == "localhost" || hostIpStr == "::1");
@@ -530,6 +585,21 @@ void SessionManager::runClient(ParsecConfig config) {
         decoder.Initialize(nullptr, config.useHardwareEncoding);
     }
 
+    if (config.enableAudio) {
+        Audio::AudioFormat audioFormat;
+        audioFormat.sampleRate = 48000;
+        audioFormat.channels = 2;
+        audioFormat.bitsPerSample = 16;
+        if (!audioDecoder.Initialize(audioFormat)) {
+            LOG_ERROR("Session", "Failed to initialize audio decoder");
+            reportError(ParsecError::HARDWARE_INIT_FAILED, "Audio decoder failed to initialize.");
+        }
+        if (!audioRenderer.Initialize(audioFormat)) {
+            LOG_ERROR("Session", "Failed to initialize audio renderer");
+            reportError(ParsecError::HARDWARE_INIT_FAILED, "Audio renderer failed to initialize.");
+        }
+    }
+
     std::atomic<uint32_t> lastFrameId{0};
     std::atomic<bool> handshakeApproved{false};
     std::atomic<bool> handshakeRejected{false};
@@ -550,6 +620,14 @@ void SessionManager::runClient(ParsecConfig config) {
                              " datagramBytes=" + std::to_string(len));
                     receiver.ProcessPacket(*vh, buf + sizeof(Protocol::VideoHeader));
                     lastFrameId = std::max((uint32_t)lastFrameId, vh->frameId);
+                } else if (type == Protocol::PacketType::Audio && len >= (int)sizeof(Protocol::AudioHeader)) {
+                    Protocol::AudioHeader* ah = (Protocol::AudioHeader*)buf;
+                    Audio::AudioFrame pcmFrame;
+                    if (audioDecoder.Decode(buf + sizeof(Protocol::AudioHeader), ah->dataSize, pcmFrame)) {
+                        pcmFrame.timestamp = ah->captureTimestamp; // Overwrite with original capture timestamp for sync
+                        auto framePtr = std::make_unique<Audio::AudioFrame>(std::move(pcmFrame));
+                        audioJitterBuffer.PushFrame(std::move(framePtr));
+                    }
                 } else if (type == Protocol::PacketType::HandshakeResponse && len >= (int)sizeof(Protocol::HandshakeResponsePacket)) {
                     Protocol::HandshakeResponsePacket* hrp = (Protocol::HandshakeResponsePacket*)buf;
                     LOG_INFO("Session", "Received HandshakeResponse from " + senderIp + ". Approved: " + std::to_string((int)hrp->approved));
@@ -692,6 +770,14 @@ void SessionManager::runClient(ParsecConfig config) {
             }
 
             if (useRenderer) renderer.EndFrame();
+
+            if (config.enableAudio) {
+                // Pop and play only one frame per video frame to maintain a steady flow
+                // and avoid burst playing everything which could cause audio-only jitter.
+                if (auto audioFrame = audioJitterBuffer.PopFrame()) {
+                    audioRenderer.Play(*audioFrame);
+                }
+            }
         } catch (const std::exception& e) {
             LOG_ERROR("Session", "Standard Exception in Client Loop: " + std::string(e.what()));
             m_running = false;
