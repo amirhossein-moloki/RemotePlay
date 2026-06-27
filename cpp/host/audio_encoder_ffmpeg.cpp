@@ -24,8 +24,7 @@ bool FFmpegAudioEncoder::Initialize(const Audio::AudioFormat& format, int bitrat
     m_codecContext->bit_rate = bitrateKbps * 1000;
     m_codecContext->sample_fmt = AV_SAMPLE_FMT_FLTP; // Opus usually uses float planar
     m_codecContext->sample_rate = 48000;
-    m_codecContext->channel_layout = AV_CH_LAYOUT_STEREO;
-    m_codecContext->channels = 2;
+    m_codecContext->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
     m_codecContext->time_base = {1, 48000};
 
     if (avcodec_open2(m_codecContext, codec, NULL) < 0) {
@@ -34,11 +33,14 @@ bool FFmpegAudioEncoder::Initialize(const Audio::AudioFormat& format, int bitrat
     }
 
     m_swrContext = swr_alloc();
-    av_opt_set_int(m_swrContext, "in_channel_layout", format.channels == 2 ? AV_CH_LAYOUT_STEREO : AV_CH_LAYOUT_MONO, 0);
+    AVChannelLayout in_ch_layout;
+    if (format.channels == 2) in_ch_layout = AV_CHANNEL_LAYOUT_STEREO;
+    else in_ch_layout = AV_CHANNEL_LAYOUT_MONO;
+    av_opt_set_chlayout(m_swrContext, "in_chlayout", &in_ch_layout, 0);
     av_opt_set_int(m_swrContext, "in_sample_rate", format.sampleRate, 0);
     av_opt_set_sample_fmt(m_swrContext, "in_sample_fmt", format.bitsPerSample == 32 ? AV_SAMPLE_FMT_FLT : AV_SAMPLE_FMT_S16, 0);
 
-    av_opt_set_int(m_swrContext, "out_channel_layout", AV_CH_LAYOUT_STEREO, 0);
+    av_opt_set_chlayout(m_swrContext, "out_chlayout", &m_codecContext->ch_layout, 0);
     av_opt_set_int(m_swrContext, "out_sample_rate", 48000, 0);
     av_opt_set_sample_fmt(m_swrContext, "out_sample_fmt", AV_SAMPLE_FMT_FLTP, 0);
 
@@ -50,7 +52,7 @@ bool FFmpegAudioEncoder::Initialize(const Audio::AudioFormat& format, int bitrat
     m_inputFrame = av_frame_alloc();
     m_inputFrame->nb_samples = m_codecContext->frame_size;
     m_inputFrame->format = m_codecContext->sample_fmt;
-    m_inputFrame->channel_layout = m_codecContext->channel_layout;
+    av_channel_layout_copy(&m_inputFrame->ch_layout, &m_codecContext->ch_layout);
     m_inputFrame->sample_rate = m_codecContext->sample_rate;
     if (av_frame_get_buffer(m_inputFrame, 0) < 0) return false;
 

@@ -17,8 +17,7 @@ bool FFmpegAudioDecoder::Initialize(const Audio::AudioFormat& format) {
     if (!m_codecContext) return false;
 
     m_codecContext->sample_rate = 48000;
-    m_codecContext->channels = 2;
-    m_codecContext->channel_layout = AV_CH_LAYOUT_STEREO;
+    m_codecContext->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
 
     if (avcodec_open2(m_codecContext, codec, NULL) < 0) return false;
 
@@ -28,11 +27,12 @@ bool FFmpegAudioDecoder::Initialize(const Audio::AudioFormat& format) {
     m_swrContext = swr_alloc();
     // Default Opus output is 48kHz Stereo Float Planar.
     // We want to convert to S16 Interleaved for common WASAPI support.
-    av_opt_set_int(m_swrContext, "in_channel_layout", AV_CH_LAYOUT_STEREO, 0);
+    av_opt_set_chlayout(m_swrContext, "in_chlayout", &m_codecContext->ch_layout, 0);
     av_opt_set_int(m_swrContext, "in_sample_rate", 48000, 0);
     av_opt_set_sample_fmt(m_swrContext, "in_sample_fmt", AV_SAMPLE_FMT_FLTP, 0);
 
-    av_opt_set_int(m_swrContext, "out_channel_layout", AV_CH_LAYOUT_STEREO, 0);
+    AVChannelLayout out_ch_layout = AV_CHANNEL_LAYOUT_STEREO;
+    av_opt_set_chlayout(m_swrContext, "out_chlayout", &out_ch_layout, 0);
     av_opt_set_int(m_swrContext, "out_sample_rate", 48000, 0);
     av_opt_set_sample_fmt(m_swrContext, "out_sample_fmt", AV_SAMPLE_FMT_S16, 0);
 
