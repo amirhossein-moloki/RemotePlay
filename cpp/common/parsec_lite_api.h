@@ -28,6 +28,8 @@ struct ParsecConfig {
     bool autoApprove;
     int encoderPreset; // 0: Performance, 1: Balanced, 2: Quality
     void* windowHandle; // HWND on Windows
+    bool enableAudio;
+    int audioBitrate;
 };
 
 struct ParsecTelemetry {

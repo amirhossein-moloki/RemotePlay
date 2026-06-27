@@ -13,7 +13,8 @@ enum class PacketType : uint8_t {
     Handshake = 0x04,
     FEC = 0x05,
     Feedback = 0x06,
-    HandshakeResponse = 0x07
+    HandshakeResponse = 0x07,
+    Audio = 0x08
 };
 
 // Input subtypes
@@ -126,6 +127,14 @@ struct HandshakePacket {
 struct HandshakeResponsePacket {
     uint8_t type;            // PacketType::HandshakeResponse
     uint8_t approved;        // 1: Approved, 0: Rejected
+};
+
+// Audio Packet Header
+struct AudioHeader {
+    uint8_t type;            // PacketType::Audio
+    uint32_t sequence;       // Audio sequence number
+    uint64_t captureTimestamp; // Precise capture timestamp (microseconds)
+    uint16_t dataSize;       // Size of the following payload
 };
 
 #pragma pack(pop)

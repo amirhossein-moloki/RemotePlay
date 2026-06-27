@@ -25,6 +25,8 @@ set(HOST_SOURCES
     cpp/host/encoder_hw.cpp
     cpp/host/encoder_manager.cpp
     cpp/host/input_injector.cpp
+    cpp/host/audio_capture_wasapi.cpp
+    cpp/host/audio_encoder_ffmpeg.cpp
 )
 
 if(WIN32)
@@ -40,6 +42,9 @@ set(CLIENT_SOURCES
     cpp/client/input_capture.cpp
     cpp/client/jitter_buffer.cpp
     cpp/client/renderer_d3d11.cpp
+    cpp/client/audio_decoder_ffmpeg.cpp
+    cpp/client/audio_renderer_wasapi.cpp
+    cpp/client/audio_jitter_buffer.cpp
     cpp/client/ui_system.cpp
     cpp/client/overlay.cpp
     cpp/client/launcher.cpp
@@ -87,12 +92,13 @@ if(WIN32)
     find_library(AVCODEC_LIBRARY NAMES avcodec PATHS "${FFMPEG_DIR}/lib" "${FFMPEG_DIR}/bin")
     find_library(AVUTIL_LIBRARY NAMES avutil PATHS "${FFMPEG_DIR}/lib" "${FFMPEG_DIR}/bin")
     find_library(SWSCALE_LIBRARY NAMES swscale PATHS "${FFMPEG_DIR}/lib" "${FFMPEG_DIR}/bin")
+    find_library(SWRESAMPLE_LIBRARY NAMES swresample PATHS "${FFMPEG_DIR}/lib" "${FFMPEG_DIR}/bin")
 
     if(AVCODEC_INCLUDE_DIR AND AVCODEC_LIBRARY)
         target_include_directories(ParsecLiteCore PRIVATE ${AVCODEC_INCLUDE_DIR})
         target_include_directories(parsec-lite PRIVATE ${AVCODEC_INCLUDE_DIR})
-        target_link_libraries(ParsecLiteCore PRIVATE ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY} ${SWSCALE_LIBRARY})
-        target_link_libraries(parsec-lite PRIVATE ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY} ${SWSCALE_LIBRARY})
+        target_link_libraries(ParsecLiteCore PRIVATE ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY} ${SWSCALE_LIBRARY} ${SWRESAMPLE_LIBRARY})
+        target_link_libraries(parsec-lite PRIVATE ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY} ${SWSCALE_LIBRARY} ${SWRESAMPLE_LIBRARY})
         target_compile_definitions(ParsecLiteCore PRIVATE PARSEC_LITE_ENABLE_FFMPEG)
         target_compile_definitions(parsec-lite PRIVATE PARSEC_LITE_ENABLE_FFMPEG)
 
