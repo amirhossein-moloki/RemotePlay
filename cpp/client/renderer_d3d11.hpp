@@ -22,6 +22,14 @@ public:
     void EndFrame();
 
 private:
+    bool HandleResize();
+    void CleanupBackBuffer();
+    bool CreateBackBuffer();
+
+    HWND m_hwnd = nullptr;
+    int m_width = 0;
+    int m_height = 0;
+
     ID3D11Device* m_device = nullptr;
     ID3D11DeviceContext* m_context = nullptr;
     IDXGISwapChain* m_swapChain = nullptr;

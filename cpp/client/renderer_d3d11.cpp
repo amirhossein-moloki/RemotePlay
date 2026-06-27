@@ -20,6 +20,7 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
         return false;
     }
 
+    m_hwnd = hwnd;
     RECT rect;
     if (GetClientRect(hwnd, &rect)) {
         width = rect.right - rect.left;
@@ -32,14 +33,17 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
         height = 720;
     }
 
+    m_width = width;
+    m_height = height;
+
     DXGI_SWAP_CHAIN_DESC sd = {};
-    sd.BufferDesc.Width = width;
-    sd.BufferDesc.Height = height;
+    sd.BufferDesc.Width = m_width;
+    sd.BufferDesc.Height = m_height;
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     sd.BufferDesc.RefreshRate.Numerator = 0;
     sd.BufferDesc.RefreshRate.Denominator = 0;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.OutputWindow = hwnd;
+    sd.OutputWindow = m_hwnd;
     sd.SampleDesc.Count = 1;
     sd.SampleDesc.Quality = 0;
     sd.Windowed = TRUE;
@@ -83,7 +87,7 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
             LOG_INFO("Renderer", "Swap chain created: Effect=" + std::to_string(sd.SwapEffect) +
                      " Buffers=" + std::to_string(m_bufferCount) +
                      " Tearing=" + std::to_string(opt.tearing) +
-                     " Resolution=" + std::to_string(width) + "x" + std::to_string(height));
+                     " Resolution=" + std::to_string(m_width) + "x" + std::to_string(m_height));
             break;
         }
     }
@@ -95,45 +99,86 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
         return false;
     }
 
-    for (UINT i = 0; i < m_bufferCount; i++) {
-        ID3D11Texture2D* pBackBuffer = nullptr;
-        hr = m_swapChain->GetBuffer(i, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer);
-        if (FAILED(hr) || !pBackBuffer) {
-            std::stringstream ss;
-            ss << "0x" << std::hex << (FAILED(hr) ? hr : E_FAIL);
-            if (i > 0) {
-                LOG_WARN("Renderer", "Failed to get swap chain buffer " + std::to_string(i) + ". HR: " + ss.str() + ". Continuing with " + std::to_string(i) + " buffers.");
-                m_bufferCount = i;
-                break;
-            } else {
-                LOG_ERROR("Renderer", "Failed to get swap chain buffer " + std::to_string(i) + ". HR: " + ss.str());
-                return false;
-            }
-        }
-
-        hr = m_device->CreateRenderTargetView(pBackBuffer, nullptr, &m_backBufferViews[i]);
-        pBackBuffer->Release();
-        if (FAILED(hr)) {
-            std::stringstream ss;
-            ss << "0x" << std::hex << hr;
-            LOG_ERROR("Renderer", "Failed to create render target view for buffer " + std::to_string(i) + ". HR: " + ss.str());
-            return false;
-        }
-    }
+    if (!CreateBackBuffer()) return false;
 
     // Initialize ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
-    ImGui_ImplWin32_Init(hwnd);
+    ImGui_ImplWin32_Init(m_hwnd);
     ImGui_ImplD3D11_Init(m_device, m_context);
 
-    LOG_INFO("Renderer", "D3D11 Renderer initialized at " + std::to_string(width) + "x" + std::to_string(height));
+    LOG_INFO("Renderer", "D3D11 Renderer initialized at " + std::to_string(m_width) + "x" + std::to_string(m_height));
+    return true;
+}
+
+bool RendererD3D11::HandleResize() {
+    if (!m_hwnd || !m_swapChain) return false;
+
+    RECT rect;
+    if (GetClientRect(m_hwnd, &rect)) {
+        int newWidth = rect.right - rect.left;
+        int newHeight = rect.bottom - rect.top;
+
+        if (newWidth > 0 && newHeight > 0 && (newWidth != m_width || newHeight != m_height)) {
+            m_width = newWidth;
+            m_height = newHeight;
+
+            CleanupBackBuffer();
+
+            HRESULT hr = m_swapChain->ResizeBuffers(0, m_width, m_height, DXGI_FORMAT_UNKNOWN, m_tearingSupported ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
+            if (FAILED(hr)) {
+                LOG_ERROR("Renderer", "ResizeBuffers failed. HR: " + std::to_string(hr));
+                return false;
+            }
+
+            if (!CreateBackBuffer()) return false;
+
+            // Invalidate video processor output views as they depend on backbuffer
+            for (UINT i = 0; i < 8; i++) {
+                if (m_outputViews[i]) m_outputViews[i]->Release();
+                m_outputViews[i] = nullptr;
+                m_lastOutputTextures[i] = nullptr;
+            }
+
+            LOG_INFO("Renderer", "Resized to " + std::to_string(m_width) + "x" + std::to_string(m_height));
+        }
+    }
+    return true;
+}
+
+void RendererD3D11::CleanupBackBuffer() {
+    for (UINT i = 0; i < 8; i++) {
+        if (m_backBufferViews[i]) {
+            m_backBufferViews[i]->Release();
+            m_backBufferViews[i] = nullptr;
+        }
+    }
+}
+
+bool RendererD3D11::CreateBackBuffer() {
+    for (UINT i = 0; i < m_bufferCount; i++) {
+        ID3D11Texture2D* pBackBuffer = nullptr;
+        HRESULT hr = m_swapChain->GetBuffer(i, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer);
+        if (FAILED(hr) || !pBackBuffer) {
+            LOG_ERROR("Renderer", "Failed to get swap chain buffer " + std::to_string(i));
+            return false;
+        }
+
+        hr = m_device->CreateRenderTargetView(pBackBuffer, nullptr, &m_backBufferViews[i]);
+        pBackBuffer->Release();
+        if (FAILED(hr)) {
+            LOG_ERROR("Renderer", "Failed to create RTV for buffer " + std::to_string(i));
+            return false;
+        }
+    }
     return true;
 }
 
 void RendererD3D11::NewFrame() {
     if (!m_swapChain || !m_context) return;
+
+    HandleResize();
 
     // Determine current backbuffer index for Flip Model
     if (m_bufferCount > 1) {
@@ -181,7 +226,22 @@ void RendererD3D11::EndFrame() {
 }
 
 bool RendererD3D11::SetupVideoProcessor(int width, int height) {
-    if (m_videoProcessor) return true;
+    if (m_videoProcessor) {
+        // If dimensions haven't changed, reuse existing processor
+        D3D11_VIDEO_PROCESSOR_CONTENT_DESC currentDesc;
+        m_videoEnumerator->GetVideoProcessorContentDesc(&currentDesc);
+        if (currentDesc.InputWidth == (UINT)width && currentDesc.InputHeight == (UINT)height &&
+            currentDesc.OutputWidth == (UINT)m_width && currentDesc.OutputHeight == (UINT)m_height) {
+            return true;
+        }
+
+        // Dimensions changed, recreate
+        m_videoProcessor->Release();
+        m_videoProcessor = nullptr;
+        m_videoEnumerator->Release();
+        m_videoEnumerator = nullptr;
+    }
+
     if (!m_device) return false;
 
     HRESULT hr;
@@ -204,8 +264,8 @@ bool RendererD3D11::SetupVideoProcessor(int width, int height) {
     contentDesc.InputHeight = height;
     contentDesc.OutputFrameRate.Numerator = 60;
     contentDesc.OutputFrameRate.Denominator = 1;
-    contentDesc.OutputWidth = width;
-    contentDesc.OutputHeight = height;
+    contentDesc.OutputWidth = m_width;
+    contentDesc.OutputHeight = m_height;
     contentDesc.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
 
     hr = m_videoDevice->CreateVideoProcessorEnumerator(&contentDesc, &m_videoEnumerator);
@@ -249,7 +309,10 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
     D3D11_TEXTURE2D_DESC dstDesc;
     backBuffer->GetDesc(&dstDesc);
 
-    if (srcDesc.Format == DXGI_FORMAT_NV12) {
+    bool needsScaling = (srcDesc.Width != dstDesc.Width || srcDesc.Height != dstDesc.Height);
+    bool useVideoProcessor = (srcDesc.Format == DXGI_FORMAT_NV12) || needsScaling;
+
+    if (useVideoProcessor) {
         if (SetupVideoProcessor(srcDesc.Width, srcDesc.Height)) {
             // Recreate input view only if texture or array index changed
             if (texture != m_lastInputTexture || arrayIndex != m_lastInputArrayIndex) {
@@ -265,8 +328,6 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
                 hr = m_videoDevice->CreateVideoProcessorInputView(texture, m_videoEnumerator, &inputViewDesc, &m_inputView);
                 if (FAILED(hr)) {
                     LOG_ERROR("Renderer", "Failed to create video processor input view.");
-                } else {
-                    // Cache will be updated at the end of the function
                 }
             }
 
@@ -293,24 +354,46 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
                 stream.Enable = TRUE;
                 stream.pInputSurface = m_inputView;
 
+                // Set Source Rect (Input frame)
+                RECT srcRect = { 0, 0, (LONG)srcDesc.Width, (LONG)srcDesc.Height };
+                m_videoContext->VideoProcessorSetStreamSourceRect(m_videoProcessor, 0, TRUE, &srcRect);
+
+                // Set Destination Rect (Scale to fill backbuffer while maintaining Aspect Ratio)
+                float hostAspect = (float)srcDesc.Width / srcDesc.Height;
+                float clientAspect = (float)m_width / m_height;
+
+                RECT destRect;
+                if (clientAspect > hostAspect) {
+                    // Client is wider than host - add letterbox on sides
+                    int targetWidth = (int)(m_height * hostAspect);
+                    int offset = (m_width - targetWidth) / 2;
+                    destRect = { (LONG)offset, 0, (LONG)(offset + targetWidth), (LONG)m_height };
+                } else {
+                    // Host is wider than client - add letterbox on top/bottom
+                    int targetHeight = (int)(m_width / hostAspect);
+                    int offset = (m_height - targetHeight) / 2;
+                    destRect = { 0, (LONG)offset, (LONG)m_width, (LONG)(offset + targetHeight) };
+                }
+
+                m_videoContext->VideoProcessorSetStreamDestRect(m_videoProcessor, 0, TRUE, &destRect);
+
                 HRESULT bltHr = m_videoContext->VideoProcessorBlt(m_videoProcessor, m_outputViews[m_currentBufferIndex], 0, 1, &stream);
                 if (SUCCEEDED(bltHr)) {
                     LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH video_processor result=ok");
                 } else {
                     LOG_ERROR("StreamTrace", "RENDER_PRESENT_PATH video_processor result=fail hr=" + std::to_string((long)bltHr));
+                    // Fallback to basic copy if VideoProcessor fails (might crop but better than nothing)
+                    m_context->CopyResource(backBuffer, texture);
                 }
             }
+        } else {
+            // Setup failed, fallback
+            m_context->CopyResource(backBuffer, texture);
         }
     } else {
-        UINT srcSubresource = (srcDesc.ArraySize > 1) ? (UINT)arrayIndex : 0;
-        if (srcDesc.Width == dstDesc.Width && srcDesc.Height == dstDesc.Height && srcDesc.Format == dstDesc.Format && srcDesc.ArraySize == 1) {
-            m_context->CopyResource(backBuffer, texture);
-            LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH copy_resource result=ok");
-        } else {
-            D3D11_BOX box = { 0, 0, 0, std::min(srcDesc.Width, dstDesc.Width), std::min(srcDesc.Height, dstDesc.Height), 1 };
-            m_context->CopySubresourceRegion(backBuffer, 0, 0, 0, 0, texture, srcSubresource, &box);
-            LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH copy_subresource result=ok srcSub=" + std::to_string(srcSubresource));
-        }
+        // No scaling needed and not NV12
+        m_context->CopyResource(backBuffer, texture);
+        LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH copy_resource result=ok");
     }
 
     backBuffer->Release();
