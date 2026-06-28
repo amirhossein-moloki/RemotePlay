@@ -180,10 +180,7 @@ void RendererD3D11::EndFrame() {
     }
 }
 
-bool RendererD3D11::SetupVideoProcessor(int width, int height) {
-    if (m_videoProcessor) return true;
-    if (!m_device) return false;
-
+bool RendererD3D11::SetupVideoProcessor(int inWidth, int inHeight, int outWidth, int outHeight) {
     HRESULT hr;
 
     if (!m_videoDevice) {
@@ -196,16 +193,37 @@ bool RendererD3D11::SetupVideoProcessor(int width, int height) {
         if (FAILED(hr)) return false;
     }
 
+    // Recreate if dimensions changed
+    if (m_videoProcessor) {
+        D3D11_VIDEO_PROCESSOR_CONTENT_DESC currentDesc;
+        m_videoEnumerator->GetVideoProcessorContentDesc(&currentDesc);
+        if (currentDesc.InputWidth == (UINT)inWidth && currentDesc.InputHeight == (UINT)inHeight &&
+            currentDesc.OutputWidth == (UINT)outWidth && currentDesc.OutputHeight == (UINT)outHeight) {
+            return true;
+        }
+
+        // Release old processor
+        if (m_inputView) { m_inputView->Release(); m_inputView = nullptr; }
+        m_lastInputTexture = nullptr;
+        m_lastInputArrayIndex = -1;
+        for (int i = 0; i < 8; i++) {
+            if (m_outputViews[i]) { m_outputViews[i]->Release(); m_outputViews[i] = nullptr; }
+            m_lastOutputTextures[i] = nullptr;
+        }
+        m_videoProcessor->Release(); m_videoProcessor = nullptr;
+        m_videoEnumerator->Release(); m_videoEnumerator = nullptr;
+    }
+
     D3D11_VIDEO_PROCESSOR_CONTENT_DESC contentDesc = {};
     contentDesc.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
     contentDesc.InputFrameRate.Numerator = 60;
     contentDesc.InputFrameRate.Denominator = 1;
-    contentDesc.InputWidth = width;
-    contentDesc.InputHeight = height;
+    contentDesc.InputWidth = inWidth;
+    contentDesc.InputHeight = inHeight;
     contentDesc.OutputFrameRate.Numerator = 60;
     contentDesc.OutputFrameRate.Denominator = 1;
-    contentDesc.OutputWidth = width;
-    contentDesc.OutputHeight = height;
+    contentDesc.OutputWidth = outWidth;
+    contentDesc.OutputHeight = outHeight;
     contentDesc.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
 
     hr = m_videoDevice->CreateVideoProcessorEnumerator(&contentDesc, &m_videoEnumerator);
@@ -250,7 +268,7 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
     backBuffer->GetDesc(&dstDesc);
 
     if (srcDesc.Format == DXGI_FORMAT_NV12) {
-        if (SetupVideoProcessor(srcDesc.Width, srcDesc.Height)) {
+        if (SetupVideoProcessor(srcDesc.Width, srcDesc.Height, dstDesc.Width, dstDesc.Height)) {
             // Recreate input view only if texture or array index changed
             if (texture != m_lastInputTexture || arrayIndex != m_lastInputArrayIndex) {
                 if (m_inputView) m_inputView->Release();
@@ -293,6 +311,13 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
                 stream.Enable = TRUE;
                 stream.pInputSurface = m_inputView;
 
+                // Ensure scaling is applied to the full destination rect
+                RECT srcRect = { 0, 0, (LONG)srcDesc.Width, (LONG)srcDesc.Height };
+                RECT dstRect = { 0, 0, (LONG)dstDesc.Width, (LONG)dstDesc.Height };
+                m_videoContext->VideoProcessorSetStreamSourceRect(m_videoProcessor, 0, TRUE, &srcRect);
+                m_videoContext->VideoProcessorSetStreamDestRect(m_videoProcessor, 0, TRUE, &dstRect);
+                m_videoContext->VideoProcessorSetOutputTargetRect(m_videoProcessor, TRUE, &dstRect);
+
                 HRESULT bltHr = m_videoContext->VideoProcessorBlt(m_videoProcessor, m_outputViews[m_currentBufferIndex], 0, 1, &stream);
                 if (SUCCEEDED(bltHr)) {
                     LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH video_processor result=ok");
@@ -302,16 +327,67 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
             }
         }
     } else {
+        // Fallback for non-NV12 (e.g. software decoded RGBA)
         UINT srcSubresource = (srcDesc.ArraySize > 1) ? (UINT)arrayIndex : 0;
         if (srcDesc.Width == dstDesc.Width && srcDesc.Height == dstDesc.Height && srcDesc.Format == dstDesc.Format && srcDesc.ArraySize == 1) {
             m_context->CopyResource(backBuffer, texture);
             LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH copy_resource result=ok");
         } else {
+            // Try to use VideoProcessor for scaling even for non-NV12 if possible
+            // Most D3D11 video processors support RGBA scaling.
+            if (SetupVideoProcessor(srcDesc.Width, srcDesc.Height, dstDesc.Width, dstDesc.Height)) {
+                 if (texture != m_lastInputTexture || arrayIndex != m_lastInputArrayIndex) {
+                    if (m_inputView) m_inputView->Release();
+                    m_inputView = nullptr;
+
+                    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC inputViewDesc = {};
+                    inputViewDesc.FourCC = 0;
+                    inputViewDesc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
+                    inputViewDesc.Texture2D.MipSlice = 0;
+                    inputViewDesc.Texture2D.ArraySlice = (srcDesc.ArraySize > 1) ? arrayIndex : 0;
+
+                    hr = m_videoDevice->CreateVideoProcessorInputView(texture, m_videoEnumerator, &inputViewDesc, &m_inputView);
+                }
+
+                if (backBuffer != m_lastOutputTextures[m_currentBufferIndex]) {
+                    if (m_outputViews[m_currentBufferIndex]) m_outputViews[m_currentBufferIndex]->Release();
+                    m_outputViews[m_currentBufferIndex] = nullptr;
+
+                    D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outputViewDesc = {};
+                    outputViewDesc.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
+                    outputViewDesc.Texture2D.MipSlice = 0;
+
+                    hr = m_videoDevice->CreateVideoProcessorOutputView(backBuffer, m_videoEnumerator, &outputViewDesc, &m_outputViews[m_currentBufferIndex]);
+                    if (SUCCEEDED(hr)) m_lastOutputTextures[m_currentBufferIndex] = backBuffer;
+                }
+
+                if (m_inputView && m_outputViews[m_currentBufferIndex]) {
+                    D3D11_VIDEO_PROCESSOR_STREAM stream = {};
+                    stream.Enable = TRUE;
+                    stream.pInputSurface = m_inputView;
+
+                    RECT srcRect = { 0, 0, (LONG)srcDesc.Width, (LONG)srcDesc.Height };
+                    RECT dstRect = { 0, 0, (LONG)dstDesc.Width, (LONG)dstDesc.Height };
+                    m_videoContext->VideoProcessorSetStreamSourceRect(m_videoProcessor, 0, TRUE, &srcRect);
+                    m_videoContext->VideoProcessorSetStreamDestRect(m_videoProcessor, 0, TRUE, &dstRect);
+                    m_videoContext->VideoProcessorSetOutputTargetRect(m_videoProcessor, TRUE, &dstRect);
+
+                    HRESULT bltHr = m_videoContext->VideoProcessorBlt(m_videoProcessor, m_outputViews[m_currentBufferIndex], 0, 1, &stream);
+                    if (SUCCEEDED(bltHr)) {
+                        LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH video_processor (fallback) result=ok");
+                        goto render_done;
+                    }
+                }
+            }
+
+            // Ultimate fallback: CopySubresourceRegion (will crop if sizes differ)
             D3D11_BOX box = { 0, 0, 0, std::min(srcDesc.Width, dstDesc.Width), std::min(srcDesc.Height, dstDesc.Height), 1 };
             m_context->CopySubresourceRegion(backBuffer, 0, 0, 0, 0, texture, srcSubresource, &box);
             LOG_INFO("StreamTrace", "RENDER_PRESENT_PATH copy_subresource result=ok srcSub=" + std::to_string(srcSubresource));
         }
     }
+
+render_done:
 
     backBuffer->Release();
 

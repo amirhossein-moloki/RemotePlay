@@ -9,6 +9,8 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <shellscalingapi.h>
+#pragma comment(lib, "Shcore.lib")
 #endif
 
 void showFatalError(const QString& title, const QString& message) {
@@ -22,6 +24,9 @@ void showFatalError(const QString& title, const QString& message) {
 
 int main(int argc, char *argv[])
 {
+#ifdef _WIN32
+    SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
+#endif
     try {
         Parsec_Initialize();
         QQuickStyle::setStyle("Basic");
