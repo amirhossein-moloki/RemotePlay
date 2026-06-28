@@ -138,8 +138,9 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
 
         if (d3d11Device && !isSoftware) {
             bool supportsD3D11 = false;
-            if (codec->pix_fmts) {
-                for (const enum AVPixelFormat* p = codec->pix_fmts; *p != AV_PIX_FMT_NONE; p++) {
+            const enum AVPixelFormat* pix_fmts = nullptr;
+            if (avcodec_get_supported_config(nullptr, codec, AV_CODEC_CONFIG_PIX_FORMAT, 0, (const void**)&pix_fmts, nullptr) >= 0 && pix_fmts) {
+                for (const enum AVPixelFormat* p = pix_fmts; *p != AV_PIX_FMT_NONE; p++) {
                     if (*p == AV_PIX_FMT_D3D11) {
                         supportsD3D11 = true;
                         break;
@@ -287,27 +288,32 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
             D3D11_MAPPED_SUBRESOURCE mapped;
             if (SUCCEEDED(m_internal->d3d11Context->Map(m_internal->stagingTex, 0, D3D11_MAP_READ, 0, &mapped))) {
                 if (!m_internal->swsCtx && m_internal->swFrame) {
-                    m_internal->swsCtx = sws_getContext(desc.Width, desc.Height, AV_PIX_FMT_BGRA,
-                                                       m_width, m_height,
-                                                       (AVPixelFormat)m_internal->swFrame->format,
-                                                       SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+                    m_internal->swsCtx = sws_alloc_context();
+                    if (m_internal->swsCtx) {
+                        av_opt_set_int(m_internal->swsCtx, "srcw", desc.Width, 0);
+                        av_opt_set_int(m_internal->swsCtx, "srch", desc.Height, 0);
+                        av_opt_set_int(m_internal->swsCtx, "src_format", AV_PIX_FMT_BGRA, 0);
+                        av_opt_set_int(m_internal->swsCtx, "dstw", m_width, 0);
+                        av_opt_set_int(m_internal->swsCtx, "dsth", m_height, 0);
+                        av_opt_set_int(m_internal->swsCtx, "dst_format", m_internal->swFrame->format, 0);
+                        av_opt_set_int(m_internal->swsCtx, "sws_flags", SWS_FAST_BILINEAR, 0);
+                        if (sws_init_context(m_internal->swsCtx, nullptr, nullptr) < 0) {
+                            sws_freeContext(m_internal->swsCtx);
+                            m_internal->swsCtx = nullptr;
+                        }
+                    }
                 }
 
                 if (m_internal->swsCtx) {
-                    const uint8_t* srcData[4] = { (const uint8_t*)mapped.pData, nullptr, nullptr, nullptr };
-                    int srcLinesize[4] = { (int)mapped.RowPitch, 0, 0, 0 };
+                    AVFrame* wrapFrame = av_frame_alloc();
+                    wrapFrame->format = AV_PIX_FMT_BGRA;
+                    wrapFrame->width = desc.Width;
+                    wrapFrame->height = desc.Height;
+                    wrapFrame->data[0] = (uint8_t*)mapped.pData;
+                    wrapFrame->linesize[0] = (int)mapped.RowPitch;
 
-                    if (m_internal->codecCtx->hw_frames_ctx) {
-                        // If we are using hardware encoder but software scaling
-                        // We need an intermediate frame to upload to GPU
-                        // For now, let's just use the software encoder if scaling is needed
-                        // or implement proper GPU scaling.
-                        // To keep it simple, we'll assume scaling = software path for now
-                        // but let's try to make it work.
-                    }
-
-                    sws_scale(m_internal->swsCtx, srcData, srcLinesize, 0, desc.Height,
-                              m_internal->swFrame->data, m_internal->swFrame->linesize);
+                    sws_scale_frame(m_internal->swsCtx, m_internal->swFrame, wrapFrame);
+                    av_frame_free(&wrapFrame);
                 }
 
                 m_internal->d3d11Context->Unmap(m_internal->stagingTex, 0);
