@@ -89,6 +89,16 @@ if(WIN32)
     find_library(SWSCALE_LIBRARY NAMES swscale PATHS "${FFMPEG_DIR}/lib" "${FFMPEG_DIR}/bin")
 
     if(AVCODEC_INCLUDE_DIR AND AVCODEC_LIBRARY)
+        # Check FFmpeg version (FFmpeg 7+ / libavcodec 61+)
+        file(READ "${AVCODEC_INCLUDE_DIR}/libavcodec/version_major.h" AVCODEC_VERSION_HDR)
+        string(REGEX MATCH "#define LIBAVCODEC_VERSION_MAJOR[ ]+([0-9]+)" _ ${AVCODEC_VERSION_HDR})
+        set(LIBAVCODEC_VERSION_MAJOR ${CMAKE_MATCH_1})
+
+        if(LIBAVCODEC_VERSION_MAJOR LESS 61)
+            message(FATAL_ERROR "FFmpeg version too old! Found libavcodec version ${LIBAVCODEC_VERSION_MAJOR}, but 61+ (FFmpeg 7+) is required.")
+        endif()
+
+        message(STATUS "Found FFmpeg (libavcodec version ${LIBAVCODEC_VERSION_MAJOR})")
         target_include_directories(ParsecLiteCore PRIVATE ${AVCODEC_INCLUDE_DIR})
         target_include_directories(parsec-lite PRIVATE ${AVCODEC_INCLUDE_DIR})
         target_link_libraries(ParsecLiteCore PRIVATE ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY} ${SWSCALE_LIBRARY})

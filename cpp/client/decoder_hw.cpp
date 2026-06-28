@@ -9,6 +9,7 @@ extern "C" {
 #include <libavutil/hwcontext_d3d11va.h>
 #include <libswscale/swscale.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/opt.h>
 }
 #endif
 #include <cstdint>
@@ -19,7 +20,7 @@ namespace Client {
 
 static enum AVPixelFormat get_format(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts) {
     const enum AVPixelFormat *p;
-    for (p = pix_fmts; *p != -1; p++) {
+    for (p = pix_fmts; *p != AV_PIX_FMT_NONE; p++) {
         if (*p == AV_PIX_FMT_D3D11) {
             return *p;
         }
@@ -212,9 +213,20 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
                 if (m_internal->rgbaFrame) av_frame_free(&m_internal->rgbaFrame);
                 if (m_internal->swTexture) { m_internal->swTexture->Release(); m_internal->swTexture = nullptr; }
 
-                m_internal->swsCtx = sws_getContext(m_internal->frame->width, m_internal->frame->height, (AVPixelFormat)m_internal->frame->format,
-                                                   m_internal->frame->width, m_internal->frame->height, AV_PIX_FMT_RGBA,
-                                                   SWS_FAST_BILINEAR, NULL, NULL, NULL);
+                m_internal->swsCtx = sws_alloc_context();
+                if (m_internal->swsCtx) {
+                    av_opt_set_int(m_internal->swsCtx, "srcw", m_internal->frame->width, 0);
+                    av_opt_set_int(m_internal->swsCtx, "srch", m_internal->frame->height, 0);
+                    av_opt_set_int(m_internal->swsCtx, "src_format", m_internal->frame->format, 0);
+                    av_opt_set_int(m_internal->swsCtx, "dstw", m_internal->frame->width, 0);
+                    av_opt_set_int(m_internal->swsCtx, "dsth", m_internal->frame->height, 0);
+                    av_opt_set_int(m_internal->swsCtx, "dst_format", AV_PIX_FMT_RGBA, 0);
+                    av_opt_set_int(m_internal->swsCtx, "sws_flags", SWS_FAST_BILINEAR, 0);
+                    if (sws_init_context(m_internal->swsCtx, nullptr, nullptr) < 0) {
+                        sws_freeContext(m_internal->swsCtx);
+                        m_internal->swsCtx = nullptr;
+                    }
+                }
                 if (!m_internal->swsCtx) {
                     LOG_ERROR("Decoder", "Failed to create sws context.");
                     return false;
@@ -246,8 +258,7 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
                 }
             }
 
-            sws_scale(m_internal->swsCtx, m_internal->frame->data, m_internal->frame->linesize, 0, m_internal->frame->height,
-                      m_internal->rgbaFrame->data, m_internal->rgbaFrame->linesize);
+            sws_scale_frame(m_internal->swsCtx, m_internal->rgbaFrame, m_internal->frame);
 
             m_internal->context->UpdateSubresource(m_internal->swTexture, 0, nullptr, m_internal->rgbaFrame->data[0], m_internal->rgbaFrame->linesize[0], 0);
             *outTexture = m_internal->swTexture;
