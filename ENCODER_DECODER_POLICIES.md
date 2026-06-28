@@ -8,10 +8,13 @@ The Encoder Manager is the central orchestration layer for video compression in 
 Before any streaming session commences, the system MUST execute a mandatory **Preflight Encoder Validation** phase. This phase ensures that the selected hardware is capable of sustaining the required workload before the session is established.
 
 **Validation Order:**
-1.  **NVENC (NVIDIA)**
-2.  **QSV (Intel QuickSync)**
-3.  **AMF (AMD)**
-4.  **Software (libx264 fallback)**
+1.  **NVENC (NVIDIA HEVC/H.264)**
+2.  **QSV (Intel QuickSync HEVC/H.264)**
+3.  **AMF (AMD HEVC/H.264)**
+4.  **Software (libx264/libx265 fallback)**
+
+**Codec Prioritization:**
+Modern GPUs (e.g., RTX 30/40 series) MUST prioritize HEVC (H.265) over H.264 for improved quality per bitrate and reduced bandwidth consumption.
 
 **Validation Requirements:**
 *   **Initialization Test:** The encoder must successfully open the hardware context and allocate necessary resources.
