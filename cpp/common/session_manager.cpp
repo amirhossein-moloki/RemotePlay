@@ -121,6 +121,10 @@ void SessionManager::runHost(ParsecConfig config) {
         Host::InputInjector injector;
         std::mutex clientsMutex;
         std::vector<std::shared_ptr<ClientState>> clients;
+        std::mutex initializingMutex;
+        std::set<std::pair<std::string, uint16_t>> initializingClients;
+        std::mutex initThreadsMutex;
+        std::vector<std::thread> initThreads;
         LockFreeQueue<CapturedFrame, 2> captureQueue;
         LockFreeQueue<OutgoingPacket, 4096> sendQueue;
         PacketPool packetPool{200, 1024 * 1024};
@@ -381,30 +385,62 @@ void SessionManager::runHost(ParsecConfig config) {
                     }
 
                     if (!alreadyActive) {
-                        // AUTO-APPROVE: We now always approve and initialize immediately
-                        auto newState = std::make_shared<ClientState>();
-                        newState->ip = senderIp;
-                        newState->port = senderPort;
-                        newState->encoder = std::make_unique<Host::EncoderManager>();
-
-                        if (newState->encoder->Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, ctx.capture.GetDevice(), config.useHardwareEncoding)) {
-                            {
-                                std::lock_guard<std::mutex> lock(ctx.clientsMutex);
-                                ctx.clients.push_back(newState);
+                        bool isInitializing = false;
+                        bool tooManyClients = false;
+                        {
+                            std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+                            std::lock_guard<std::mutex> lock2(ctx.initializingMutex);
+                            if (ctx.clients.size() + ctx.initializingClients.size() >= 32) {
+                                tooManyClients = true;
+                            } else if (ctx.initializingClients.count({senderIp, senderPort})) {
+                                isInitializing = true;
+                            } else {
+                                ctx.initializingClients.insert({senderIp, senderPort});
                             }
-                            newState->encoder->RequestKeyframe();
-                            LOG_INFO("Session", "Auto-approved and initialized per-client encoder for " + senderIp);
+                        }
 
-                            Protocol::HandshakeResponsePacket hrp;
-                            hrp.type = (uint8_t)Protocol::PacketType::HandshakeResponse;
-                            hrp.approved = 1;
-                            ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
-                        } else {
-                            LOG_ERROR("Session", "Failed to initialize per-client encoder for " + senderIp + ". Rejecting connection.");
+                        if (tooManyClients) {
+                            LOG_WARN("Session", "Rejecting handshake from " + senderIp + ": Too many concurrent connections/initializations (limit 32).");
                             Protocol::HandshakeResponsePacket hrp;
                             hrp.type = (uint8_t)Protocol::PacketType::HandshakeResponse;
                             hrp.approved = 0;
                             ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
+                        } else if (!isInitializing) {
+                            std::lock_guard<std::mutex> lock(ctx.initThreadsMutex);
+                            // Cleanup completed threads (those that were already joined or finished)
+                            // Note: In a production environment, a thread pool would be preferred.
+                            // For this fix, we ensure they are at least joined at the end of runHost.
+                            ctx.initThreads.emplace_back([&ctx, senderIp, senderPort, config, this]() {
+                                auto newState = std::make_shared<ClientState>();
+                                newState->ip = senderIp;
+                                newState->port = senderPort;
+                                newState->encoder = std::make_unique<Host::EncoderManager>();
+
+                                if (newState->encoder->Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, ctx.capture.GetDevice(), config.useHardwareEncoding)) {
+                                    {
+                                        std::lock_guard<std::mutex> lock(ctx.clientsMutex);
+                                        ctx.clients.push_back(newState);
+                                    }
+                                    newState->encoder->RequestKeyframe();
+                                    LOG_INFO("Session", "Auto-approved and background initialized per-client encoder for " + senderIp);
+
+                                    Protocol::HandshakeResponsePacket hrp;
+                                    hrp.type = (uint8_t)Protocol::PacketType::HandshakeResponse;
+                                    hrp.approved = 1;
+                                    ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
+                                } else {
+                                    LOG_ERROR("Session", "Failed to background initialize per-client encoder for " + senderIp + ". Rejecting connection.");
+                                    Protocol::HandshakeResponsePacket hrp;
+                                    hrp.type = (uint8_t)Protocol::PacketType::HandshakeResponse;
+                                    hrp.approved = 0;
+                                    ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
+                                }
+
+                                {
+                                    std::lock_guard<std::mutex> lock(ctx.initializingMutex);
+                                    ctx.initializingClients.erase({senderIp, senderPort});
+                                }
+                            });
                         }
                     } else {
                         // Already active, re-send approval in case the first one was lost
@@ -483,6 +519,13 @@ void SessionManager::runHost(ParsecConfig config) {
     if (packetizerThread.joinable()) packetizerThread.join();
     if (senderThread.joinable()) senderThread.join();
     if (receiverThread.joinable()) receiverThread.join();
+
+    {
+        std::lock_guard<std::mutex> lock(ctx.initThreadsMutex);
+        for (auto& t : ctx.initThreads) {
+            if (t.joinable()) t.join();
+        }
+    }
 }
 
 void SessionManager::runClient(ParsecConfig config) {

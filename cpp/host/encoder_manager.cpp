@@ -100,9 +100,13 @@ void EncoderManager::DetectCapabilities(bool useHardware) {
     };
 
     if (useHardware) {
-        if (checkCodec("h264_nvenc")) m_capabilities.push_back({EncoderBackend::NVENC, "h264_nvenc", true});
-        if (checkCodec("h264_qsv"))   m_capabilities.push_back({EncoderBackend::QSV, "h264_qsv", true});
-        if (checkCodec("h264_amf"))   m_capabilities.push_back({EncoderBackend::AMF, "h264_amf", true});
+        if (checkCodec("h264_nvenc")) {
+            m_capabilities.push_back({EncoderBackend::NVENC, "h264_nvenc", true});
+        } else if (checkCodec("h264_qsv")) {
+            m_capabilities.push_back({EncoderBackend::QSV, "h264_qsv", true});
+        } else if (checkCodec("h264_amf")) {
+            m_capabilities.push_back({EncoderBackend::AMF, "h264_amf", true});
+        }
     }
     if (checkCodec("libx264"))    m_capabilities.push_back({EncoderBackend::Software, "libx264", true});
 #endif
@@ -260,22 +264,7 @@ QualityProfile EncoderManager::GetProfileForTier(QualityTier tier) const {
 }
 
 bool EncoderManager::Fallback() {
-    if (m_sessionLocked) {
-        return EmergencyEncoderFallback();
-    }
-
-    m_backendIndex++;
-
-    // Skip backends that have been marked as unavailable
-    while (m_backendIndex < m_capabilities.size() && !m_capabilities[m_backendIndex].available) {
-        m_backendIndex++;
-    }
-
-    if (m_backendIndex < m_capabilities.size()) {
-        return SelectAndInitEncoder();
-    }
-
-    return false;
+    return EmergencyEncoderFallback();
 }
 
 bool EncoderManager::EmergencyEncoderFallback() {
