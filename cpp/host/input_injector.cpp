@@ -61,10 +61,11 @@ void InputInjector::InjectMouseMove(const Protocol::MouseMoveEvent& ev) {
         input.mi.dy = ev.y;
         input.mi.dwFlags = MOUSEEVENTF_MOVE;
     } else {
-        // Map client coordinates to absolute screen coordinates (0-65535)
-        input.mi.dx = (LONG)((double)ev.x * 65536.0 / (double)ev.screenWidth);
-        input.mi.dy = (LONG)((double)ev.y * 65536.0 / (double)ev.screenHeight);
-        input.mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE | MOUSEEVENTF_VIRTUALDESK;
+        // Map client coordinates to absolute screen coordinates (0-65535) on the primary monitor.
+        // We avoid MOUSEEVENTF_VIRTUALDESK because the DXGI capture is currently limited to the primary monitor.
+        input.mi.dx = (LONG)((double)ev.x * 65535.0 / (double)std::max(1u, ev.screenWidth));
+        input.mi.dy = (LONG)((double)ev.y * 65535.0 / (double)std::max(1u, ev.screenHeight));
+        input.mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE;
     }
     SendInput(1, &input, sizeof(INPUT));
 }

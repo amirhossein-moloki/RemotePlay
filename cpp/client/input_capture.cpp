@@ -40,27 +40,54 @@ void InputCapture::HandleRawInput(LPARAM lParam) {
         Protocol::KeyboardEvent kb = { raw->data.keyboard.VKey, (uint8_t)!(raw->data.keyboard.Flags & RI_KEY_BREAK) };
         SendPacket(header, kb);
     } else if (raw->header.dwType == RIM_TYPEMOUSE) {
-        // Handle Movement
-        if (raw->data.mouse.lLastX != 0 || raw->data.mouse.lLastY != 0) {
+        // Heuristic: If the cursor is visible, we prefer absolute coordinates for perfect desktop sync.
+        // If hidden (e.g. in an FPS game), we use relative deltas to avoid breaking camera controls.
+        CURSORINFO ci = { sizeof(CURSORINFO) };
+        bool cursorVisible = true;
+        if (GetCursorInfo(&ci)) {
+            cursorVisible = (ci.flags & CURSOR_SHOWING);
+        }
+
+        bool isMovement = (raw->data.mouse.lLastX != 0 || raw->data.mouse.lLastY != 0);
+        bool isAbsoluteRaw = (raw->data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE);
+
+        // Always handle movement if raw input says it's absolute, OR if it's relative movement
+        if (isMovement || isAbsoluteRaw || cursorVisible) {
             Protocol::InputHeader header = { (uint8_t)Protocol::PacketType::Input, (uint8_t)Protocol::InputType::MouseMove };
             Protocol::MouseMoveEvent mm = { 0 };
-            mm.isRelative = !(raw->data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE);
 
-            if (mm.isRelative) {
-                mm.x = raw->data.mouse.lLastX;
-                mm.y = raw->data.mouse.lLastY;
-            } else {
+            if (cursorVisible && GetFocus() == m_hwnd) {
+                // Desktop mode: Send absolute coordinates derived from client cursor position
                 POINT pt;
                 GetCursorPos(&pt);
                 ScreenToClient(m_hwnd, &pt);
                 RECT rect;
                 GetClientRect(m_hwnd, &rect);
+
+                mm.isRelative = 0;
                 mm.x = pt.x;
                 mm.y = pt.y;
                 mm.screenWidth = rect.right - rect.left;
                 mm.screenHeight = rect.bottom - rect.top;
+
+                // Only send if coordinates are within the client area to prevent "jumping" to 0,0 when clicking title bar
+                if (mm.x >= 0 && mm.y >= 0 && mm.x <= (int32_t)mm.screenWidth && mm.y <= (int32_t)mm.screenHeight) {
+                    SendPacket(header, mm);
+                }
+            } else if (isMovement) {
+                // Game mode or cursor hidden: Use raw relative/absolute data
+                mm.isRelative = !isAbsoluteRaw;
+                mm.x = raw->data.mouse.lLastX;
+                mm.y = raw->data.mouse.lLastY;
+
+                if (!mm.isRelative) {
+                    RECT rect;
+                    GetClientRect(m_hwnd, &rect);
+                    mm.screenWidth = rect.right - rect.left;
+                    mm.screenHeight = rect.bottom - rect.top;
+                }
+                SendPacket(header, mm);
             }
-            SendPacket(header, mm);
         }
 
         // Handle Buttons
