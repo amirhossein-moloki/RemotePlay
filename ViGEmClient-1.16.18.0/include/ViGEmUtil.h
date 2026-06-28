@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ViGEm/Common.h"
+#include "ViGEmCommon.h"
 #include <limits.h>
 
 VOID FORCEINLINE XUSB_TO_DS4_REPORT(
@@ -47,3 +47,4 @@ VOID FORCEINLINE XUSB_TO_DS4_REPORT(
     Output->bThumbRY = (-(Input->sThumbRY + ((USHRT_MAX / 2) + 1)) / 257);
     Output->bThumbRY = (Output->bThumbRY == 0) ? 0xFF : Output->bThumbRY;
 }
+

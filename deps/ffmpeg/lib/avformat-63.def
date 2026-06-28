@@ -47,7 +47,6 @@ EXPORTS
     av_sdp_create
     av_seek_frame
     av_stream_get_class
-    av_stream_get_codec_timebase
     av_stream_get_parser
     av_stream_group_get_class
     av_url_split
@@ -85,7 +84,6 @@ EXPORTS
     avformat_stream_group_add_stream
     avformat_stream_group_create
     avformat_stream_group_name
-    avformat_transfer_internal_stream_timing_info
     avformat_version
     avformat_write_header
     avio_accept
