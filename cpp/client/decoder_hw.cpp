@@ -96,6 +96,7 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
 
     if (d3d11DevicePtr) {
         m_internal->device = (ID3D11Device*)d3d11DevicePtr;
+        m_internal->device->AddRef();
         m_internal->device->GetImmediateContext(&m_internal->context);
         if (!m_internal->context) {
             LOG_ERROR("Decoder", "Failed to get immediate context.");
@@ -281,10 +282,12 @@ void DecoderHW::Shutdown() {
     if (m_internal->rgbaFrame) av_frame_free(&m_internal->rgbaFrame);
     if (m_internal->swTexture) m_internal->swTexture->Release();
     if (m_internal->context) m_internal->context->Release();
+    if (m_internal->device) m_internal->device->Release();
     m_internal->swsCtx = nullptr;
     m_internal->rgbaFrame = nullptr;
     m_internal->swTexture = nullptr;
     m_internal->context = nullptr;
+    m_internal->device = nullptr;
 
     if (m_internal->codecCtx) {
         if (m_internal->codecCtx->hw_device_ctx) {
