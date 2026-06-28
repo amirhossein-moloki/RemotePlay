@@ -43,7 +43,7 @@ private:
     ID3D11Texture2D* m_lastInputTexture = nullptr;
     int m_lastInputArrayIndex = -1;
 
-    bool SetupVideoProcessor(int width, int height);
+    bool SetupVideoProcessor(int inWidth, int inHeight, int outWidth, int outHeight);
 };
 
 } // namespace Client
