@@ -109,9 +109,9 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
             av_opt_set(m_internal->codecCtx->priv_data, "preset", sw_presets[std::max(0, std::min(2, preset))], 0);
             av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
             if (codec->id == AV_CODEC_ID_H264) {
-                av_opt_set(m_internal->codecCtx->priv_data, "x264-params", "repeat-headers=1:annexb=1:forced-idr=1", 0);
+                av_opt_set(m_internal->codecCtx->priv_data, "x264-params", "repeat-headers=1:annexb=1", 0);
             } else if (codec->id == AV_CODEC_ID_HEVC) {
-                av_opt_set(m_internal->codecCtx->priv_data, "x265-params", "repeat-headers=1:annexb=1:forced-idr=1", 0);
+                av_opt_set(m_internal->codecCtx->priv_data, "x265-params", "repeat-headers=1:annexb=1", 0);
             }
         } else {
             const char* hw_presets[] = { "p1", "p4", "p7" }; // NVENC: p1 is fastest, p7 is slowest/best
@@ -351,6 +351,11 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
 
     encodeFrame->width = m_internal->codecCtx->width;
     encodeFrame->height = m_internal->codecCtx->height;
+    encodeFrame->format = m_internal->codecCtx->pix_fmt;
+    encodeFrame->color_range = AVCOL_RANGE_MPEG;
+    encodeFrame->colorspace = AVCOL_SPC_BT709;
+    encodeFrame->color_primaries = AVCOL_PRI_BT709;
+    encodeFrame->color_trc = AVCOL_TRC_BT709;
     encodeFrame->pts = m_internal->frameCounter++;
 
     if (m_forceKeyframe) {
@@ -367,7 +372,9 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
              " pts=" + std::to_string(encodeFrame->pts) +
              " frameCounter=" + std::to_string(m_internal->frameCounter));
     if (ret < 0) {
-        LOG_ERROR("StreamTrace", "AV_SEND_FRAME_FAIL ret=" + std::to_string(ret));
+        char errBuf[AV_ERROR_MAX_STRING_SIZE];
+        av_strerror(ret, errBuf, sizeof(errBuf));
+        LOG_ERROR("StreamTrace", "AV_SEND_FRAME_FAIL ret=" + std::to_string(ret) + " (" + std::string(errBuf) + ") codec=" + m_internal->codecCtx->codec->name);
     }
     if (encodeFrame == m_internal->frame) {
         // We only unref if it was the wrapper frame. The software frame is reused.
