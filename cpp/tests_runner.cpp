@@ -93,6 +93,7 @@ void TestReceiverFEC() {
     vh.type = (uint8_t)Protocol::PacketType::Video;
     vh.frameId = frameId;
     vh.totalFragments = totalFrags;
+    vh.flags = 0x01; // Mark as keyframe to pass Receiver's first-frame check
 
     // Send frag 0, skip 1, send frag 2
     vh.fragmentIndex = 0; vh.dataSize = 10;

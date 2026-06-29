@@ -25,7 +25,11 @@ void showFatalError(const QString& title, const QString& message) {
 int main(int argc, char *argv[])
 {
 #ifdef _WIN32
-    SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
+    if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
+        if (GetLastError() != ERROR_ACCESS_DENIED) {
+            SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
+        }
+    }
 #endif
     try {
         Parsec_Initialize();

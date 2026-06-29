@@ -49,7 +49,13 @@ void RunLauncher() {
 }
 
 int main(int argc, char* argv[]) {
-    SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
+#ifdef _WIN32
+    if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
+        if (GetLastError() != ERROR_ACCESS_DENIED) {
+            SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
+        }
+    }
+#endif
     Parsec_Initialize();
 
     std::vector<std::string> args(argv, argv + argc);
