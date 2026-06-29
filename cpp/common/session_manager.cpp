@@ -542,7 +542,7 @@ void SessionManager::runClient(ParsecConfig config) {
     }
 
     Client::Receiver receiver;
-    Client::JitterBuffer jitterBuffer(3);
+    Client::JitterBuffer jitterBuffer(10);
     Client::DecoderHW decoder;
     Client::RendererD3D11 renderer;
 

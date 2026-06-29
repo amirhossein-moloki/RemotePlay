@@ -130,6 +130,7 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
                     av_opt_set(m_internal->codecCtx->priv_data, "preset", p, 0);
                     av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
                     av_opt_set(m_internal->codecCtx->priv_data, "repeat_headers", "1", 0);
+                    av_opt_set(m_internal->codecCtx->priv_data, "idr_interval", "1", 0);
                     av_opt_set(m_internal->codecCtx->priv_data, "extra_hw_frames", "2", 0);
                     av_opt_set(m_internal->codecCtx->priv_data, "async_depth", "1", 0);
                 } else {
@@ -362,10 +363,12 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
 
     if (m_forceKeyframe) {
         encodeFrame->pict_type = AV_PICTURE_TYPE_I;
+        encodeFrame->key_frame = 1;
         encodeFrame->flags |= AV_FRAME_FLAG_KEY;
         m_forceKeyframe = false;
     } else {
         encodeFrame->pict_type = AV_PICTURE_TYPE_NONE;
+        encodeFrame->key_frame = 0;
         encodeFrame->flags &= ~AV_FRAME_FLAG_KEY;
     }
 

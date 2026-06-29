@@ -39,7 +39,11 @@ void JitterBuffer::PushFrame(Receiver::FramePtr frame) {
     m_info.insert(info.frameId, info);
     m_count++;
 
-    while (m_count > m_maxFrames) {
+    // Only drop if we are nearing the absolute capacity of the ring buffer.
+    // m_maxFrames (e.g. 10) is the target for PopFrame to maintain latency,
+    // but we allow more in the buffer to handle network bursts without breaking the stream.
+    // We use a safety margin of 4 below the full capacity to avoid collisions.
+    while (m_count > (m_ring.capacity() - 4)) {
         // Drop oldest
         uint32_t oldestId = 0xffffffff;
         bool found = false;
@@ -51,6 +55,7 @@ void JitterBuffer::PushFrame(Receiver::FramePtr frame) {
             }
         }
         if (found) {
+            LOG_WARN("JitterBuffer", "Buffer overflow (count=" + std::to_string(m_count) + "), dropping oldest frame " + std::to_string(oldestId));
             auto* entry = m_ring.get(oldestId);
             *entry = nullptr;
             m_info.get(oldestId)->occupied = false;

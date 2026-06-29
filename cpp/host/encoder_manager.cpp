@@ -378,7 +378,18 @@ void EncoderManager::AdjustTier(bool improve) {
 
     if (oldTier != m_currentTier) {
         LOG_INFO("EncoderManager", "Adjusting quality tier due to performance metrics.");
-        SelectAndInitEncoder();
+
+        QualityProfile oldProfile = GetProfileForTier(oldTier);
+        QualityProfile newProfile = GetProfileForTier(m_currentTier);
+
+        // Optimization: If resolution hasn't changed, only update bitrate to avoid hardware re-init
+        if (m_encoder && oldProfile.width == newProfile.width && oldProfile.height == newProfile.height) {
+            LOG_INFO("EncoderManager", "Resolution unchanged (" + std::to_string(newProfile.width) + "x" + std::to_string(newProfile.height) +
+                     "), updating bitrate only: " + std::to_string(newProfile.bitrateKbps) + " Kbps");
+            m_encoder->SetBitrate(newProfile.bitrateKbps);
+        } else {
+            SelectAndInitEncoder();
+        }
     }
 }
 
