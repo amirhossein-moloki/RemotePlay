@@ -41,7 +41,7 @@ struct VideoHeader {
     uint64_t captureTimestamp;   // Precise capture timestamp (microseconds)
     uint64_t encodeStartTimestamp; // Encode start timestamp (microseconds)
     uint64_t encodeEndTimestamp;   // Encode end timestamp (microseconds)
-    uint8_t flags;           // Bit 0: Keyframe, Bit 1-7: Reserved
+    uint8_t flags;           // Bit 0: Keyframe, Bit 1: HEVC, Bit 2-7: Reserved
     uint16_t dataSize;       // Size of the following payload
 };
 

@@ -127,6 +127,11 @@ void EncoderManager::DetectCapabilities(bool useHardware) {
     LOG_INFO("EncoderManager", "Capability profile built.");
 }
 
+bool EncoderManager::IsHEVC() const {
+    if (m_encoder) return m_encoder->IsHEVC();
+    return m_lockedCodecName.find("hevc") != std::string::npos || m_lockedCodecName.find("265") != std::string::npos;
+}
+
 bool EncoderManager::Initialize(int initialWidth, int height, int fps, void* d3d11Device, bool useHardware) {
     std::lock_guard<std::mutex> lock(m_encoderMutex);
     SetState(StreamingState::STARTING);

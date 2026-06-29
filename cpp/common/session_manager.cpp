@@ -248,17 +248,20 @@ void SessionManager::runHost(ParsecConfig config) {
                             uint64_t encodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
                             Profiler::getInstance().recordTime("Encode_Time", (double)(encodeEnd - encodeStart));
                             size_t encodedBytes = 0;
+                            bool isHEVC = client->encoder->IsHEVC();
                             for (const auto& p : packets) {
                                 if (p.packet) encodedBytes += p.packet->size;
                             }
                             LOG_INFO("StreamTrace", "ENCODE_OUT frameId=" + std::to_string(client->frameId) +
                                      " packetCount=" + std::to_string(packets.size()) +
                                      " encodedBytes=" + std::to_string(encodedBytes) +
-                                     " encodeUs=" + std::to_string(encodeEnd - encodeStart));
+                                     " encodeUs=" + std::to_string(encodeEnd - encodeStart) +
+                                     " codec=" + std::string(isHEVC ? "HEVC" : "H.264"));
                             for (auto& p : packets) {
                                 p.captureTimestamp = endCaptureTs;
                                 p.encodeStartTimestamp = encodeStart;
                                 p.encodeEndTimestamp = encodeEnd;
+                                if (isHEVC) p.isHEVC = true; // We need to add this to EncodedPacket or handle it here
                             }
                             if (!client->encodeQueue.push(std::move(packets))) {
                                 LOG_ERROR("StreamTrace", "ENCODE_QUEUE_DROP frameId=" + std::to_string(client->frameId));
@@ -311,7 +314,7 @@ void SessionManager::runHost(ParsecConfig config) {
                             vh->captureTimestamp = frame.captureTimestamp;
                             vh->encodeStartTimestamp = frame.encodeStartTimestamp;
                             vh->encodeEndTimestamp = frame.encodeEndTimestamp;
-                            vh->flags = frame.isKeyframe ? 0x01 : 0x00;
+                            vh->flags = (frame.isKeyframe ? 0x01 : 0x00) | (frame.isHEVC ? 0x02 : 0x00);
                             vh->dataSize = (uint16_t)std::min((uint32_t)Protocol::MAX_UDP_PAYLOAD, (uint32_t)(frame.packet->size - i * Protocol::MAX_UDP_PAYLOAD));
                             memcpy(udpPkt->data.data() + sizeof(Protocol::VideoHeader), frame.packet->data.data() + (i * Protocol::MAX_UDP_PAYLOAD), vh->dataSize);
                             udpPkt->size = sizeof(Protocol::VideoHeader) + vh->dataSize;
@@ -704,8 +707,8 @@ void SessionManager::runClient(ParsecConfig config) {
                 if (traceFrameCount < 10) LOG_INFO("ClientTrace", "Decoding Frame: " + std::to_string(currentFid));
 
                 LOG_INFO("StreamTrace", "DECODER_IN frameId=" + std::to_string(frame->frameId) +
-                         " bytes=" + std::to_string(frame->totalSize));
-                if (decoder.DecodeFrame(frame->buffer.data(), frame->totalSize, &outTexture, &arrayIndex)) {
+                         " bytes=" + std::to_string(frame->totalSize) + " hevc=" + std::to_string(frame->isHEVC));
+                if (decoder.DecodeFrame(frame->buffer.data(), frame->totalSize, &outTexture, &arrayIndex, frame->isHEVC)) {
                     uint64_t decodeEnd = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
                     LOG_INFO("StreamTrace", "DECODER_OUT frameId=" + std::to_string(frame->frameId) +
                              " texture=" + std::to_string(reinterpret_cast<uintptr_t>(outTexture)) +

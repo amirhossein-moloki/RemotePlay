@@ -23,6 +23,7 @@ struct FrameData {
     uint64_t receiveTimestamp;
     bool isComplete;
     bool isKeyframe;
+    bool isHEVC;
     std::vector<bool> fragmentMap;
     std::vector<uint16_t> fragmentSizes; // Store individual fragment sizes for FEC
 
