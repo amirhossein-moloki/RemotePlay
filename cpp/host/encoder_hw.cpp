@@ -62,9 +62,9 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
             codec = avcodec_find_encoder_by_name(codecName.c_str());
             if (codec) {
                 std::string name = codec->name;
-                if (name == "libx264" || name == "h264") isSoftware = true;
-                // If it's x264 but not one of the known hardware ones, treat as software
-                if (name.find("264") != std::string::npos &&
+                if (name == "libx264" || name == "h264" || name == "libx265" || name == "hevc") isSoftware = true;
+                // If it's x264/x265 but not one of the known hardware ones, treat as software
+                if ((name.find("264") != std::string::npos || name.find("265") != std::string::npos || name.find("hevc") != std::string::npos) &&
                     name.find("nvenc") == std::string::npos &&
                     name.find("amf") == std::string::npos &&
                     name.find("qsv") == std::string::npos &&
@@ -75,8 +75,11 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
         }
 
         if (!codec && !softwareFallback) {
-            codec = avcodec_find_encoder_by_name("h264_nvenc");
+            codec = avcodec_find_encoder_by_name("hevc_nvenc");
+            if (!codec) codec = avcodec_find_encoder_by_name("h264_nvenc");
+            if (!codec) codec = avcodec_find_encoder_by_name("hevc_amf");
             if (!codec) codec = avcodec_find_encoder_by_name("h264_amf");
+            if (!codec) codec = avcodec_find_encoder_by_name("hevc_qsv");
             if (!codec) codec = avcodec_find_encoder_by_name("h264_qsv");
         }
 
@@ -105,7 +108,11 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
             const char* sw_presets[] = { "ultrafast", "superfast", "veryfast" };
             av_opt_set(m_internal->codecCtx->priv_data, "preset", sw_presets[std::max(0, std::min(2, preset))], 0);
             av_opt_set(m_internal->codecCtx->priv_data, "tune", "zerolatency", 0);
-            av_opt_set(m_internal->codecCtx->priv_data, "x264-params", "repeat-headers=1:annexb=1:forced-idr=1", 0);
+            if (codec->id == AV_CODEC_ID_H264) {
+                av_opt_set(m_internal->codecCtx->priv_data, "x264-params", "repeat-headers=1:annexb=1:forced-idr=1", 0);
+            } else if (codec->id == AV_CODEC_ID_HEVC) {
+                av_opt_set(m_internal->codecCtx->priv_data, "x265-params", "repeat-headers=1:annexb=1:forced-idr=1", 0);
+            }
         } else {
             const char* hw_presets[] = { "p1", "p4", "p7" }; // NVENC: p1 is fastest, p7 is slowest/best
             if (std::string(codec->name).find("nvenc") != std::string::npos) {
@@ -416,7 +423,12 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
                         else if (frameData[i] == 0 && frameData[i+1] == 0 && frameData[i+2] == 1) startCodeLen = 3;
 
                         if (startCodeLen > 0 && i + startCodeLen < frameData.size()) {
-                            int type = frameData[i + startCodeLen] & 0x1F;
+                            int type = 0;
+                            if (m_internal->codecCtx->codec_id == AV_CODEC_ID_HEVC) {
+                                type = (frameData[i + startCodeLen] >> 1) & 0x3F;
+                            } else {
+                                type = frameData[i + startCodeLen] & 0x1F;
+                            }
                             if (!nalTypes.empty()) nalTypes += ",";
                             nalTypes += std::to_string(type);
                             i += startCodeLen + 1;

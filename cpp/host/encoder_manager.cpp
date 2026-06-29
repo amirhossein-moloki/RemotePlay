@@ -100,12 +100,21 @@ void EncoderManager::DetectCapabilities(bool useHardware) {
     };
 
     if (useHardware) {
-        if (checkCodec("h264_nvenc")) {
-            m_capabilities.push_back({EncoderBackend::NVENC, "h264_nvenc", true});
-        } else if (checkCodec("h264_qsv")) {
-            m_capabilities.push_back({EncoderBackend::QSV, "h264_qsv", true});
-        } else if (checkCodec("h264_amf")) {
-            m_capabilities.push_back({EncoderBackend::AMF, "h264_amf", true});
+        // Prioritized Hardware Encoder Probing (HEVC > H.264)
+        // Modern GPUs like RTX 3050 perform exceptionally well with HEVC.
+        const std::vector<std::pair<std::string, EncoderBackend>> hardwareCodecs = {
+            {"hevc_nvenc", EncoderBackend::NVENC},
+            {"h264_nvenc", EncoderBackend::NVENC},
+            {"hevc_qsv",   EncoderBackend::QSV},
+            {"h264_qsv",   EncoderBackend::QSV},
+            {"hevc_amf",   EncoderBackend::AMF},
+            {"h264_amf",   EncoderBackend::AMF}
+        };
+
+        for (const auto& codecInfo : hardwareCodecs) {
+            if (checkCodec(codecInfo.first)) {
+                m_capabilities.push_back({codecInfo.second, codecInfo.first, true});
+            }
         }
     }
     if (checkCodec("libx264"))    m_capabilities.push_back({EncoderBackend::Software, "libx264", true});
