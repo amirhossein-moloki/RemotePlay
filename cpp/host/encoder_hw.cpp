@@ -363,12 +363,10 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
 
     if (m_forceKeyframe) {
         encodeFrame->pict_type = AV_PICTURE_TYPE_I;
-        encodeFrame->key_frame = 1;
         encodeFrame->flags |= AV_FRAME_FLAG_KEY;
         m_forceKeyframe = false;
     } else {
         encodeFrame->pict_type = AV_PICTURE_TYPE_NONE;
-        encodeFrame->key_frame = 0;
         encodeFrame->flags &= ~AV_FRAME_FLAG_KEY;
     }
 
