@@ -16,6 +16,7 @@ namespace Host {
 struct EncodedPacket {
     std::unique_ptr<PacketPool::Packet> packet;
     bool isKeyframe;
+    bool isHEVC = false;
     uint64_t captureTimestamp;
     uint64_t encodeStartTimestamp;
     uint64_t encodeEndTimestamp;
@@ -30,6 +31,7 @@ public:
     virtual void ForceKeyframe() = 0;
     virtual void Shutdown() = 0;
     virtual bool IsInitialized() const = 0;
+    virtual bool IsHEVC() const = 0;
 };
 
 class FFmpegHardwareEncoder : public EncoderHW {
@@ -43,6 +45,7 @@ public:
     void ForceKeyframe() override;
     void Shutdown() override;
     bool IsInitialized() const override { return m_initialized; }
+    bool IsHEVC() const override;
 
 private:
     bool SetupHardwareContext();

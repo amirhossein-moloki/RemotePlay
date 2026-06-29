@@ -242,16 +242,18 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
                  " height=" + std::to_string(desc.Height) +
                  " format=" + std::to_string(desc.Format));
 
-        if (desc.Width == (UINT)m_width && desc.Height == (UINT)m_height) {
+        if (desc.Width == (UINT)m_width && desc.Height == (UINT)m_height && desc.Format == DXGI_FORMAT_NV12) {
             encodeFrame->data[0] = (uint8_t*)texturePtr;
             encodeFrame->format = AV_PIX_FMT_D3D11;
             encodeFrame->hw_frames_ctx = av_buffer_ref(m_internal->codecCtx->hw_frames_ctx);
         } else {
-            // We need to scale. For now, hardware path without zero-copy
-            // or implementing D3D11 scaling.
-            // Simplified: if resolutions don't match and we're in "hardware" mode,
-            // fallback to software scaling for now or log error.
-            LOG_WARN("Encoder", "Resolution mismatch in hardware path. Falling back to software scaling.");
+            // We need to scale or convert format (e.g. BGRA -> NV12).
+            // For now, use software path which handles this via sws_scale.
+            if (desc.Format != DXGI_FORMAT_NV12) {
+                LOG_INFO("Encoder", "Input texture is not NV12 (format=" + std::to_string(desc.Format) + "). Using software upload path.");
+            } else {
+                LOG_WARN("Encoder", "Resolution mismatch in hardware path. Falling back to software scaling.");
+            }
             goto software_path;
         }
     } else {
@@ -473,6 +475,15 @@ void FFmpegHardwareEncoder::ForceKeyframe() {
     m_forceKeyframe = true;
 }
 
+bool FFmpegHardwareEncoder::IsHEVC() const {
+#ifdef PARSEC_LITE_ENABLE_FFMPEG
+    if (m_internal && m_internal->codecCtx && m_internal->codecCtx->codec) {
+        return m_internal->codecCtx->codec_id == AV_CODEC_ID_HEVC;
+    }
+#endif
+    return false;
+}
+
 void FFmpegHardwareEncoder::Shutdown() {
     m_initialized = false;
     if (m_internal->codecCtx) {
@@ -507,6 +518,7 @@ bool FFmpegHardwareEncoder::Initialize(int w, int h, int f, int b, void* d, int 
 bool FFmpegHardwareEncoder::EncodeFrame(void* t, std::vector<EncodedPacket>& o, PacketPool& p) { return false; }
 void FFmpegHardwareEncoder::SetBitrate(int b) {}
 void FFmpegHardwareEncoder::ForceKeyframe() {}
+bool FFmpegHardwareEncoder::IsHEVC() const { return false; }
 void FFmpegHardwareEncoder::Shutdown() {}
 #endif
 

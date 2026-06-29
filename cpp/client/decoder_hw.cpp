@@ -34,6 +34,9 @@ struct DecoderHW::InternalData {
     AVFrame* frame = nullptr;
     AVFrame* tempFrame = nullptr;
     AVPacket* pkt = nullptr;
+    bool isHEVC = false;
+    void* lastD3D11Device = nullptr;
+    bool lastUseHardware = true;
 
     // Software fallback resources
     ID3D11Device* device = nullptr;
@@ -50,9 +53,13 @@ DecoderHW::~DecoderHW() {
 }
 
 bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
-    const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+    m_internal->lastD3D11Device = d3d11DevicePtr;
+    m_internal->lastUseHardware = useHardware;
+
+    AVCodecID codecId = m_internal->isHEVC ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264;
+    const AVCodec* codec = avcodec_find_decoder(codecId);
     if (!codec) {
-        LOG_ERROR("Decoder", "Failed to find H.264 decoder.");
+        LOG_ERROR("Decoder", "Failed to find decoder for " + std::string(m_internal->isHEVC ? "HEVC" : "H.264"));
         return false;
     }
 
@@ -107,12 +114,24 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
     return true;
 }
 
-bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture, int* outIndex) {
-    if (!m_internal || !m_internal->codecCtx || !m_internal->pkt || !m_internal->frame) {
+bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture, int* outIndex, bool isHEVC) {
+    if (!m_internal) return false;
+
+    if (isHEVC != m_internal->isHEVC) {
+        LOG_INFO("Decoder", "Codec change detected: " + std::string(m_internal->isHEVC ? "HEVC" : "H.264") + " -> " + std::string(isHEVC ? "HEVC" : "H.264"));
+        m_internal->isHEVC = isHEVC;
+        Shutdown();
+        if (!Initialize(m_internal->lastD3D11Device, m_internal->lastUseHardware)) {
+            LOG_ERROR("Decoder", "Re-initialization failed after codec change.");
+            return false;
+        }
+    }
+
+    if (!m_internal->codecCtx || !m_internal->pkt || !m_internal->frame) {
         LOG_ERROR("StreamTrace", "DECODER_INPUT_INVALID internal state null. size=" + std::to_string(size));
         return false;
     }
-    LOG_INFO("StreamTrace", "DECODER_INPUT bytes=" + std::to_string(size));
+    LOG_INFO("StreamTrace", "DECODER_INPUT bytes=" + std::to_string(size) + " codec=" + std::string(isHEVC ? "HEVC" : "H.264"));
 
     if (outIndex) *outIndex = 0;
 
@@ -125,7 +144,12 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
             else if (data[i] == 0 && data[i+1] == 0 && data[i+2] == 1) startCodeLen = 3;
 
             if (startCodeLen > 0 && i + startCodeLen < size) {
-                int type = data[i + startCodeLen] & 0x1F;
+                int type = 0;
+                if (m_internal->isHEVC) {
+                    type = (data[i + startCodeLen] >> 1) & 0x3F;
+                } else {
+                    type = data[i + startCodeLen] & 0x1F;
+                }
                 if (!nalTypes.empty()) nalTypes += ",";
                 nalTypes += std::to_string(type);
                 i += startCodeLen + 1;
@@ -151,7 +175,17 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
         ret = avcodec_send_packet(m_internal->codecCtx, m_internal->pkt);
     }
 
-    if (nalTypes.find("5") != std::string::npos || nalTypes.find("7") != std::string::npos || ret < 0) {
+    bool isKeyframe = false;
+    if (m_internal->isHEVC) {
+        // HEVC IDR types are 19, 20
+        if (nalTypes.find("19") != std::string::npos || nalTypes.find("20") != std::string::npos) isKeyframe = true;
+    } else {
+        // H.264 IDR is type 5
+        if (nalTypes.find("5") != std::string::npos) isKeyframe = true;
+    }
+
+    if (isKeyframe || nalTypes.find("7") != std::string::npos || nalTypes.find("32") != std::string::npos ||
+        nalTypes.find("33") != std::string::npos || nalTypes.find("34") != std::string::npos || ret < 0) {
         LOG_INFO("StreamTrace", "AV_SEND_PACKET ret=" + std::to_string(ret) +
                  " bytes=" + std::to_string(size) + " NALs=[" + nalTypes + "]");
     }
@@ -312,7 +346,7 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
     LOG_ERROR("Decoder", "FFmpeg support not compiled in. Decoder is disabled.");
     return false;
 }
-bool DecoderHW::DecodeFrame(const uint8_t* d, size_t s, void** o, int* i) { return false; }
+bool DecoderHW::DecodeFrame(const uint8_t* d, size_t s, void** o, int* i, bool h) { return false; }
 bool DecoderHW::IsHardware() const { return false; }
 void DecoderHW::Shutdown() {}
 #endif

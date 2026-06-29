@@ -16,6 +16,7 @@ void FrameData::Reset() {
     receiveTimestamp = 0;
     isComplete = false;
     isKeyframe = false;
+    isHEVC = false;
     std::fill(fragmentMap.begin(), fragmentMap.end(), false);
     std::fill(fragmentSizes.begin(), fragmentSizes.end(), 0);
 }
@@ -69,6 +70,7 @@ void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t*
         newFrame->encodeStartTimestamp = header.encodeStartTimestamp;
         newFrame->encodeEndTimestamp = header.encodeEndTimestamp;
         newFrame->isKeyframe = (header.flags & 0x01) != 0;
+        newFrame->isHEVC = (header.flags & 0x02) != 0;
         newFrame->receiveTimestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 
         if (newFrame->fragmentMap.size() < header.totalFragments) {

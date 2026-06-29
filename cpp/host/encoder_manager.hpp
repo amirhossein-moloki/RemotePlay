@@ -64,6 +64,7 @@ public:
     EncoderBackend GetCurrentBackend() const { return m_currentBackend; }
     int GetCurrentBitrate() const { return GetProfileForTier(m_currentTier).bitrateKbps; }
     std::string GetLockedCodecName() const { return m_lockedCodecName; }
+    bool IsHEVC() const;
 
     void Shutdown();
 
