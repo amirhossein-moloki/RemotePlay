@@ -1,5 +1,6 @@
 #include "jitter_buffer.hpp"
 #include <algorithm>
+#include "../common/logger.hpp"
 
 namespace Client {
 
