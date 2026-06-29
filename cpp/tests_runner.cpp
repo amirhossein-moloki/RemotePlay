@@ -142,6 +142,7 @@ void TestReceiverStrictOrdering() {
     uint8_t data[10] = {0};
 
     vh.frameId = 10;
+    vh.flags = 0x01; // Keyframe
     receiver.ProcessPacket(vh, data);
     vh.frameId = 12;
     receiver.ProcessPacket(vh, data);
