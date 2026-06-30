@@ -174,19 +174,42 @@ void SystemService::setResolutionScale(double scale)
 QString SystemService::getFriendlyError(int errorCode, const QString& technicalMsg)
 {
     ParsecError err = static_cast<ParsecError>(errorCode);
+    QString msgLower = technicalMsg.toLower();
+
+    // Map common D3D11/DXGI HRESULTs in technical message to friendly Persian strings
+    QString translatedMsg = technicalMsg;
+    if (msgLower.contains("0x887a0005")) {
+        translatedMsg = tr("کارت گرافیک ریست شده است (DXGI_ERROR_DEVICE_REMOVED). لطفاً درایور خود را بروزرسانی کنید.");
+    } else if (msgLower.contains("0x887a0001")) {
+        translatedMsg = tr("دسترسی به بافر تصویر امکان‌پذیر نیست (DXGI_ERROR_INVALID_CALL).");
+    }
+
+    // If technical message contains a translated HRESULT, we might want to prioritize it or append it
+    QString finalSuffix = (translatedMsg != technicalMsg) ? (" (" + translatedMsg + ")") : "";
+
     switch (err) {
         case ParsecError::NETWORK_BIND_FAILED:
             return tr("ارتباط با شبکه برقرار نشد. لطفاً بررسی کنید که پورت ۵۰۰۵ توسط برنامه دیگری اشغال نشده باشد.");
         case ParsecError::HARDWARE_INIT_FAILED:
-            return tr("خطا در مقداردهی اولیه سخت‌افزار یا کدگذار (Encoder). لطفاً از بروز بودن درایور کارت گرافیک خود اطمینان حاصل کنید.");
+            return tr("خطا در مقداردهی اولیه سخت‌افزار. لطفاً از بروز بودن درایور کارت گرافیک خود اطمینان حاصل کنید.");
         case ParsecError::HANDSHAKE_TIMEOUT:
             return tr("زمان اتصال به پایان رسید. لطفاً آدرس IP را بررسی کرده و از روشن بودن سیستم میزبان اطمینان حاصل کنید.");
         case ParsecError::HANDSHAKE_REJECTED:
             return tr("میزبان درخواست اتصال شما را رد کرد.");
         case ParsecError::CONNECTION_LOST:
             return tr("اتصال به شبکه قطع شد.");
+        case ParsecError::DECODER_INIT_FAILED:
+            return tr("خطا در مقداردهی اولیه رمزگشا (Decoder). گرافیک شما ممکن است از H.264 یا HEVC پشتیبانی نکند.") + finalSuffix;
+        case ParsecError::ENCODER_INIT_FAILED:
+            return tr("خطا در مقداردهی اولیه کدگذار (Encoder). لطفاً تنظیمات گرافیک و رزولوشن را بررسی کنید.") + finalSuffix;
+        case ParsecError::RENDERER_INIT_FAILED:
+            return tr("خطا در مقداردهی اولیه نمایشگر (Renderer). کارت گرافیک شما ممکن است با DirectX 11 سازگار نباشد.") + finalSuffix;
+        case ParsecError::QSV_INIT_FAILED:
+            return tr("خطا در مقداردهی اولیه Intel QSV. لطفاً مطمئن شوید iGPU در بایوس فعال است.") + finalSuffix;
+        case ParsecError::D3D11_DEVICE_LOST:
+            return tr("ارتباط با کارت گرافیک قطع شد. برنامه را دوباره اجرا کنید.") + finalSuffix;
         default:
-            return tr("خطای غیرمنتظره‌ای رخ داده است: ") + technicalMsg;
+            return tr("خطای غیرمنتظره‌ای رخ داده است: ") + translatedMsg;
     }
 }
 

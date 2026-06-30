@@ -433,6 +433,7 @@ void SessionManager::runHost(ParsecConfig config) {
                                     ctx.net.SendTo(&hrp, sizeof(hrp), senderIp, senderPort);
                                 } else {
                                     LOG_ERROR("Session", "Failed to background initialize per-client encoder for " + senderIp + ". Rejecting connection.");
+                                    this->reportError(ParsecError::ENCODER_INIT_FAILED, "Failed to initialize encoder for client " + senderIp);
                                     Protocol::HandshakeResponsePacket hrp;
                                     hrp.type = (uint8_t)Protocol::PacketType::HandshakeResponse;
                                     hrp.approved = 0;
@@ -563,17 +564,22 @@ void SessionManager::runClient(ParsecConfig config) {
     if (useRenderer) {
         if (!renderer.Initialize((HWND)config.windowHandle, 1920, 1080)) {
             LOG_ERROR("Session", "Failed to initialize renderer. Stopping session.");
-            reportError(ParsecError::HARDWARE_INIT_FAILED, "Renderer initialization failed. Please check your GPU drivers and system compatibility.");
+            reportError(ParsecError::RENDERER_INIT_FAILED, "Renderer initialization failed. Please check your GPU drivers and system compatibility.");
             m_running = false;
             return;
         } else if (!decoder.Initialize(renderer.GetDevice(), config.useHardwareEncoding)) {
             LOG_ERROR("Session", "Failed to initialize decoder. Stopping session.");
-            reportError(ParsecError::HARDWARE_INIT_FAILED, "Hardware decoder initialization failed. Please ensure your GPU supports H.264 decoding.");
+            reportError(ParsecError::DECODER_INIT_FAILED, "Hardware decoder initialization failed. Please ensure your GPU supports H.264 or HEVC decoding.");
             m_running = false;
             return;
         }
     } else {
-        decoder.Initialize(nullptr, config.useHardwareEncoding);
+        if (!decoder.Initialize(nullptr, config.useHardwareEncoding)) {
+            LOG_ERROR("Session", "Failed to initialize headless decoder.");
+            reportError(ParsecError::DECODER_INIT_FAILED, "Headless decoder initialization failed.");
+            m_running = false;
+            return;
+        }
     }
 
     std::atomic<uint32_t> lastFrameId{0};
@@ -739,10 +745,13 @@ void SessionManager::runClient(ParsecConfig config) {
 
             if (useRenderer) renderer.EndFrame();
         } catch (const std::exception& e) {
-            LOG_ERROR("Session", "Standard Exception in Client Loop: " + std::string(e.what()));
+            std::string msg = "Standard Exception in Client Loop: " + std::string(e.what());
+            LOG_ERROR("Session", msg);
+            reportError(ParsecError::UNEXPECTED_ERROR, msg);
             m_running = false;
         } catch (...) {
             LOG_ERROR("Session", "Unknown Exception in Client Loop");
+            reportError(ParsecError::UNEXPECTED_ERROR, "Unknown critical exception in client loop.");
             m_running = false;
         }
     }
