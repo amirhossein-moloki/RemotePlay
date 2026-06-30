@@ -232,7 +232,17 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
 
     if (m_internal->frame->format == AV_PIX_FMT_D3D11) {
         if (m_internal->frame->data[0]) {
-            *outTexture = m_internal->frame->data[0]; // ID3D11Texture2D*
+            ID3D11Texture2D* texture = (ID3D11Texture2D*)m_internal->frame->data[0];
+
+            // Safety check for D3D11 textures from FFmpeg
+            D3D11_TEXTURE2D_DESC desc;
+            texture->GetDesc(&desc);
+            if (desc.Width == 0 || desc.Height == 0) {
+                 LOG_ERROR("StreamTrace", "DECODER_TEXTURE_OUT_FAIL invalid_texture_dimensions");
+                 return false;
+            }
+
+            *outTexture = texture;
             if (outIndex) *outIndex = (int)(intptr_t)m_internal->frame->data[1];
             LOG_INFO("StreamTrace", "DECODER_TEXTURE_OUT hw=1 texture=" + std::to_string(reinterpret_cast<uintptr_t>(*outTexture)) +
                      " arrayIndex=" + std::to_string(outIndex ? *outIndex : 0));

@@ -49,7 +49,12 @@ enum class ParsecError {
     HANDSHAKE_TIMEOUT,
     HANDSHAKE_REJECTED,
     CONNECTION_LOST,
-    UNEXPECTED_ERROR
+    UNEXPECTED_ERROR,
+    DECODER_INIT_FAILED,
+    ENCODER_INIT_FAILED,
+    RENDERER_INIT_FAILED,
+    QSV_INIT_FAILED,
+    D3D11_DEVICE_LOST
 };
 
 typedef void (*ParsecConnectionCallback)(const char* username, const char* ip, uint16_t port);

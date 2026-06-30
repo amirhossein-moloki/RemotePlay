@@ -194,7 +194,7 @@ bool RendererD3D11::SetupVideoProcessor(int inWidth, int inHeight, int outWidth,
     }
 
     // Recreate if dimensions changed
-    if (m_videoProcessor) {
+    if (m_videoProcessor && m_videoEnumerator) {
         D3D11_VIDEO_PROCESSOR_CONTENT_DESC currentDesc;
         m_videoEnumerator->GetVideoProcessorContentDesc(&currentDesc);
         if (currentDesc.InputWidth == (UINT)inWidth && currentDesc.InputHeight == (UINT)inHeight &&
@@ -204,14 +204,14 @@ bool RendererD3D11::SetupVideoProcessor(int inWidth, int inHeight, int outWidth,
 
         // Release old processor
         if (m_inputView) { m_inputView->Release(); m_inputView = nullptr; }
-        m_lastInputTexture = nullptr;
+        if (m_lastInputTexture) { m_lastInputTexture->Release(); m_lastInputTexture = nullptr; }
         m_lastInputArrayIndex = -1;
         for (int i = 0; i < 8; i++) {
             if (m_outputViews[i]) { m_outputViews[i]->Release(); m_outputViews[i] = nullptr; }
             m_lastOutputTextures[i] = nullptr;
         }
-        m_videoProcessor->Release(); m_videoProcessor = nullptr;
-        m_videoEnumerator->Release(); m_videoEnumerator = nullptr;
+        if (m_videoProcessor) { m_videoProcessor->Release(); m_videoProcessor = nullptr; }
+        if (m_videoEnumerator) { m_videoEnumerator->Release(); m_videoEnumerator = nullptr; }
     }
 
     D3D11_VIDEO_PROCESSOR_CONTENT_DESC contentDesc = {};
@@ -251,6 +251,15 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
     LOG_INFO("StreamTrace", "RENDER_INPUT texture=" + std::to_string(reinterpret_cast<uintptr_t>(texture)) +
              " arrayIndex=" + std::to_string(arrayIndex));
 
+    if (m_device) {
+        HRESULT hr = m_device->GetDeviceRemovedReason();
+        if (FAILED(hr)) {
+            char hex[16]; snprintf(hex, sizeof(hex), "0x%08X", (uint32_t)hr);
+            LOG_ERROR("Renderer", "D3D11 Device Lost! Reason: " + std::string(hex));
+            return;
+        }
+    }
+
     D3D11_TEXTURE2D_DESC srcDesc;
     texture->GetDesc(&srcDesc);
     LOG_INFO("StreamTrace", "RENDER_TEXTURE_DESC width=" + std::to_string(srcDesc.Width) +
@@ -260,7 +269,9 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
     ID3D11Texture2D* backBuffer = nullptr;
     HRESULT hr = m_swapChain->GetBuffer(m_currentBufferIndex, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
     if (FAILED(hr) || !backBuffer) {
-        LOG_ERROR("Renderer", "Failed to get swap chain buffer.");
+        std::stringstream ss;
+        ss << "0x" << std::hex << hr;
+        LOG_ERROR("Renderer", "Failed to get swap chain buffer index " + std::to_string(m_currentBufferIndex) + ". HR: " + ss.str());
         return;
     }
 
