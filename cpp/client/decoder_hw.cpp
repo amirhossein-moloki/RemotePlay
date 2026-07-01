@@ -115,7 +115,10 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
 }
 
 bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture, int* outIndex, bool isHEVC) {
-    if (!m_internal) return false;
+    if (!m_internal || !m_internal->codecCtx) {
+        LOG_ERROR("Decoder", "Decoder not initialized.");
+        return false;
+    }
 
     if (isHEVC != m_internal->isHEVC) {
         LOG_INFO("Decoder", "Codec change detected: " + std::string(m_internal->isHEVC ? "HEVC" : "H.264") + " -> " + std::string(isHEVC ? "HEVC" : "H.264"));
@@ -235,6 +238,11 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
             ID3D11Texture2D* texture = (ID3D11Texture2D*)m_internal->frame->data[0];
 
             // Safety check for D3D11 textures from FFmpeg
+            if (!texture) {
+                LOG_ERROR("StreamTrace", "DECODER_TEXTURE_OUT_FAIL texture_null_despite_fmt_d3d11");
+                return false;
+            }
+
             D3D11_TEXTURE2D_DESC desc;
             texture->GetDesc(&desc);
             if (desc.Width == 0 || desc.Height == 0) {

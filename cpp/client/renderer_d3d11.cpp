@@ -133,7 +133,18 @@ bool RendererD3D11::Initialize(HWND hwnd, int width, int height) {
 }
 
 void RendererD3D11::NewFrame() {
-    if (!m_swapChain || !m_context) return;
+    if (!m_swapChain || !m_context || !m_device) return;
+
+    // Check for device loss
+    HRESULT hr = m_device->GetDeviceRemovedReason();
+    if (FAILED(hr)) {
+        static bool loggedOnce = false;
+        if (!loggedOnce) {
+            LOG_ERROR("Renderer", "Device Lost in NewFrame. HR: " + std::to_string((long)hr));
+            loggedOnce = true;
+        }
+        return;
+    }
 
     // Determine current backbuffer index for Flip Model
     if (m_bufferCount > 1) {
@@ -163,7 +174,10 @@ void RendererD3D11::NewFrame() {
 }
 
 void RendererD3D11::EndFrame() {
-    if (!m_context || !m_swapChain) return;
+    if (!m_context || !m_swapChain || !m_device) return;
+
+    // Check for device loss
+    if (FAILED(m_device->GetDeviceRemovedReason())) return;
 
     ImGui::Render();
     if (m_backBufferViews[m_currentBufferIndex]) {
@@ -234,8 +248,15 @@ bool RendererD3D11::SetupVideoProcessor(int inWidth, int inHeight, int outWidth,
 }
 
 void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
-    if (!m_context || !m_swapChain) {
+    if (!m_context || !m_swapChain || !m_device) {
         LOG_ERROR("StreamTrace", "RENDER_INPUT_INVALID resources null.");
+        return;
+    }
+
+    // Comprehensive check for device removal
+    HRESULT hr = m_device->GetDeviceRemovedReason();
+    if (FAILED(hr)) {
+        LOG_ERROR("Renderer", "Device Lost in Render! HR: " + std::to_string((long)hr));
         return;
     }
 
@@ -267,7 +288,7 @@ void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
              " format=" + std::to_string(srcDesc.Format));
 
     ID3D11Texture2D* backBuffer = nullptr;
-    HRESULT hr = m_swapChain->GetBuffer(m_currentBufferIndex, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
+    hr = m_swapChain->GetBuffer(m_currentBufferIndex, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
     if (FAILED(hr) || !backBuffer) {
         std::stringstream ss;
         ss << "0x" << std::hex << hr;

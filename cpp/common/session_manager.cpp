@@ -140,7 +140,8 @@ void SessionManager::runHost(ParsecConfig config) {
     } ctx;
 
     if (!ctx.net.Bind(config.selectedIp, 5005)) {
-        reportError(ParsecError::NETWORK_BIND_FAILED, "Failed to bind to " + std::string(config.selectedIp) + ":5005. Is the port already in use?");
+        std::string ipStr = config.selectedIp;
+        reportError(ParsecError::NETWORK_BIND_FAILED, "Failed to bind to " + ipStr + ":5005. Check if the IP is correct and the port is not in use.");
         m_running = false;
         return;
     }

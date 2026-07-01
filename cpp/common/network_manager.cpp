@@ -125,7 +125,11 @@ bool NetworkManager::Bind(const std::string& ip, uint16_t port) {
 
     if (bind(m_socket, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 #ifdef _WIN32
-        LOG_ERROR("Network", "Failed to bind to " + ip + ":" + std::to_string(port) + ". Error: " + std::to_string(WSAGetLastError()));
+        int err = WSAGetLastError();
+        LOG_ERROR("Network", "Failed to bind to " + ip + ":" + std::to_string(port) + ". Error: " + std::to_string(err));
+        if (err == 10049) {
+            LOG_ERROR("Network", "The requested address " + ip + " is not valid in this context. Please ensure you selected a valid network interface.");
+        }
 #endif
         return false;
     }
