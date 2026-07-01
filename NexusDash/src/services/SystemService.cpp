@@ -182,6 +182,8 @@ QString SystemService::getFriendlyError(int errorCode, const QString& technicalM
         translatedMsg = tr("کارت گرافیک ریست شده است (DXGI_ERROR_DEVICE_REMOVED). لطفاً درایور خود را بروزرسانی کنید.");
     } else if (msgLower.contains("0x887a0001")) {
         translatedMsg = tr("دسترسی به بافر تصویر امکان‌پذیر نیست (DXGI_ERROR_INVALID_CALL).");
+    } else if (msgLower.contains("10049")) {
+        translatedMsg = tr("آدرس IP انتخاب شده روی این دستگاه وجود ندارد. لطفاً رابط شبکه صحیح را انتخاب کنید.");
     }
 
     // If technical message contains a translated HRESULT, we might want to prioritize it or append it

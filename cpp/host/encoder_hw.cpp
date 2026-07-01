@@ -219,8 +219,9 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
 }
 
 bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) {
-    if (!m_internal->codecCtx || !texturePtr) {
-        LOG_ERROR("StreamTrace", "ENCODER_HW_INPUT_INVALID codecCtx=" + std::to_string(reinterpret_cast<uintptr_t>(m_internal->codecCtx)) +
+    if (!m_internal || !m_internal->codecCtx || !texturePtr) {
+        LOG_ERROR("StreamTrace", "ENCODER_HW_INPUT_INVALID m_internal=" + std::to_string(reinterpret_cast<uintptr_t>(m_internal)) +
+                  " codecCtx=" + (m_internal ? std::to_string(reinterpret_cast<uintptr_t>(m_internal->codecCtx)) : "null") +
                   " texture=" + std::to_string(reinterpret_cast<uintptr_t>(texturePtr)));
         return false;
     }
