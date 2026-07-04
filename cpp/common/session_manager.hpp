@@ -7,6 +7,7 @@
 #include <vector>
 #include <mutex>
 #include "parsec_lite_api.h"
+#include "crypto_manager.hpp"
 
 class SessionManager {
 public:
@@ -48,6 +49,7 @@ private:
         std::string username;
         bool approved = false;
         bool waiting = true;
+        std::vector<uint8_t> clientPublicKey;
     };
     std::vector<PendingClient> m_pendingClients;
     std::mutex m_pendingClientsMutex;

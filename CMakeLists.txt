@@ -18,6 +18,7 @@ set(COMMON_SOURCES
     cpp/common/config.cpp
     cpp/common/session_manager.cpp
     cpp/common/crash_handler.cpp
+    cpp/common/crypto_manager.cpp
 )
 
 set(HOST_SOURCES
@@ -146,9 +147,51 @@ if(WIN32)
         endif()
     endif()
 
+    # Search for libsodium (Windows)
+    set(LIBSODIUM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/libsodium")
+    find_path(LIBSODIUM_INCLUDE_DIR NAMES sodium.h PATHS "${LIBSODIUM_DIR}/include")
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(LIBSODIUM_ARCH x64)
+    else()
+        set(LIBSODIUM_ARCH Win32)
+    endif()
+    find_library(LIBSODIUM_LIBRARY NAMES libsodium PATHS "${LIBSODIUM_DIR}/${LIBSODIUM_ARCH}/Release/v142/dynamic")
+
+    if(LIBSODIUM_INCLUDE_DIR AND LIBSODIUM_LIBRARY)
+        target_include_directories(ParsecLiteCore PRIVATE ${LIBSODIUM_INCLUDE_DIR})
+        target_include_directories(parsec-lite PRIVATE ${LIBSODIUM_INCLUDE_DIR})
+        target_link_libraries(ParsecLiteCore PRIVATE ${LIBSODIUM_LIBRARY})
+        target_link_libraries(parsec-lite PRIVATE ${LIBSODIUM_LIBRARY})
+        target_compile_definitions(ParsecLiteCore PRIVATE PARSEC_LITE_ENABLE_SODIUM)
+        target_compile_definitions(parsec-lite PRIVATE PARSEC_LITE_ENABLE_SODIUM)
+
+        # Copy libsodium DLL to output
+        file(GLOB LIBSODIUM_DLLS "${LIBSODIUM_DIR}/${LIBSODIUM_ARCH}/Release/v142/dynamic/*.dll")
+        if(LIBSODIUM_DLLS)
+            add_custom_command(TARGET ParsecLiteCore POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LIBSODIUM_DLLS} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+                COMMENT "Copying libsodium DLLs to output"
+            )
+        endif()
+    endif()
+
     target_link_libraries(ParsecLiteCore PRIVATE ws2_32 iphlpapi d3d11 dxgi xinput shcore)
     target_link_libraries(parsec-lite PRIVATE ws2_32 iphlpapi d3d11 dxgi xinput shcore)
 else()
+    # Search for libsodium (Linux/Other)
+    find_package(PkgConfig)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(LIBSODIUM libsodium)
+        if(LIBSODIUM_FOUND)
+            target_include_directories(ParsecLiteCore PRIVATE ${LIBSODIUM_INCLUDE_DIRS})
+            target_include_directories(parsec-lite PRIVATE ${LIBSODIUM_INCLUDE_DIRS})
+            target_link_libraries(ParsecLiteCore PRIVATE ${LIBSODIUM_LIBRARIES})
+            target_link_libraries(parsec-lite PRIVATE ${LIBSODIUM_LIBRARIES})
+            target_compile_definitions(ParsecLiteCore PRIVATE PARSEC_LITE_ENABLE_SODIUM)
+            target_compile_definitions(parsec-lite PRIVATE PARSEC_LITE_ENABLE_SODIUM)
+        endif()
+    endif()
+
     target_link_libraries(ParsecLiteCore PRIVATE pthread)
     target_link_libraries(parsec-lite PRIVATE pthread)
 endif()

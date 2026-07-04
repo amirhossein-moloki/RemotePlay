@@ -13,7 +13,10 @@ enum class PacketType : uint8_t {
     Handshake = 0x04,
     FEC = 0x05,
     Feedback = 0x06,
-    HandshakeResponse = 0x07
+    HandshakeResponse = 0x07,
+    HandshakeSecure = 0x08,
+    HandshakeSecureResponse = 0x09,
+    Secure = 0x0A
 };
 
 // Input subtypes
@@ -30,6 +33,11 @@ enum class InputType : uint8_t {
 const uint16_t MAX_UDP_PAYLOAD = 1300;
 
 #pragma pack(push, 1)
+
+// Forward declarations
+struct SecureHeader;
+struct HandshakeSecurePacket;
+struct HandshakeSecureResponsePacket;
 
 // Video Packet Header
 struct VideoHeader {
@@ -116,13 +124,37 @@ struct GamepadStatusEvent {
     uint8_t isConnected;
 };
 
-// Handshake Packet (Client -> Host)
+// Secure Handshake Packet (Client -> Host)
+struct HandshakeSecurePacket {
+    uint8_t type;            // PacketType::HandshakeSecure
+    uint8_t clientPublicKey[32];
+    char username[32];
+};
+
+// Secure Handshake Response Packet (Host -> Client)
+struct HandshakeSecureResponsePacket {
+    uint8_t type;            // PacketType::HandshakeSecureResponse
+    uint8_t hostPublicKey[32];
+    uint8_t approved;        // 1: Approved, 0: Rejected
+    uint64_t sessionId;
+};
+
+// Secure Envelope Header
+struct SecureHeader {
+    uint8_t type;            // PacketType::Secure
+    uint64_t sessionId;
+    uint64_t sequenceNumber;
+    uint16_t encryptedSize;
+    uint8_t authTag[16];     // Poly1305 MAC
+};
+
+// Handshake Packet (Client -> Host) - DEPRECATED for WAN
 struct HandshakePacket {
     uint8_t type;            // PacketType::Handshake
     char username[32];
 };
 
-// Handshake Response Packet (Host -> Client)
+// Handshake Response Packet (Host -> Client) - DEPRECATED for WAN
 struct HandshakeResponsePacket {
     uint8_t type;            // PacketType::HandshakeResponse
     uint8_t approved;        // 1: Approved, 0: Rejected
