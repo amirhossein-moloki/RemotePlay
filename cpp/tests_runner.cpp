@@ -16,6 +16,10 @@
 #include "client/receiver.cpp"
 #include "client/jitter_buffer.hpp"
 #include "client/jitter_buffer.cpp"
+#include "common/crypto_manager.hpp"
+#include "common/crypto_manager.cpp"
+#include "common/logger.hpp"
+#include "common/logger.cpp"
 
 void TestProtocol() {
     std::cout << "Running Protocol Tests..." << std::endl;
@@ -262,6 +266,70 @@ void TestHandshakeProtocol() {
     std::cout << "Handshake Protocol Tests Passed!" << std::endl;
 }
 
+void TestSecurityLayer() {
+    std::cout << "Running Security Layer Tests..." << std::endl;
+    assert(Crypto::CryptoManager::Initialize());
+
+    // 1. Key Exchange
+    auto clientKP = Crypto::CryptoManager::GenerateX25519KeyPair();
+    auto hostKP = Crypto::CryptoManager::GenerateX25519KeyPair();
+
+    std::vector<uint8_t> clientRX, clientTX;
+    std::vector<uint8_t> hostRX, hostTX;
+
+    assert(Crypto::CryptoManager::DeriveSessionKeys(clientKP.publicKey, clientKP.privateKey, hostKP.publicKey, clientRX, clientTX, false));
+    assert(Crypto::CryptoManager::DeriveSessionKeys(hostKP.publicKey, hostKP.privateKey, clientKP.publicKey, hostRX, hostTX, true));
+
+    // Client's TX must match Host's RX
+    assert(clientTX == hostRX);
+    // Client's RX must match Host's TX
+    assert(clientRX == hostTX);
+    // Keys must be different in each direction
+    assert(clientTX != clientRX);
+
+    // 2. Encryption/Decryption
+    uint8_t plaintext[] = "Hello Secure World!";
+    size_t len = strlen((char*)plaintext);
+    uint8_t ad[] = "HeaderData";
+    uint64_t nonce = 12345;
+
+    uint8_t ciphertext[128];
+    uint8_t tag[16];
+    uint8_t decrypted[128];
+
+    // Client sends to Host
+    assert(Crypto::CryptoManager::Encrypt(plaintext, len, ad, sizeof(ad), nonce, clientTX, ciphertext, tag));
+    assert(Crypto::CryptoManager::Decrypt(ciphertext, len, tag, ad, sizeof(ad), nonce, hostRX, decrypted));
+    decrypted[len] = '\0';
+    assert(strcmp((char*)plaintext, (char*)decrypted) == 0);
+
+    // Test tamper resistance
+    ciphertext[0] ^= 0xFF;
+    assert(!Crypto::CryptoManager::Decrypt(ciphertext, len, tag, ad, sizeof(ad), nonce, hostRX, decrypted));
+    ciphertext[0] ^= 0xFF; // restore
+
+    tag[0] ^= 0xFF;
+    assert(!Crypto::CryptoManager::Decrypt(ciphertext, len, tag, ad, sizeof(ad), nonce, hostRX, decrypted));
+    tag[0] ^= 0xFF; // restore
+
+    // 3. Replay Protection
+    Client::Receiver receiver(10);
+    assert(receiver.ValidateSequence(100));
+    assert(receiver.ValidateSequence(105));
+    assert(receiver.ValidateSequence(102));
+    assert(!receiver.ValidateSequence(100)); // Duplicate
+    assert(!receiver.ValidateSequence(105)); // Duplicate
+    assert(!receiver.ValidateSequence(102)); // Duplicate
+    assert(receiver.ValidateSequence(101));
+    // assert(!receiver.ValidateSequence(50)); // Too old (if window advanced)
+
+    // Advance window significantly
+    assert(receiver.ValidateSequence(2000));
+    assert(!receiver.ValidateSequence(100)); // Now too old
+
+    std::cout << "Security Layer Tests Passed!" << std::endl;
+}
+
 int main() {
     try {
         TestProtocol();
@@ -273,6 +341,7 @@ int main() {
         TestJitterBuffer();
         TestGamepadProtocol();
         TestHandshakeProtocol();
+        TestSecurityLayer();
         std::cout << "\nAll Core Logic Tests Passed Successfully!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Test failed: " << e.what() << std::endl;

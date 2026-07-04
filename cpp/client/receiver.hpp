@@ -55,6 +55,9 @@ public:
     void ReturnToPool(FramePtr frame);
     void ReturnToPoolRaw(FrameData* frame);
 
+    // Replay protection
+    bool ValidateSequence(uint64_t sequenceNumber);
+
 private:
     FrameData* GetFromPoolInternalRaw();
     void ReturnToPoolInternalRaw(FrameData* frame);
@@ -71,6 +74,12 @@ private:
     uint32_t m_lastCompletedFrameId = 0;
     uint32_t m_nextFrameIdToRead = 0;
     bool m_firstFrameReceived = false;
+
+    // Sliding window replay protection
+    uint64_t m_maxSequenceReceived = 0;
+    std::vector<uint64_t> m_sequenceWindow; // Bitmask-based window
+    const size_t WINDOW_SIZE = 1024;
+
     std::mutex m_mutex;
 };
 

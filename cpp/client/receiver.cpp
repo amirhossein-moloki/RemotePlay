@@ -34,6 +34,7 @@ Receiver::Receiver(size_t poolSize) {
     for (size_t i = 0; i < 64; ++i) {
         *m_frameRing.get((uint32_t)i) = nullptr;
     }
+    m_sequenceWindow.resize(WINDOW_SIZE / 64, 0);
 }
 
 void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t* payload) {
@@ -289,6 +290,36 @@ void Receiver::ReturnToPoolInternalRaw(FrameData* frame) {
         }
         m_framePool.push_back(frame);
     }
+}
+
+bool Receiver::ValidateSequence(uint64_t seq) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    if (seq > m_maxSequenceReceived) {
+        // High-performance window advancement
+        uint64_t diff = seq - m_maxSequenceReceived;
+        if (diff >= WINDOW_SIZE) {
+            std::fill(m_sequenceWindow.begin(), m_sequenceWindow.end(), 0);
+        } else {
+            // Bit-level shift for replay window
+            for (uint64_t i = 0; i < diff; ++i) {
+                uint64_t targetSeq = m_maxSequenceReceived + i + 1;
+                size_t wordIdx = (targetSeq / 64) % (WINDOW_SIZE / 64);
+                m_sequenceWindow[wordIdx] &= ~(1ULL << (targetSeq % 64));
+            }
+        }
+        m_maxSequenceReceived = seq;
+    } else {
+        if (m_maxSequenceReceived - seq >= WINDOW_SIZE) return false;
+    }
+
+    size_t wordIdx = (seq / 64) % (WINDOW_SIZE / 64);
+    uint64_t bit = 1ULL << (seq % 64);
+
+    if (m_sequenceWindow[wordIdx] & bit) return false; // Replay
+
+    m_sequenceWindow[wordIdx] |= bit;
+    return true;
 }
 
 } // namespace Client
