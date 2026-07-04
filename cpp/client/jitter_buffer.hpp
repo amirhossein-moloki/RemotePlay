@@ -14,6 +14,7 @@ public:
 
     void PushFrame(Receiver::FramePtr frame);
     Receiver::FramePtr PopFrame();
+    Receiver::FramePtr PopFrame(uint64_t currentSyncTimeUs);
     void Reset(uint32_t nextExpectedId);
 
 private:

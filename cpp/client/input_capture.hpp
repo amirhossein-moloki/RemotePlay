@@ -30,6 +30,13 @@ private:
     XINPUT_STATE m_lastGamepadState[XUSER_MAX_COUNT] = { 0 };
     bool m_gamepadConnected[XUSER_MAX_COUNT] = { false };
     HWND m_hwnd = nullptr;
+
+    struct {
+        int32_t relX = 0;
+        int32_t relY = 0;
+        uint64_t lastSentUs = 0;
+        bool hasPending = false;
+    } m_mouseBatch;
 #endif
 
     template<typename T>
