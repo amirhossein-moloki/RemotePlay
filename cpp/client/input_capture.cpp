@@ -70,11 +70,24 @@ void InputCapture::HandleRawInput(LPARAM lParam) {
                 mm.screenWidth = rect.right - rect.left;
                 mm.screenHeight = rect.bottom - rect.top;
 
+                // AI Input Forecasting: Predict 16ms ahead to compensate for stream latency
+                uint64_t nowUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                m_inputPredictor.RecordInput(pt.x, pt.y, nowUs);
+                auto prediction = m_inputPredictor.Predict(nowUs + 16000);
+                mm.x = prediction.x;
+                mm.y = prediction.y;
+
                 // Only send if coordinates are within the client area to prevent "jumping" to 0,0 when clicking title bar
                 if (mm.x >= 0 && mm.y >= 0 && mm.x <= (int32_t)mm.screenWidth && mm.y <= (int32_t)mm.screenHeight) {
                     SendPacket(header, mm);
                 }
             } else if (isMovement) {
+                // AI Input Prediction
+                uint64_t nowUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                m_inputPredictor.RecordInput(raw->data.mouse.lLastX, raw->data.mouse.lLastY, nowUs);
+
                 // Game mode or cursor hidden: Use raw relative/absolute data
                 mm.isRelative = !isAbsoluteRaw;
                 mm.x = raw->data.mouse.lLastX;

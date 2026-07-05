@@ -5,6 +5,7 @@
 #include <memory>
 #include <mutex>
 #include "encoder_hw.hpp"
+#include "../ai/stream_engine.hpp"
 
 namespace Host {
 
@@ -58,7 +59,7 @@ public:
     bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool);
 
     void RequestKeyframe();
-    void UpdatePerformanceMetrics(float frameDropRate, float avgEncodeTimeMs, float clientDecodeTimeMs = -1.0f, int targetBitrateKbps = -1);
+    void UpdatePerformanceMetrics(float frameDropRate, float avgEncodeTimeMs, float clientDecodeTimeMs = -1.0f, int targetBitrateKbps = -1, AI::LatencyPrediction* aiPrediction = nullptr);
 
     QualityTier GetCurrentTier() const { return m_currentTier; }
     EncoderBackend GetCurrentBackend() const { return m_currentBackend; }
@@ -100,6 +101,9 @@ private:
     float m_lastFrameDropRate = 0.0f;
     float m_lastAvgEncodeTimeMs = 0.0f;
     uint64_t m_lastAdjustmentTime = 0;
+
+    // AI Components
+    std::unique_ptr<AI::StreamEngine> m_streamEngine;
 };
 
 } // namespace Host

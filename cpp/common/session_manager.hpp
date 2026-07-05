@@ -8,6 +8,8 @@
 #include <mutex>
 #include "parsec_lite_api.h"
 #include "crypto_manager.hpp"
+#include "../ai/latency_predictor.hpp"
+#include "../ai/intelligent_router.hpp"
 
 class SessionManager {
 public:
@@ -71,4 +73,8 @@ private:
     };
     std::vector<PendingClient> m_pendingClients;
     std::mutex m_pendingClientsMutex;
+
+    // AI Components
+    std::unique_ptr<AI::LatencyPredictor> m_latencyPredictor;
+    std::unique_ptr<AI::IntelligentRouter> m_intelligentRouter;
 };

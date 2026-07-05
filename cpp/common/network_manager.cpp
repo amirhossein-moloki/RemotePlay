@@ -223,7 +223,11 @@ int NetworkManager::ReceiveFrom(void* buffer, size_t maxSize, std::string& sende
 }
 
 bool NetworkManager::GetPublicEndpoint(const std::string& stunServer, uint16_t stunPort, std::string& publicIp, uint16_t& publicPort) {
-    if (m_socket == -1 || m_socket == (SOCKET)INVALID_SOCKET) return false;
+#ifdef _WIN32
+    if (m_socket == INVALID_SOCKET) return false;
+#else
+    if (m_socket == -1) return false;
+#endif
 
     // Simplified STUN Binding Request (RFC 5389)
     #pragma pack(push, 1)

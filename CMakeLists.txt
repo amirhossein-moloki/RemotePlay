@@ -21,6 +21,13 @@ set(COMMON_SOURCES
     cpp/common/crypto_manager.cpp
 )
 
+set(AI_SOURCES
+    cpp/ai/latency_predictor.cpp
+    cpp/ai/stream_engine.cpp
+    cpp/ai/intelligent_router.cpp
+    cpp/ai/input_predictor.cpp
+)
+
 set(HOST_SOURCES
     cpp/host/capture_dxgi.cpp
     cpp/host/encoder_hw.cpp
@@ -59,6 +66,7 @@ set(CLIENT_SOURCES
 add_library(ParsecLiteCore SHARED
     cpp/common/parsec_lite_api.cpp
     ${COMMON_SOURCES}
+    ${AI_SOURCES}
     ${HOST_SOURCES}
     ${CLIENT_SOURCES}
 )
