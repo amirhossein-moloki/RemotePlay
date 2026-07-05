@@ -12,6 +12,7 @@ namespace Host {
 
 EncoderManager::EncoderManager() {
     SetState(StreamingState::IDLE);
+    m_streamEngine = std::make_unique<AI::StreamEngine>();
 }
 
 EncoderManager::~EncoderManager() {
@@ -311,6 +312,12 @@ void EncoderManager::RequestKeyframe() {
 bool EncoderManager::EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool) {
     std::lock_guard<std::mutex> lock(m_encoderMutex);
 
+    // AI Frame Skipping Logic (if performance is critical)
+    if (m_state == StreamingState::DEGRADED && (rand() % 100 < 20)) {
+        LOG_INFO("EncoderManager", "AI: Skipping frame to maintain latency");
+        return true;
+    }
+
     if (!m_encoder || !m_encoder->IsInitialized()) {
         if (m_sessionLocked) {
             LOG_ERROR("EncoderManager", "Encoder not ready during locked session. Attempting re-init.");
@@ -326,7 +333,7 @@ bool EncoderManager::EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& o
     return true;
 }
 
-void EncoderManager::UpdatePerformanceMetrics(float frameDropRate, float avgEncodeTimeMs, float clientDecodeTimeMs, int targetBitrateKbps) {
+void EncoderManager::UpdatePerformanceMetrics(float frameDropRate, float avgEncodeTimeMs, float clientDecodeTimeMs, int targetBitrateKbps, AI::LatencyPrediction* aiPrediction) {
     std::lock_guard<std::mutex> lock(m_encoderMutex);
 
     if (targetBitrateKbps > 0 && m_encoder) {
@@ -335,6 +342,27 @@ void EncoderManager::UpdatePerformanceMetrics(float frameDropRate, float avgEnco
 
     if (frameDropRate >= 0) m_lastFrameDropRate = frameDropRate;
     if (avgEncodeTimeMs >= 0) m_lastAvgEncodeTimeMs = avgEncodeTimeMs;
+
+    // AI Stream Engine Integration
+    AI::StreamState aiState;
+    aiState.currentBitrateKbps = GetCurrentBitrate();
+    aiState.currentWidth = m_baseWidth;
+    aiState.currentHeight = m_baseHeight;
+    aiState.currentFPS = m_fps;
+    aiState.packetLoss = frameDropRate; // Use drop rate as proxy if loss not direct
+    aiState.rttMs = 0; // Will be updated if available
+
+    // Proactive AI Analysis
+    AI::LatencyPrediction activePred = aiPrediction ? *aiPrediction : AI::LatencyPrediction{0, 0, frameDropRate, 1.0f};
+    auto decision = m_streamEngine->Analyze(aiState, activePred);
+
+    if (decision.action == AI::AdaptationAction::EmergencyThrottle || decision.action == AI::AdaptationAction::DecreaseBitrate) {
+        LOG_INFO("EncoderManager", "AI Decision: " + decision.reason);
+        if (m_encoder) m_encoder->SetBitrate(decision.targetBitrateKbps);
+        if (decision.targetWidth != m_baseWidth) {
+             // Handle resolution change if needed
+        }
+    }
 
     uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 

@@ -53,6 +53,9 @@ struct CapturedFrame {
 void SessionManager::startSession(ParsecConfig config) {
     if (m_running) stopSession();
 
+    m_latencyPredictor = std::make_unique<AI::LatencyPredictor>();
+    m_intelligentRouter = std::make_unique<AI::IntelligentRouter>();
+
     if (!Crypto::CryptoManager::Initialize()) {
         reportError(ParsecError::UNEXPECTED_ERROR, "Failed to initialize cryptography subsystem.");
         return;
@@ -648,7 +651,19 @@ void SessionManager::runHost(ParsecConfig config) {
                                     Protocol::FeedbackHeader* fh = (Protocol::FeedbackHeader*)decrypted;
                                     Profiler::getInstance().recordValue("Network_LossRate", fh->lossRate);
                                     Profiler::getInstance().recordValue("Network_RTT", (double)fh->rttMs);
-                                    targetClient->encoder->UpdatePerformanceMetrics(fh->lossRate, -1.0f, fh->avgDecodeTimeMs, fh->targetBitrateKbps);
+
+                                    // Feed AI Latency Predictor
+                                    AI::NetworkMetrics metrics;
+                                    metrics.rttMs = (float)fh->rttMs;
+                                    metrics.packetLossRate = fh->lossRate;
+                                    metrics.jitterMs = 0; // Derived if needed
+                                    metrics.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+                                    m_latencyPredictor->RecordMetrics(metrics);
+
+                                    // Get AI Prediction
+                                    auto prediction = m_latencyPredictor->Predict(200); // 200ms lookahead
+
+                                    targetClient->encoder->UpdatePerformanceMetrics(fh->lossRate, -1.0f, fh->avgDecodeTimeMs, fh->targetBitrateKbps, &prediction);
                                     if (fh->requestKeyframe) {
                                         LOG_INFO("Session", "Keyframe requested by client " + senderIp);
                                         targetClient->encoder->RequestKeyframe();
@@ -891,13 +906,24 @@ void SessionManager::runClient(ParsecConfig config) {
     auto lastHandshakeSend = std::chrono::steady_clock::now();
     LOG_INFO("Session", "Sending Secure Handshake to " + std::string(config.hostIp));
 
-    // WAN Connection Strategy: Attempt all discovered candidates
+    // WAN Connection Strategy: Attempt all discovered candidates (Intelligent Router optimized)
     auto attemptHandshake = [&]() {
         net.SendTo(&hp, sizeof(hp), config.hostIp, 5005); // Direct/Configured IP
+
+        std::vector<AI::RouteCandidate> aiCandidates;
         for (const auto& cand : clientCandidates) {
-             if (cand.priority == 1) { // Srflx
-                 net.SendTo(&hp, sizeof(hp), cand.ip, cand.port);
-             }
+            // Priority: 0 (LAN) -> 50ms, 1 (Srflx) -> 100ms, 2 (Relay) -> 200ms
+            float baseLat = (cand.priority == 0) ? 50.0f : ((cand.priority == 1) ? 100.0f : 200.0f);
+            aiCandidates.push_back({ cand.ip, cand.ip, cand.port, baseLat, 0, 0 });
+        }
+
+        auto ranked = m_intelligentRouter->RankRoutes(aiCandidates);
+        for (const auto& score : ranked) {
+            for (const auto& cand : clientCandidates) {
+                if (cand.ip == score.id) {
+                    net.SendTo(&hp, sizeof(hp), cand.ip, cand.port);
+                }
+            }
         }
     };
 

@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstring>
 #include "../common/protocol.hpp"
+#include "../ai/input_predictor.hpp"
 
 namespace Client {
 
@@ -52,6 +53,9 @@ private:
     }
 
     InputCallback m_callback;
+
+    // AI Components
+    AI::InputPredictor m_inputPredictor;
 };
 
 } // namespace Client
