@@ -20,6 +20,7 @@
 #include "common/crypto_manager.cpp"
 #include "common/logger.hpp"
 #include "common/logger.cpp"
+#include "common/clock_sync.hpp"
 
 void TestProtocol() {
     std::cout << "Running Protocol Tests..." << std::endl;
@@ -250,6 +251,9 @@ void TestJitterBuffer() {
 
 void TestHandshakeProtocol() {
     std::cout << "Running Handshake Protocol Tests..." << std::endl;
+    assert(sizeof(Protocol::AudioHeader) == 15);
+    assert(sizeof(Protocol::TimeSyncPacket) == 9);
+    assert(sizeof(Protocol::TimeSyncResponsePacket) == 25);
     assert(sizeof(Protocol::HandshakePacket) == 33);
     assert(sizeof(Protocol::HandshakeResponsePacket) == 2);
 
@@ -264,6 +268,25 @@ void TestHandshakeProtocol() {
     assert(hrp.approved == 1);
 
     std::cout << "Handshake Protocol Tests Passed!" << std::endl;
+}
+
+void TestClockSync() {
+    std::cout << "Running ClockSync Tests..." << std::endl;
+    Common::ClockSync sync;
+
+    // Simulating a round trip
+    uint64_t t0 = 1000; // Client send
+    uint64_t t1 = 2000; // Host receive (Host clock is 1000 ahead)
+    uint64_t t2 = 2100; // Host send
+    uint64_t t3 = 1200; // Client receive (RTT = 200 - 100 = 100)
+
+    sync.ProcessResponse(t0, t1, t2, t3);
+    // RTT = (t3 - t0) - (t2 - t1) = (1200 - 1000) - (2100 - 2000) = 200 - 100 = 100
+    // Offset = ((t1 - t0) + (t2 - t3)) / 2 = ((2000 - 1000) + (2100 - 1200)) / 2 = (1000 + 900) / 2 = 950
+    assert(sync.GetRTT() == 100);
+    assert(sync.GetHostTime(1000) == 1950);
+
+    std::cout << "ClockSync Tests Passed!" << std::endl;
 }
 
 void TestSecurityLayer() {
@@ -341,6 +364,7 @@ int main() {
         TestJitterBuffer();
         TestGamepadProtocol();
         TestHandshakeProtocol();
+        TestClockSync();
         TestSecurityLayer();
         std::cout << "\nAll Core Logic Tests Passed Successfully!" << std::endl;
     } catch (const std::exception& e) {

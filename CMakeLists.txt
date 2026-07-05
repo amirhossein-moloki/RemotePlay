@@ -25,6 +25,8 @@ set(HOST_SOURCES
     cpp/host/capture_dxgi.cpp
     cpp/host/encoder_hw.cpp
     cpp/host/encoder_manager.cpp
+    cpp/host/audio_capture.cpp
+    cpp/host/audio_encoder.cpp
     cpp/host/input_injector.cpp
 )
 
@@ -38,6 +40,8 @@ endif()
 set(CLIENT_SOURCES
     cpp/client/receiver.cpp
     cpp/client/decoder_hw.cpp
+    cpp/client/audio_decoder.cpp
+    cpp/client/audio_renderer.cpp
     cpp/client/input_capture.cpp
     cpp/client/jitter_buffer.cpp
     cpp/client/renderer_d3d11.cpp

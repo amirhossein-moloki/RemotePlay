@@ -16,7 +16,9 @@ enum class PacketType : uint8_t {
     HandshakeResponse = 0x07,
     HandshakeSecure = 0x08,
     HandshakeSecureResponse = 0x09,
-    Secure = 0x0A
+    Secure = 0x0A,
+    Audio = 0x0B,
+    TimeSync = 0x0C
 };
 
 // Input subtypes
@@ -53,6 +55,14 @@ struct VideoHeader {
     uint16_t dataSize;       // Size of the following payload
 };
 
+// Audio Packet Header
+struct AudioHeader {
+    uint8_t type;            // PacketType::Audio
+    uint32_t frameId;        // Audio frame sequence
+    uint64_t timestamp;      // Global clock timestamp (microseconds)
+    uint16_t dataSize;       // Size of the Opus payload
+};
+
 // FEC Packet Header (XOR based)
 struct FECHeader {
     uint8_t type;            // PacketType::FEC
@@ -71,6 +81,8 @@ struct FeedbackHeader {
     uint32_t rttMs;
     float avgDecodeTimeMs;
     uint8_t requestKeyframe; // 1 to request an IDR frame, 0 otherwise
+    uint16_t targetBitrateKbps; // ABR: Client-side suggested bitrate
+    float resolutionScale;      // ABR: Client-side suggested resolution scale
 };
 
 // Input Packet Header
@@ -78,6 +90,20 @@ struct InputHeader {
     uint8_t type;            // PacketType::Input
     uint8_t inputType;       // InputType subtype
     uint64_t timestamp;      // Client-side capture timestamp (microseconds)
+};
+
+// Time Sync Packet (Client -> Host)
+struct TimeSyncPacket {
+    uint8_t type;            // PacketType::TimeSync
+    uint64_t clientSendTimestamp;
+};
+
+// Time Sync Response (Host -> Client)
+struct TimeSyncResponsePacket {
+    uint8_t type;            // PacketType::TimeSync
+    uint64_t clientSendTimestamp;
+    uint64_t hostReceiveTimestamp;
+    uint64_t hostSendTimestamp;
 };
 
 // Keyboard Event

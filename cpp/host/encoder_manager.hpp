@@ -58,7 +58,7 @@ public:
     bool EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& outPackets, PacketPool& pool);
 
     void RequestKeyframe();
-    void UpdatePerformanceMetrics(float frameDropRate, float avgEncodeTimeMs, float clientDecodeTimeMs = -1.0f);
+    void UpdatePerformanceMetrics(float frameDropRate, float avgEncodeTimeMs, float clientDecodeTimeMs = -1.0f, int targetBitrateKbps = -1);
 
     QualityTier GetCurrentTier() const { return m_currentTier; }
     EncoderBackend GetCurrentBackend() const { return m_currentBackend; }

@@ -22,12 +22,17 @@
 #include <windows.h>
 #include "host/capture_dxgi.hpp"
 #include "host/encoder_manager.hpp"
+#include "host/audio_capture.hpp"
+#include "host/audio_encoder.hpp"
 #include "host/input_injector.hpp"
 #include "client/receiver.hpp"
 #include "client/decoder_hw.hpp"
+#include "client/audio_decoder.hpp"
+#include "client/audio_renderer.hpp"
 #include "client/input_capture.hpp"
 #include "client/renderer_d3d11.hpp"
 #include "client/jitter_buffer.hpp"
+#include "clock_sync.hpp"
 #endif
 
 #include <chrono>
@@ -116,8 +121,11 @@ void SessionManager::runHost(ParsecConfig config) {
         std::string ip;
         uint16_t port;
         std::unique_ptr<Host::EncoderManager> encoder;
+        std::unique_ptr<Host::AudioCapture> audioCapture;
+        std::unique_ptr<Host::AudioEncoder> audioEncoder;
         LockFreeQueue<std::vector<Host::EncodedPacket>, 4> encodeQueue;
         uint32_t frameId = 0;
+        uint32_t audioFrameId = 0;
 
         // Security
         std::vector<uint8_t> txKey;
@@ -486,6 +494,8 @@ void SessionManager::runHost(ParsecConfig config) {
                                 newState->port = senderPort;
                                 newState->clientPublicKey = clientPubKey;
                                 newState->encoder = std::make_unique<Host::EncoderManager>();
+                                newState->audioCapture = std::make_unique<Host::AudioCapture>();
+                                newState->audioEncoder = std::make_unique<Host::AudioEncoder>();
                                 newState->lastActivity = std::chrono::steady_clock::now();
 
                                 // Key Exchange
@@ -501,6 +511,44 @@ void SessionManager::runHost(ParsecConfig config) {
                                 newState->sessionId = sessionID;
 
                                 if (newState->encoder->Initialize(ctx.capturedWidth, ctx.capturedHeight, config.fps, ctx.capture.GetDevice(), config.useHardwareEncoding)) {
+                                    newState->audioEncoder->Initialize(48000, 2, 128000);
+                                    newState->audioCapture->Initialize([this, &ctx, newState](const float* data, size_t samples) {
+                                        std::vector<uint8_t> opus;
+                                        if (newState->audioEncoder->Encode(data, samples, opus)) {
+                                            auto udpPkt = ctx.udpPool.acquire();
+                                            if (udpPkt) {
+                                                Protocol::AudioHeader* ah = (Protocol::AudioHeader*)udpPkt->data.data();
+                                                ah->type = (uint8_t)Protocol::PacketType::Audio;
+                                                ah->frameId = newState->audioFrameId++;
+                                                ah->timestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                                                ah->dataSize = (uint16_t)opus.size();
+                                                memcpy(udpPkt->data.data() + sizeof(Protocol::AudioHeader), opus.data(), opus.size());
+
+                                                auto securePkt = ctx.udpPool.acquire();
+                                                if (securePkt) {
+                                                    Protocol::SecureHeader* sh = (Protocol::SecureHeader*)securePkt->data.data();
+                                                    sh->type = (uint8_t)Protocol::PacketType::Secure;
+                                                    sh->sessionId = newState->sessionId;
+                                                    sh->sequenceNumber = newState->sendSequenceNumber++;
+                                                    sh->encryptedSize = sizeof(Protocol::AudioHeader) + ah->dataSize;
+
+                                                    if (Crypto::CryptoManager::Encrypt(udpPkt->data.data(), sh->encryptedSize,
+                                                                                    (uint8_t*)&sh->sessionId, sizeof(Protocol::SecureHeader) - 16,
+                                                                                    sh->sequenceNumber, newState->txKey,
+                                                                                    securePkt->data.data() + sizeof(Protocol::SecureHeader),
+                                                                                    sh->authTag)) {
+                                                        securePkt->size = sizeof(Protocol::SecureHeader) + sh->encryptedSize;
+                                                        ctx.sendQueue.push({std::move(securePkt), newState->ip, newState->port});
+                                                    } else {
+                                                        ctx.udpPool.release(std::move(securePkt));
+                                                    }
+                                                }
+                                                ctx.udpPool.release(std::move(udpPkt));
+                                            }
+                                        }
+                                    });
+                                    newState->audioCapture->Start();
+
                                     {
                                         std::lock_guard<std::mutex> lock(ctx.clientsMutex);
                                         ctx.clients.push_back(newState);
@@ -584,10 +632,32 @@ void SessionManager::runHost(ParsecConfig config) {
                                     Protocol::FeedbackHeader* fh = (Protocol::FeedbackHeader*)decrypted;
                                     Profiler::getInstance().recordValue("Network_LossRate", fh->lossRate);
                                     Profiler::getInstance().recordValue("Network_RTT", (double)fh->rttMs);
-                                    targetClient->encoder->UpdatePerformanceMetrics(fh->lossRate, -1.0f, fh->avgDecodeTimeMs);
+                                    targetClient->encoder->UpdatePerformanceMetrics(fh->lossRate, -1.0f, fh->avgDecodeTimeMs, fh->targetBitrateKbps);
                                     if (fh->requestKeyframe) {
                                         LOG_INFO("Session", "Keyframe requested by client " + senderIp);
                                         targetClient->encoder->RequestKeyframe();
+                                    }
+                                } else if (innerType == Protocol::PacketType::TimeSync && sh->encryptedSize >= (int)sizeof(Protocol::TimeSyncPacket)) {
+                                    Protocol::TimeSyncPacket* tsp = (Protocol::TimeSyncPacket*)decrypted;
+                                    Protocol::TimeSyncResponsePacket tsrp;
+                                    tsrp.type = (uint8_t)Protocol::PacketType::TimeSync;
+                                    tsrp.clientSendTimestamp = tsp->clientSendTimestamp;
+                                    tsrp.hostReceiveTimestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                                    tsrp.hostSendTimestamp = tsrp.hostReceiveTimestamp; // Minimal processing delay
+
+                                    uint8_t secureBuf[512];
+                                    Protocol::SecureHeader* sh_out = (Protocol::SecureHeader*)secureBuf;
+                                    sh_out->type = (uint8_t)Protocol::PacketType::Secure;
+                                    sh_out->sessionId = targetClient->sessionId;
+                                    sh_out->sequenceNumber = targetClient->sendSequenceNumber++;
+                                    sh_out->encryptedSize = sizeof(tsrp);
+
+                                    if (Crypto::CryptoManager::Encrypt((uint8_t*)&tsrp, sizeof(tsrp),
+                                                                    (uint8_t*)&sh_out->sessionId, sizeof(Protocol::SecureHeader) - 16,
+                                                                    sh_out->sequenceNumber, targetClient->txKey,
+                                                                    secureBuf + sizeof(Protocol::SecureHeader),
+                                                                    sh_out->authTag)) {
+                                        ctx.net.SendTo(secureBuf, sizeof(Protocol::SecureHeader) + sizeof(tsrp), senderIp, senderPort);
                                     }
                                 }
                             }
@@ -652,6 +722,9 @@ void SessionManager::runClient(ParsecConfig config) {
     Client::JitterBuffer jitterBuffer(10);
     Client::DecoderHW decoder;
     Client::RendererD3D11 renderer;
+    Client::AudioDecoder audioDecoder;
+    Client::AudioRenderer audioRenderer;
+    Common::ClockSync clockSync;
 
     std::string hostIpStr(config.hostIp);
     bool isLoopback = (hostIpStr == "127.0.0.1" || hostIpStr == "localhost" || hostIpStr == "::1");
@@ -734,8 +807,17 @@ void SessionManager::runClient(ParsecConfig config) {
                                     Protocol::VideoHeader* vh = (Protocol::VideoHeader*)decrypted;
                                     receiver.ProcessPacket(*vh, decrypted + sizeof(Protocol::VideoHeader));
                                     lastFrameId = std::max((uint32_t)lastFrameId, vh->frameId);
+                                } else if (innerType == Protocol::PacketType::Audio && sh->encryptedSize >= sizeof(Protocol::AudioHeader)) {
+                                    Protocol::AudioHeader* ah = (Protocol::AudioHeader*)decrypted;
+                                    std::vector<float> pcm;
+                                    if (audioDecoder.Decode(decrypted + sizeof(Protocol::AudioHeader), ah->dataSize, pcm)) {
+                                        audioRenderer.PushSamples(pcm.data(), pcm.size());
+                                    }
+                                } else if (innerType == Protocol::PacketType::TimeSync && sh->encryptedSize >= sizeof(Protocol::TimeSyncResponsePacket)) {
+                                    Protocol::TimeSyncResponsePacket* tsrp = (Protocol::TimeSyncResponsePacket*)decrypted;
+                                    clockSync.ProcessResponse(tsrp->clientSendTimestamp, tsrp->hostReceiveTimestamp, tsrp->hostSendTimestamp,
+                                                              std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count());
                                 }
-                                // Handle other types (Audio, etc) if added
                             }
                         }
                     }
@@ -801,6 +883,8 @@ void SessionManager::runClient(ParsecConfig config) {
     bool requestKeyframe = false;
     uint32_t lastReportedMissingFrameId = 0;
 
+    auto lastTimeSync = std::chrono::steady_clock::now();
+
     while (m_running) {
         try {
             auto now = std::chrono::steady_clock::now();
@@ -815,6 +899,7 @@ void SessionManager::runClient(ParsecConfig config) {
 
             if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFeedbackTime).count() >= 1000 || requestKeyframe) {
                 if (sessionId != 0) {
+                    // Send Feedback
                     Protocol::FeedbackHeader fh;
                     fh.type = (uint8_t)Protocol::PacketType::Feedback;
                     fh.lastReceivedFrameId = lastFrameId;
@@ -850,6 +935,30 @@ void SessionManager::runClient(ParsecConfig config) {
                 }
             }
 
+            if (std::chrono::duration_cast<std::chrono::seconds>(now - lastTimeSync).count() >= 2) {
+                if (sessionId != 0) {
+                    Protocol::TimeSyncPacket tsp;
+                    tsp.type = (uint8_t)Protocol::PacketType::TimeSync;
+                    tsp.clientSendTimestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+
+                    uint8_t secureBuf[512];
+                    Protocol::SecureHeader* sh = (Protocol::SecureHeader*)secureBuf;
+                    sh->type = (uint8_t)Protocol::PacketType::Secure;
+                    sh->sessionId = sessionId;
+                    sh->sequenceNumber = sendSequenceNumber++;
+                    sh->encryptedSize = sizeof(tsp);
+
+                    if (Crypto::CryptoManager::Encrypt((uint8_t*)&tsp, sizeof(tsp),
+                                                       (uint8_t*)&sh->sessionId, sizeof(Protocol::SecureHeader) - 16,
+                                                       sh->sequenceNumber, txKey,
+                                                       secureBuf + sizeof(Protocol::SecureHeader),
+                                                       sh->authTag)) {
+                        net.SendTo(secureBuf, sizeof(Protocol::SecureHeader) + sizeof(tsp), config.hostIp, 5005);
+                    }
+                    lastTimeSync = now;
+                }
+            }
+
             // Recovery logic: Scan for keyframes ahead of the current blocked read pointer.
             // This is done OUTSIDE GetNextFrame to bypass Head-of-Line blocking.
             uint32_t latestKeyframe = receiver.FindLatestAvailableKeyframe();
@@ -866,7 +975,8 @@ void SessionManager::runClient(ParsecConfig config) {
 
             if (useRenderer) renderer.NewFrame();
 
-            auto frame = jitterBuffer.PopFrame();
+            uint64_t syncTime = clockSync.IsSynchronized() ? clockSync.GetHostTime(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count()) : 0;
+            auto frame = jitterBuffer.PopFrame(syncTime);
             if (frame) {
                 uint32_t currentFid = frame->frameId;
                 uint64_t decodeStart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();

@@ -67,30 +67,40 @@ void JitterBuffer::PushFrame(Receiver::FramePtr frame) {
 }
 
 Receiver::FramePtr JitterBuffer::PopFrame() {
+    return PopFrame(0);
+}
+
+Receiver::FramePtr JitterBuffer::PopFrame(uint64_t currentSyncTimeUs) {
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    // Enforce strict ordering. Skipping frames in H.264 stream without IDR frames
-    // leads to massive flickering and artifacts.
     uint32_t fid = m_nextPopFrameId;
     auto* info = m_info.get(fid);
 
     if (info->occupied && info->frameId == fid) {
-        // Target delay is based on measured jitter to smooth out delivery.
-        double targetDelayMs = std::clamp(m_avgJitterMs * 1.1, 1.0, 20.0);
+        auto* entry = m_ring.get(fid);
 
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(now - info->pushTime).count() / 1000.0;
+        // If we have a sync time, use it for A/V alignment
+        if (currentSyncTimeUs > 0) {
+            if ((*entry)->captureTimestamp > currentSyncTimeUs + 5000) {
+                // Too early, wait
+                return Receiver::FramePtr(nullptr, Receiver::FrameDeleter{nullptr});
+            }
+        } else {
+            // Original jitter-based logic
+            double targetDelayMs = std::clamp(m_avgJitterMs * 1.1, 1.0, 20.0);
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(now - info->pushTime).count() / 1000.0;
 
-        // Pop if it's been in the buffer long enough, or if we are exceeding max buffer capacity.
-        // If we are over capacity, we still pop in order to try and maintain stream continuity.
-        if (elapsed >= targetDelayMs || m_count >= m_maxFrames) {
-            auto* entry = m_ring.get(fid);
-            auto frame = std::move(*entry);
-            info->occupied = false;
-            m_count--;
-            m_nextPopFrameId++;
-            return frame;
+            if (elapsed < targetDelayMs && m_count < m_maxFrames) {
+                return Receiver::FramePtr(nullptr, Receiver::FrameDeleter{nullptr});
+            }
         }
+
+        auto frame = std::move(*entry);
+        info->occupied = false;
+        m_count--;
+        m_nextPopFrameId++;
+        return frame;
     }
 
     return Receiver::FramePtr(nullptr, Receiver::FrameDeleter{nullptr});

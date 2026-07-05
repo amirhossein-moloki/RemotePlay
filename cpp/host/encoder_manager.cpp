@@ -326,8 +326,12 @@ bool EncoderManager::EncodeFrame(void* texturePtr, std::vector<EncodedPacket>& o
     return true;
 }
 
-void EncoderManager::UpdatePerformanceMetrics(float frameDropRate, float avgEncodeTimeMs, float clientDecodeTimeMs) {
+void EncoderManager::UpdatePerformanceMetrics(float frameDropRate, float avgEncodeTimeMs, float clientDecodeTimeMs, int targetBitrateKbps) {
     std::lock_guard<std::mutex> lock(m_encoderMutex);
+
+    if (targetBitrateKbps > 0 && m_encoder) {
+        m_encoder->SetBitrate(targetBitrateKbps);
+    }
 
     if (frameDropRate >= 0) m_lastFrameDropRate = frameDropRate;
     if (avgEncodeTimeMs >= 0) m_lastAvgEncodeTimeMs = avgEncodeTimeMs;

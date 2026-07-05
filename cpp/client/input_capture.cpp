@@ -80,13 +80,32 @@ void InputCapture::HandleRawInput(LPARAM lParam) {
                 mm.x = raw->data.mouse.lLastX;
                 mm.y = raw->data.mouse.lLastY;
 
-                if (!mm.isRelative) {
+                if (mm.isRelative) {
+                    // BATCHING: Accumulate relative movement
+                    m_mouseBatch.relX += mm.x;
+                    m_mouseBatch.relY += mm.y;
+                    m_mouseBatch.hasPending = true;
+
+                    uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+
+                    // Send if 4ms elapsed (250Hz max rate for mouse deltas)
+                    if (now - m_mouseBatch.lastSentUs >= 4000) {
+                        mm.x = m_mouseBatch.relX;
+                        mm.y = m_mouseBatch.relY;
+                        SendPacket(header, mm);
+                        m_mouseBatch.relX = 0;
+                        m_mouseBatch.relY = 0;
+                        m_mouseBatch.lastSentUs = now;
+                        m_mouseBatch.hasPending = false;
+                    }
+                } else {
                     RECT rect;
                     GetClientRect(m_hwnd, &rect);
                     mm.screenWidth = rect.right - rect.left;
                     mm.screenHeight = rect.bottom - rect.top;
+                    SendPacket(header, mm);
                 }
-                SendPacket(header, mm);
             }
         }
 
