@@ -137,6 +137,14 @@ void SessionManager::runHost(ParsecConfig config) {
         uint64_t sessionId = 0;
         std::atomic<uint64_t> sendSequenceNumber{0};
         std::chrono::steady_clock::time_point lastActivity;
+
+        struct CachedPacket {
+            std::vector<uint8_t> data;
+            uint32_t frameId;
+            uint16_t fragmentIndex;
+            bool occupied = false;
+        };
+        FixedRingBuffer<CachedPacket, 512> packetCache;
     };
 
     struct HostContext {
@@ -147,8 +155,12 @@ void SessionManager::runHost(ParsecConfig config) {
         std::vector<std::shared_ptr<ClientState>> clients;
         std::mutex initializingMutex;
         std::set<std::pair<std::string, uint16_t>> initializingClients;
+        struct InitThread {
+            std::thread thread;
+            std::shared_ptr<std::atomic<bool>> finished;
+        };
         std::mutex initThreadsMutex;
-        std::vector<std::thread> initThreads;
+        std::vector<InitThread> initThreads;
         LockFreeQueue<CapturedFrame, 2> captureQueue;
         LockFreeQueue<OutgoingPacket, 4096> sendQueue;
         PacketPool packetPool{200, 1024 * 1024};
@@ -397,6 +409,15 @@ void SessionManager::runHost(ParsecConfig config) {
                                 break;
                             }
 
+                            // Cache for potential retransmission
+                            // Use bit-shifting for collision-resistant indexing (e.g., lower bits of frameId and fragmentIndex)
+                            uint32_t cacheIdx = (vh->frameId << 6) ^ vh->fragmentIndex;
+                            auto* cached = client->packetCache.get(cacheIdx);
+                            cached->frameId = vh->frameId;
+                            cached->fragmentIndex = vh->fragmentIndex;
+                            cached->data.assign(securePkt->data.begin(), securePkt->data.begin() + securePkt->size);
+                            cached->occupied = true;
+
                             if (!ctx.sendQueue.push({std::move(udpPkt), client->ip, client->port})) {
                                 LOG_ERROR("StreamTrace", "SEND_QUEUE_DROP frameId=" + std::to_string(client->frameId) +
                                           " fragment=" + std::to_string(i) + "/" + std::to_string(totalFrags));
@@ -507,7 +528,17 @@ void SessionManager::runHost(ParsecConfig config) {
                         } else if (!isInitializing) {
                             std::vector<uint8_t> clientPubKey(hp->clientPublicKey, hp->clientPublicKey + 32);
                             std::lock_guard<std::mutex> lock(ctx.initThreadsMutex);
-                            ctx.initThreads.emplace_back([&ctx, senderIp, senderPort, config, clientPubKey, username, this]() {
+
+                            auto it = ctx.initThreads.begin();
+                            while (it != ctx.initThreads.end()) {
+                                if (it->finished->load()) {
+                                    if (it->thread.joinable()) it->thread.join();
+                                    it = ctx.initThreads.erase(it);
+                                } else ++it;
+                            }
+
+                            auto finishedFlag = std::make_shared<std::atomic<bool>>(false);
+                            ctx.initThreads.push_back({ std::thread([&ctx, senderIp, senderPort, config, clientPubKey, username, this, finishedFlag]() {
                                 auto newState = std::make_shared<ClientState>();
                                 newState->ip = senderIp;
                                 newState->port = senderPort;
@@ -522,6 +553,8 @@ void SessionManager::runHost(ParsecConfig config) {
                                 if (!Crypto::CryptoManager::DeriveSessionKeys(hostKeyPair.publicKey, hostKeyPair.privateKey, clientPubKey,
                                                                               newState->rxKey, newState->txKey, true)) {
                                     LOG_ERROR("Session", "Key derivation failed for " + senderIp);
+                                    std::lock_guard<std::mutex> lock(ctx.initializingMutex);
+                                    ctx.initializingClients.erase({senderIp, senderPort});
                                     return;
                                 }
 
@@ -594,7 +627,8 @@ void SessionManager::runHost(ParsecConfig config) {
                                     std::lock_guard<std::mutex> lock(ctx.initializingMutex);
                                     ctx.initializingClients.erase({senderIp, senderPort});
                                 }
-                            });
+                                finishedFlag->store(true);
+                            }), finishedFlag });
                         }
                     }
                 } else if (type == Protocol::PacketType::Secure && len >= (int)sizeof(Protocol::SecureHeader)) {
@@ -668,6 +702,19 @@ void SessionManager::runHost(ParsecConfig config) {
                                         LOG_INFO("Session", "Keyframe requested by client " + senderIp);
                                         targetClient->encoder->RequestKeyframe();
                                     }
+                                } else if (innerType == Protocol::PacketType::RetransmitRequest && sh->encryptedSize >= (int)sizeof(Protocol::RetransmitRequestPacket)) {
+                                    Protocol::RetransmitRequestPacket* rrp = (Protocol::RetransmitRequestPacket*)decrypted;
+                                    uint32_t cacheIdx = (rrp->frameId << 6) ^ rrp->fragmentIndex;
+                                    auto* cached = targetClient->packetCache.get(cacheIdx);
+                                    if (cached->occupied && cached->frameId == rrp->frameId && cached->fragmentIndex == rrp->fragmentIndex) {
+                                        auto udpPkt = ctx.udpPool.acquire();
+                                        if (udpPkt) {
+                                            memcpy(udpPkt->data.data(), cached->data.data(), cached->data.size());
+                                            udpPkt->size = cached->data.size();
+                                            ctx.sendQueue.push({ std::move(udpPkt), targetClient->ip, targetClient->port });
+                                            LOG_INFO("Session", "Retransmitting frame=" + std::to_string(rrp->frameId) + " frag=" + std::to_string(rrp->fragmentIndex));
+                                        }
+                                    }
                                 } else if (innerType == Protocol::PacketType::TimeSync && sh->encryptedSize >= (int)sizeof(Protocol::TimeSyncPacket)) {
                                     Protocol::TimeSyncPacket* tsp = (Protocol::TimeSyncPacket*)decrypted;
                                     Protocol::TimeSyncResponsePacket tsrp;
@@ -727,8 +774,9 @@ void SessionManager::runHost(ParsecConfig config) {
     {
         std::lock_guard<std::mutex> lock(ctx.initThreadsMutex);
         for (auto& t : ctx.initThreads) {
-            if (t.joinable()) t.join();
+            if (t.thread.joinable()) t.thread.join();
         }
+        ctx.initThreads.clear();
     }
 }
 
@@ -795,6 +843,7 @@ void SessionManager::runClient(ParsecConfig config) {
     bool useRenderer = (config.windowHandle != nullptr);
     if (useRenderer) {
         input.RegisterDevices((HWND)config.windowHandle);
+        std::lock_guard<std::mutex> lock(m_inputCaptureMutex);
         m_activeInputCapture = &input;
     }
     if (useRenderer) {
@@ -950,6 +999,10 @@ void SessionManager::runClient(ParsecConfig config) {
         reportError(handshakeRejected ? ParsecError::HANDSHAKE_REJECTED : ParsecError::HANDSHAKE_TIMEOUT,
                     handshakeRejected ? "The host rejected your connection request." : "Failed to connect to host: Handshake timeout. Check the IP and network connectivity.");
         m_running = false;
+        {
+            std::lock_guard<std::mutex> lock(m_inputCaptureMutex);
+            m_activeInputCapture = nullptr;
+        }
         if (netThread.joinable()) netThread.join();
         return;
     }
@@ -1010,6 +1063,31 @@ void SessionManager::runClient(ParsecConfig config) {
 
                     lastFeedbackTime = now;
                     requestKeyframe = false;
+                }
+            }
+
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTimeSync).count() >= 20) {
+                auto nacks = receiver.GetPendingNACKs();
+                for (const auto& nack : nacks) {
+                    Protocol::RetransmitRequestPacket rrp;
+                    rrp.type = (uint8_t)Protocol::PacketType::RetransmitRequest;
+                    rrp.frameId = nack.frameId;
+                    rrp.fragmentIndex = nack.fragmentIndex;
+
+                    uint8_t secureBuf[512];
+                    Protocol::SecureHeader* sh = (Protocol::SecureHeader*)secureBuf;
+                    sh->type = (uint8_t)Protocol::PacketType::Secure;
+                    sh->sessionId = sessionId;
+                    sh->sequenceNumber = sendSequenceNumber++;
+                    sh->encryptedSize = sizeof(rrp);
+
+                    if (Crypto::CryptoManager::Encrypt((uint8_t*)&rrp, sizeof(rrp),
+                                                       (uint8_t*)&sh->sessionId, sizeof(Protocol::SecureHeader) - 16,
+                                                       sh->sequenceNumber, txKey,
+                                                       secureBuf + sizeof(Protocol::SecureHeader),
+                                                       sh->authTag)) {
+                        net.SendTo(secureBuf, sizeof(Protocol::SecureHeader) + sizeof(rrp), config.hostIp, 5005);
+                    }
                 }
             }
 
@@ -1107,12 +1185,16 @@ void SessionManager::runClient(ParsecConfig config) {
         }
     }
 
-    m_activeInputCapture = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_inputCaptureMutex);
+        m_activeInputCapture = nullptr;
+    }
     if (netThread.joinable()) netThread.join();
 }
 
 void SessionManager::handleMessage(uint32_t msg, uint64_t wParam, int64_t lParam) {
 #ifdef _WIN32
+    std::lock_guard<std::mutex> lock(m_inputCaptureMutex);
     if (m_activeInputCapture) {
         if (msg == WM_INPUT) {
             ((Client::InputCapture*)m_activeInputCapture)->HandleRawInput((LPARAM)lParam);

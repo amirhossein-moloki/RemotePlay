@@ -61,6 +61,8 @@ private:
     ParsecConnectionCallback m_connectionCallback = nullptr;
     ParsecErrorCallback m_errorCallback = nullptr;
 
+    std::mutex m_inputCaptureMutex;
+
     struct PendingClient {
         std::string ip;
         uint16_t port;

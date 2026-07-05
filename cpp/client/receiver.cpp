@@ -37,6 +37,28 @@ Receiver::Receiver(size_t poolSize) {
     m_sequenceWindow.resize(WINDOW_SIZE / 64, 0);
 }
 
+std::vector<Receiver::NACK> Receiver::GetPendingNACKs() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::vector<NACK> nacks;
+
+    // Only request retransmission for frames that are relatively recent
+    // and aren't too far ahead of our current read pointer to avoid huge bursts.
+    for (uint32_t i = 0; i < 32; ++i) {
+        uint32_t fid = m_nextFrameIdToRead + i;
+        FrameData** framePtr = m_frameRing.get(fid);
+        if (*framePtr && (*framePtr)->frameId == fid && !(*framePtr)->isComplete) {
+            for (uint16_t j = 0; j < (*framePtr)->totalFragments; ++j) {
+                if (!(*framePtr)->fragmentMap[j]) {
+                    // Limit NACKs per call to avoid flooding
+                    if (nacks.size() >= 10) return nacks;
+                    nacks.push_back({ fid, j });
+                }
+            }
+        }
+    }
+    return nacks;
+}
+
 void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t* payload) {
     ScopeTimer timer("Receiver_ProcessPacket");
     LOG_INFO("StreamTrace", "REASSEMBLY_FRAGMENT_IN frameId=" + std::to_string(header.frameId) +
