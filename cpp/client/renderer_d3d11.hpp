@@ -13,13 +13,13 @@ public:
     ~RendererD3D11();
 
     bool Initialize(HWND hwnd, int width, int height);
-    void Render(ID3D11Texture2D* texture, int arrayIndex);
+    bool Render(ID3D11Texture2D* texture, int arrayIndex);
     void Shutdown();
 
     ID3D11Device* GetDevice() { return m_device; }
 
     void NewFrame();
-    void EndFrame();
+    bool EndFrame();
 
 private:
     ID3D11Device* m_device = nullptr;

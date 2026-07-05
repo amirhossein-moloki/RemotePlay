@@ -173,11 +173,15 @@ void RendererD3D11::NewFrame() {
     ImGui::NewFrame();
 }
 
-void RendererD3D11::EndFrame() {
-    if (!m_context || !m_swapChain || !m_device) return;
+bool RendererD3D11::EndFrame() {
+    if (!m_context || !m_swapChain || !m_device) return false;
 
     // Check for device loss
-    if (FAILED(m_device->GetDeviceRemovedReason())) return;
+    HRESULT reason = m_device->GetDeviceRemovedReason();
+    if (FAILED(reason)) {
+        LOG_ERROR("Renderer", "Device Lost in EndFrame! Reason: " + std::to_string((long)reason));
+        return false;
+    }
 
     ImGui::Render();
     if (m_backBufferViews[m_currentBufferIndex]) {
@@ -191,7 +195,9 @@ void RendererD3D11::EndFrame() {
         std::stringstream ss;
         ss << "0x" << std::hex << hr;
         LOG_ERROR("Renderer", "Present failed. HR: " + ss.str());
+        if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) return false;
     }
+    return true;
 }
 
 bool RendererD3D11::SetupVideoProcessor(int inWidth, int inHeight, int outWidth, int outHeight) {
@@ -247,17 +253,17 @@ bool RendererD3D11::SetupVideoProcessor(int inWidth, int inHeight, int outWidth,
     return SUCCEEDED(hr);
 }
 
-void RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
+bool RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
     if (!m_context || !m_swapChain || !m_device) {
         LOG_ERROR("StreamTrace", "RENDER_INPUT_INVALID resources null.");
-        return;
+        return false;
     }
 
     // Comprehensive check for device removal
     HRESULT hr = m_device->GetDeviceRemovedReason();
     if (FAILED(hr)) {
         LOG_ERROR("Renderer", "Device Lost in Render! HR: " + std::to_string((long)hr));
-        return;
+        return false;
     }
 
     if (!texture) {
@@ -430,6 +436,7 @@ render_done:
         m_lastInputArrayIndex = arrayIndex;
         if (m_lastInputTexture) m_lastInputTexture->AddRef();
     }
+    return true;
 }
 
 void RendererD3D11::Shutdown() {

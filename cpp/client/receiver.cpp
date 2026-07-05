@@ -79,6 +79,12 @@ void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t*
 
     if (header.frameId < m_nextFrameIdToRead) return;
 
+    // Boundary check for fragments and data size
+    if (header.totalFragments > 1024 || header.dataSize > Protocol::MAX_UDP_PAYLOAD) {
+        LOG_ERROR("Receiver", "Malformed packet: too many fragments or data size too large.");
+        return;
+    }
+
     FrameData** framePtr = m_frameRing.get(header.frameId);
     if (!*framePtr || (*framePtr)->frameId != header.frameId) {
         if (*framePtr) ReturnToPoolInternalRaw(*framePtr);
@@ -104,7 +110,7 @@ void Receiver::ProcessPacket(const Protocol::VideoHeader& header, const uint8_t*
     }
 
     FrameData* frame = *m_frameRing.get(header.frameId);
-    if (header.fragmentIndex < frame->fragmentMap.size() && !frame->fragmentMap[header.fragmentIndex]) {
+    if (header.fragmentIndex < frame->totalFragments && !frame->fragmentMap[header.fragmentIndex]) {
         size_t offset = header.fragmentIndex * Protocol::MAX_UDP_PAYLOAD;
         if (offset + header.dataSize <= frame->buffer.size()) {
             std::memcpy(frame->buffer.data() + offset, payload, header.dataSize);
@@ -172,7 +178,7 @@ void Receiver::TryRecover(uint32_t frameId, uint16_t groupStart) {
     uint16_t missingCount = 0;
     for (uint16_t i = 0; i < group->fecHeader.fragmentCount; ++i) {
         uint16_t idx = groupStart + i;
-        if (idx >= frame->totalFragments) break;
+        if (idx >= frame->totalFragments || idx >= frame->fragmentMap.size()) break;
         if (!frame->fragmentMap[idx]) {
             missingCount++;
             missingIndex = idx;
@@ -193,7 +199,7 @@ void Receiver::TryRecover(uint32_t frameId, uint16_t groupStart) {
 
         for (uint16_t i = 0; i < group->fecHeader.fragmentCount; ++i) {
             uint16_t idx = groupStart + i;
-            if (idx == missingIndex) continue;
+            if (idx == missingIndex || idx >= frame->totalFragments) continue;
 
             uint8_t* otherPayload = frame->buffer.data() + (idx * Protocol::MAX_UDP_PAYLOAD);
             uint16_t otherSize = frame->fragmentSizes[idx];
