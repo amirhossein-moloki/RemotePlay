@@ -18,7 +18,9 @@ enum class PacketType : uint8_t {
     HandshakeSecureResponse = 0x09,
     Secure = 0x0A,
     Audio = 0x0B,
-    TimeSync = 0x0C
+    TimeSync = 0x0C,
+    CandidateDiscovery = 0x0D,
+    RelayData = 0x0E
 };
 
 // Input subtypes
@@ -184,6 +186,21 @@ struct HandshakePacket {
 struct HandshakeResponsePacket {
     uint8_t type;            // PacketType::HandshakeResponse
     uint8_t approved;        // 1: Approved, 0: Rejected
+};
+
+// Candidate Discovery Packet (Peers exchange Srflx and Host candidates)
+struct CandidatePacket {
+    uint8_t type;            // PacketType::CandidateDiscovery
+    char ip[64];             // Discovered IP (reflexive or host)
+    uint16_t port;           // Discovered Port
+    uint8_t priority;        // Lower is better (0: Local, 1: Srflx, 2: Relay)
+};
+
+// Relay Data Header (Encapsulation for edge nodes)
+struct RelayHeader {
+    uint8_t type;            // PacketType::RelayData
+    uint64_t sessionId;      // Target session ID
+    uint16_t dataSize;       // Encapsulated payload size
 };
 
 #pragma pack(pop)

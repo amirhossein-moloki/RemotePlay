@@ -167,6 +167,17 @@ void SessionManager::runHost(ParsecConfig config) {
         return;
     }
 
+    // Step 1: Candidate Gathering (STUN)
+    std::vector<ConnectivityCandidate> hostCandidates;
+    hostCandidates.push_back({config.selectedIp, 5005, 0}); // Host Candidate
+
+    std::string publicIp;
+    uint16_t publicPort;
+    if (ctx.net.GetPublicEndpoint("stun.l.google.com", 19302, publicIp, publicPort)) {
+        LOG_INFO("Session", "Discovered Srflx candidate: " + publicIp + ":" + std::to_string(publicPort));
+        hostCandidates.push_back({publicIp, publicPort, 1});
+    }
+
     std::thread captureThread;
 
     captureThread = std::thread([&]() {
@@ -440,7 +451,12 @@ void SessionManager::runHost(ParsecConfig config) {
             int len = ctx.net.ReceiveFrom(buf, sizeof(buf), senderIp, senderPort);
             if (len > 0) {
                 Protocol::PacketType type = (Protocol::PacketType)buf[0];
-                if (type == Protocol::PacketType::HandshakeSecure && len >= (int)sizeof(Protocol::HandshakeSecurePacket)) {
+                if (type == Protocol::PacketType::CandidateDiscovery && len >= (int)sizeof(Protocol::CandidatePacket)) {
+                    Protocol::CandidatePacket* cp = (Protocol::CandidatePacket*)buf;
+                    LOG_INFO("Session", "Received Candidate from " + senderIp + ": " + cp->ip + ":" + std::to_string(cp->port));
+                    // In a production P2P flow, the host would start hole punching back to this candidate
+                    ctx.net.SendTo(buf, len, cp->ip, cp->port); // Reflective punch
+                } else if (type == Protocol::PacketType::HandshakeSecure && len >= (int)sizeof(Protocol::HandshakeSecurePacket)) {
                     Protocol::HandshakeSecurePacket* hp = (Protocol::HandshakeSecurePacket*)buf;
                     std::string username(hp->username, strnlen(hp->username, sizeof(hp->username)));
                     LOG_INFO("Session", "Received Secure Handshake from " + senderIp + " (Username: " + username + ")");
@@ -711,6 +727,17 @@ void SessionManager::runClient(ParsecConfig config) {
         return;
     }
 
+    // Step 1: Candidate Gathering (STUN)
+    std::vector<ConnectivityCandidate> clientCandidates;
+    clientCandidates.push_back({config.selectedIp, 0, 0}); // Local Candidate
+
+    std::string publicIp;
+    uint16_t publicPort;
+    if (net.GetPublicEndpoint("stun.l.google.com", 19302, publicIp, publicPort)) {
+        LOG_INFO("Session", "Discovered Srflx candidate: " + publicIp + ":" + std::to_string(publicPort));
+        clientCandidates.push_back({publicIp, publicPort, 1});
+    }
+
     // Security Context (Client)
     std::vector<uint8_t> rxKey;
     std::vector<uint8_t> txKey;
@@ -788,7 +815,11 @@ void SessionManager::runClient(ParsecConfig config) {
             int len = net.ReceiveFrom(buf, sizeof(buf), senderIp, senderPort);
             if (len > 0) {
                 Protocol::PacketType type = (Protocol::PacketType)buf[0];
-                if (type == Protocol::PacketType::Secure && len >= (int)sizeof(Protocol::SecureHeader)) {
+                if (type == Protocol::PacketType::CandidateDiscovery && len >= (int)sizeof(Protocol::CandidatePacket)) {
+                    Protocol::CandidatePacket* cp = (Protocol::CandidatePacket*)buf;
+                    LOG_INFO("Session", "Received Host Candidate: " + std::string(cp->ip));
+                    // Client would add this to the list of targets to try for handshake
+                } else if (type == Protocol::PacketType::Secure && len >= (int)sizeof(Protocol::SecureHeader)) {
                     Protocol::SecureHeader* sh = (Protocol::SecureHeader*)buf;
                     if (sh->sessionId == sessionId && sessionId != 0) {
                         uint8_t decrypted[2048];
@@ -840,6 +871,16 @@ void SessionManager::runClient(ParsecConfig config) {
         }
     });
 
+    // Step 2: Hole Punching / Candidate Exchange (Simulated Signaling)
+    for (const auto& cand : clientCandidates) {
+        Protocol::CandidatePacket cp;
+        cp.type = (uint8_t)Protocol::PacketType::CandidateDiscovery;
+        strncpy(cp.ip, cand.ip.c_str(), sizeof(cp.ip) - 1);
+        cp.port = cand.port;
+        cp.priority = cand.priority;
+        net.SendTo(&cp, sizeof(cp), config.hostIp, 5005);
+    }
+
     Protocol::HandshakeSecurePacket hp;
     hp.type = (uint8_t)Protocol::PacketType::HandshakeSecure;
     std::memcpy(hp.clientPublicKey, clientKeyPair.publicKey.data(), 32);
@@ -849,13 +890,24 @@ void SessionManager::runClient(ParsecConfig config) {
     auto startHandshake = std::chrono::steady_clock::now();
     auto lastHandshakeSend = std::chrono::steady_clock::now();
     LOG_INFO("Session", "Sending Secure Handshake to " + std::string(config.hostIp));
-    net.SendTo(&hp, sizeof(hp), config.hostIp, 5005);
+
+    // WAN Connection Strategy: Attempt all discovered candidates
+    auto attemptHandshake = [&]() {
+        net.SendTo(&hp, sizeof(hp), config.hostIp, 5005); // Direct/Configured IP
+        for (const auto& cand : clientCandidates) {
+             if (cand.priority == 1) { // Srflx
+                 net.SendTo(&hp, sizeof(hp), cand.ip, cand.port);
+             }
+        }
+    };
+
+    attemptHandshake();
 
     while (m_running && !handshakeApproved && !handshakeRejected) {
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::seconds>(now - lastHandshakeSend).count() >= 1) {
-             LOG_INFO("Session", "Retransmitting Handshake to " + std::string(config.hostIp));
-             net.SendTo(&hp, sizeof(hp), config.hostIp, 5005);
+             LOG_INFO("Session", "Retransmitting Handshake to all candidates...");
+             attemptHandshake();
              lastHandshakeSend = now;
         }
 

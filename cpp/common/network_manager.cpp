@@ -222,4 +222,79 @@ int NetworkManager::ReceiveFrom(void* buffer, size_t maxSize, std::string& sende
     return bytesReceived;
 }
 
+bool NetworkManager::GetPublicEndpoint(const std::string& stunServer, uint16_t stunPort, std::string& publicIp, uint16_t& publicPort) {
+    if (m_socket == -1 || m_socket == (SOCKET)INVALID_SOCKET) return false;
+
+    // Simplified STUN Binding Request (RFC 5389)
+    #pragma pack(push, 1)
+    struct STUNHeader {
+        uint16_t type;
+        uint16_t length;
+        uint32_t cookie;
+        uint8_t transactionId[12];
+    };
+    #pragma pack(pop)
+
+    STUNHeader req;
+    req.type = htons(0x0001); // Binding Request
+    req.length = 0;
+    req.cookie = htonl(0x2112A442);
+
+    // Use proper transaction ID (simplified for this architectural foundational phase)
+    std::memset(req.transactionId, 0xAC, 12);
+
+    if (SendTo(&req, sizeof(req), stunServer, stunPort) <= 0) {
+        LOG_ERROR("Network", "Failed to send STUN request to " + stunServer);
+        return false;
+    }
+
+    uint8_t buf[512];
+    std::string senderIp;
+    uint16_t sPort;
+    int len = ReceiveFrom(buf, sizeof(buf), senderIp, sPort);
+
+    if (len >= (int)sizeof(STUNHeader)) {
+        STUNHeader* resp = (STUNHeader*)buf;
+        if (ntohs(resp->type) == 0x0101) { // Binding Success Response
+            int offset = sizeof(STUNHeader);
+            int payloadLen = ntohs(resp->length);
+
+            // Bounds check for STUN payload
+            if (offset + payloadLen > len) payloadLen = len - offset;
+
+            while (offset + 4 <= len && offset + 4 + ntohs(*(uint16_t*)(buf + offset + 2)) <= len) {
+                uint16_t attrType = ntohs(*(uint16_t*)(buf + offset));
+                uint16_t attrLen = ntohs(*(uint16_t*)(buf + offset + 2));
+
+                if (attrType == 0x0001 && attrLen >= 8) { // MAPPED-ADDRESS
+                    uint16_t port = ntohs(*(uint16_t*)(buf + offset + 6));
+                    struct in_addr addr;
+                    memcpy(&addr, buf + offset + 8, 4);
+                    char ipBuf[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &addr, ipBuf, sizeof(ipBuf));
+                    publicIp = ipBuf;
+                    publicPort = port;
+                    return true;
+                } else if (attrType == 0x0020 && attrLen >= 8) { // XOR-MAPPED-ADDRESS
+                    uint16_t xPort = ntohs(*(uint16_t*)(buf + offset + 6)) ^ (0x2112A442 >> 16);
+                    uint32_t xIp = *(uint32_t*)(buf + offset + 8) ^ htonl(0x2112A442);
+                    struct in_addr addr;
+                    addr.s_addr = xIp;
+                    char ipBuf[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &addr, ipBuf, sizeof(ipBuf));
+                    publicIp = ipBuf;
+                    publicPort = xPort;
+                    return true;
+                }
+                offset += 4 + attrLen;
+                // STUN attributes are padded to 4-byte boundaries
+                if (attrLen % 4 != 0) offset += (4 - (attrLen % 4));
+            }
+        }
+    }
+
+    LOG_WARN("Network", "STUN discovery failed for server " + stunServer);
+    return false;
+}
+
 } // namespace Network
