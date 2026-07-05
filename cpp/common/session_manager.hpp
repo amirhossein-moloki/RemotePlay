@@ -10,6 +10,7 @@
 #include "crypto_manager.hpp"
 #include "../ai/latency_predictor.hpp"
 #include "../ai/intelligent_router.hpp"
+#include "../ai/cloud_optimizer.hpp"
 
 class SessionManager {
 public:

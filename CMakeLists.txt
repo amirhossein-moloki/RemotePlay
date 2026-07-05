@@ -26,6 +26,7 @@ set(AI_SOURCES
     cpp/ai/stream_engine.cpp
     cpp/ai/intelligent_router.cpp
     cpp/ai/input_predictor.cpp
+    cpp/ai/cloud_optimizer.cpp
 )
 
 set(HOST_SOURCES
