@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-relay
+  namespace: parsec-lite
+  labels:
+    app: relay
+    tier: data-plane
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: relay
+  template:
+    metadata:
+      labels:
+        app: relay
+    spec:
+      # Latency-aware affinity: Deploy to edge-optimized nodes
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: network-speed
+                operator: In
+                values:
+                - high-pps
+              - key: node-type
+                operator: In
+                values:
+                - edge-relay
+      containers:
+      - name: relay
+        image: parsec-lite/core-engine:latest
+        args: ["--relay", "--port", "10000"]
+        ports:
+        - containerPort: 10000
+          protocol: UDP
+        resources:
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+          requests:
+            cpu: "1"
+            memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: relay-service
+  namespace: parsec-lite
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb" # High-performance UDP LB
+spec:
+  selector:
+    app: relay
+  ports:
+  - protocol: UDP
+    port: 10000
+    targetPort: 10000
+  type: LoadBalancer
