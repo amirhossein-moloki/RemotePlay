@@ -1,8 +1,8 @@
 #include "audio_capture.hpp"
 #include "../common/logger.hpp"
-#include <avrt.h>
 
 #ifdef _WIN32
+#include <avrt.h>
 #pragma comment(lib, "avrt.lib")
 #pragma comment(lib, "Ole32.lib")
 

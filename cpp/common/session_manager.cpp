@@ -1124,4 +1124,5 @@ void SessionManager::handleMessage(uint32_t msg, uint64_t wParam, int64_t lParam
 #else
 void SessionManager::runHost(ParsecConfig config) {}
 void SessionManager::runClient(ParsecConfig config) {}
+void SessionManager::handleMessage(uint32_t msg, uint64_t wParam, int64_t lParam) {}
 #endif

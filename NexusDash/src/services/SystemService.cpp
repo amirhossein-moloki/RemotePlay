@@ -2,6 +2,9 @@
 #include "core/AppEngine.hpp"
 #include <QDateTime>
 #include <QRandomGenerator>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QRegularExpression>
 #include "common/network_manager.hpp"
 #include "common/config.hpp"
 #include "common/logger.hpp"
@@ -18,15 +21,18 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
         m_useHardwareEncoding = Config::getInstance().getBool("useHardwareEncoding", true);
         m_encoderPreset = Config::getInstance().getInt("encoderPreset", 0);
         m_resolutionScale = Config::getInstance().getDouble("resolutionScale", 1.0);
+        m_recentHosts = QString::fromStdString(Config::getInstance().getString("recentHosts", "")).split(",", Qt::SkipEmptyParts);
 
         Parsec_SetErrorCallback([](ParsecError error, const char* message) {
             QString technicalMsg = QString::fromUtf8(message);
             QString friendlyMsg = AppEngine::instance()->system()->getFriendlyError((int)error, technicalMsg);
+            QString suggestion = AppEngine::instance()->system()->getActionSuggestion((int)error, technicalMsg);
 
             QMetaObject::invokeMethod(AppEngine::instance()->system(), "errorOccurred",
                                       Qt::QueuedConnection,
                                       Q_ARG(QString, tr("System Error")),
-                                      Q_ARG(QString, friendlyMsg));
+                                      Q_ARG(QString, friendlyMsg),
+                                      Q_ARG(QString, suggestion));
 
             AppEngine::instance()->system()->stopSession();
         });
@@ -34,7 +40,6 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
         m_startTime = QDateTime::currentSecsSinceEpoch();
         m_logModel = new LogModel(this);
 
-        // Initialize history with zeros
         for (int i = 0; i < m_maxHistory; ++i) {
             m_cpuHistory << 0.0;
             m_memoryHistory << 0.0;
@@ -42,14 +47,10 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
             m_latencyHistory << 0.0;
         }
 
-        // Enumerate network interfaces
-        m_networkInterfaces << QString("[0.0.0.0] All Interfaces - Active");
-        m_networkInterfaces << QString("[127.0.0.1] Local Loopback - Active");
+        m_networkInterfaces << QString("[0.0.0.0] All Interfaces");
         auto interfaces = Network::NetworkManager::EnumerateInterfaces();
         for (const auto& iface : interfaces) {
-            // Construct detailed string: "[IP] Name - Status"
-            QString status = iface.isActive ? "Active" : "Inactive";
-            m_networkInterfaces << QString("[%1] %2 - %3").arg(QString::fromUtf8(iface.ip.c_str()), QString::fromUtf8(iface.name.c_str()), status);
+            m_networkInterfaces << QString("[%1] %2").arg(QString::fromUtf8(iface.ip.c_str()), QString::fromUtf8(iface.name.c_str()));
         }
 
         m_timer = new QTimer(this);
@@ -58,24 +59,15 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
         updateStats();
 
         addLog("INFO", "System", "NexusDash Services Initialized");
-    } catch (const std::exception& e) {
-        LOG_ERROR("SystemService", std::string("Initialization failed: ") + e.what());
-        throw; // Re-throw to be caught by main.cpp's global handler
     } catch (...) {
-        LOG_ERROR("SystemService", "Unknown error during initialization");
-        throw std::runtime_error("Unknown error during SystemService initialization");
+        LOG_ERROR("SystemService", "Failed to initialize SystemService");
+        throw;
     }
 }
 
 void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps)
 {
-    // Extract IP from "[IP] Name - Status"
-    QString interfaceIp = interfaceInfo;
-    int start = interfaceInfo.indexOf('[');
-    int end = interfaceInfo.indexOf(']');
-    if (start != -1 && end != -1) {
-        interfaceIp = interfaceInfo.mid(start + 1, end - start - 1);
-    }
+    QString interfaceIp = getIpFromInterface(interfaceInfo);
 
     ParsecConfig config = {};
     config.isHost = true;
@@ -85,12 +77,8 @@ void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps
     config.encoderPreset = m_encoderPreset;
     config.autoApprove = true;
     config.resolutionScale = (float)m_resolutionScale;
-    config.targetWidth = 0;
-    config.targetHeight = 0;
     strncpy(config.selectedIp, interfaceIp.toStdString().c_str(), sizeof(config.selectedIp) - 1);
-    config.selectedIp[sizeof(config.selectedIp) - 1] = '\0';
     strncpy(config.username, m_username.toStdString().c_str(), sizeof(config.username) - 1);
-    config.username[sizeof(config.username) - 1] = '\0';
 
     Parsec_StartSession(config);
     m_isSessionActive = true;
@@ -100,13 +88,8 @@ void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps
 
 void SystemService::startClient(const QString& interfaceInfo, const QString& hostIp, int bitrate, int fps)
 {
-    // Extract IP from "[IP] Name - Status"
-    QString interfaceIp = interfaceInfo;
-    int start = interfaceInfo.indexOf('[');
-    int end = interfaceInfo.indexOf(']');
-    if (start != -1 && end != -1) {
-        interfaceIp = interfaceInfo.mid(start + 1, end - start - 1);
-    }
+    QString interfaceIp = getIpFromInterface(interfaceInfo);
+    addToHistory(hostIp);
 
     ParsecConfig config = {};
     config.isHost = false;
@@ -116,11 +99,8 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
     config.encoderPreset = m_encoderPreset;
     config.resolutionScale = (float)m_resolutionScale;
     strncpy(config.selectedIp, interfaceIp.toStdString().c_str(), sizeof(config.selectedIp) - 1);
-    config.selectedIp[sizeof(config.selectedIp) - 1] = '\0';
     strncpy(config.hostIp, hostIp.toStdString().c_str(), sizeof(config.hostIp) - 1);
-    config.hostIp[sizeof(config.hostIp) - 1] = '\0';
     strncpy(config.username, m_username.toStdString().c_str(), sizeof(config.username) - 1);
-    config.username[sizeof(config.username) - 1] = '\0';
 
     m_clientWindow = Parsec_CreateClientWindow("NexusDash Stream Viewer", 1280, 720);
     config.windowHandle = m_clientWindow;
@@ -129,6 +109,16 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
     m_isSessionActive = true;
     emit sessionStateChanged();
     addLog("INFO", "Client", "Connecting to " + hostIp);
+}
+
+void SystemService::addToHistory(const QString& host) {
+    if (host.isEmpty()) return;
+    m_recentHosts.removeAll(host);
+    m_recentHosts.prepend(host);
+    if (m_recentHosts.size() > 5) m_recentHosts.removeLast();
+    Config::getInstance().setString("recentHosts", m_recentHosts.join(",").toStdString());
+    Config::getInstance().save("config.ini");
+    emit recentHostsChanged();
 }
 
 void SystemService::setUsername(const QString& username)
@@ -175,60 +165,52 @@ QString SystemService::getFriendlyError(int errorCode, const QString& technicalM
 {
     ParsecError err = static_cast<ParsecError>(errorCode);
     QString msgLower = technicalMsg.toLower();
-
-    // Map common D3D11/DXGI HRESULTs in technical message to friendly Persian strings
     QString translatedMsg = technicalMsg;
-    if (msgLower.contains("0x887a0005")) {
-        translatedMsg = tr("کارت گرافیک ریست شده است (DXGI_ERROR_DEVICE_REMOVED). لطفاً درایور خود را بروزرسانی کنید.");
-    } else if (msgLower.contains("0x887a0001")) {
-        translatedMsg = tr("دسترسی به بافر تصویر امکان‌پذیر نیست (DXGI_ERROR_INVALID_CALL).");
-    } else if (msgLower.contains("10049")) {
-        translatedMsg = tr("آدرس IP انتخاب شده روی این دستگاه وجود ندارد. لطفاً رابط شبکه صحیح را انتخاب کنید.");
-    }
+    if (msgLower.contains("0x887a0005")) translatedMsg = tr("GPU Device Lost. Please update drivers.");
+    else if (msgLower.contains("10049")) translatedMsg = tr("The selected IP address is unavailable.");
 
-    // If technical message contains a translated HRESULT, we might want to prioritize it or append it
     QString finalSuffix = (translatedMsg != technicalMsg) ? (" (" + translatedMsg + ")") : "";
 
     switch (err) {
-        case ParsecError::NETWORK_BIND_FAILED:
-            return tr("ارتباط با شبکه برقرار نشد. لطفاً بررسی کنید که پورت ۵۰۰۵ توسط برنامه دیگری اشغال نشده باشد.");
-        case ParsecError::HARDWARE_INIT_FAILED:
-            return tr("خطا در مقداردهی اولیه سخت‌افزار. لطفاً از بروز بودن درایور کارت گرافیک خود اطمینان حاصل کنید.");
-        case ParsecError::HANDSHAKE_TIMEOUT:
-            return tr("زمان اتصال به پایان رسید. لطفاً آدرس IP را بررسی کرده و از روشن بودن سیستم میزبان اطمینان حاصل کنید.");
-        case ParsecError::HANDSHAKE_REJECTED:
-            return tr("میزبان درخواست اتصال شما را رد کرد.");
-        case ParsecError::CONNECTION_LOST:
-            return tr("اتصال به شبکه قطع شد.");
-        case ParsecError::DECODER_INIT_FAILED:
-            return tr("خطا در مقداردهی اولیه رمزگشا (Decoder). گرافیک شما ممکن است از H.264 یا HEVC پشتیبانی نکند.") + finalSuffix;
-        case ParsecError::ENCODER_INIT_FAILED:
-            return tr("خطا در مقداردهی اولیه کدگذار (Encoder). لطفاً تنظیمات گرافیک و رزولوشن را بررسی کنید.") + finalSuffix;
-        case ParsecError::RENDERER_INIT_FAILED:
-            return tr("خطا در مقداردهی اولیه نمایشگر (Renderer). کارت گرافیک شما ممکن است با DirectX 11 سازگار نباشد.") + finalSuffix;
-        case ParsecError::QSV_INIT_FAILED:
-            return tr("خطا در مقداردهی اولیه Intel QSV. لطفاً مطمئن شوید iGPU در بایوس فعال است.") + finalSuffix;
-        case ParsecError::D3D11_DEVICE_LOST:
-            return tr("ارتباط با کارت گرافیک قطع شد. برنامه را دوباره اجرا کنید.") + finalSuffix;
-        default:
-            return tr("خطای غیرمنتظره‌ای رخ داده است: ") + translatedMsg;
+        case ParsecError::NETWORK_BIND_FAILED: return tr("Network connection failed.");
+        case ParsecError::HARDWARE_INIT_FAILED: return tr("Hardware initialization error.");
+        case ParsecError::HANDSHAKE_TIMEOUT: return tr("Connection timed out.");
+        case ParsecError::HANDSHAKE_REJECTED: return tr("The host rejected your request.");
+        case ParsecError::CONNECTION_LOST: return tr("Network connection lost.");
+        case ParsecError::DECODER_INIT_FAILED: return tr("Decoder initialization failed.") + finalSuffix;
+        case ParsecError::ENCODER_INIT_FAILED: return tr("Encoder initialization failed.") + finalSuffix;
+        case ParsecError::RENDERER_INIT_FAILED: return tr("Renderer initialization failed.") + finalSuffix;
+        default: return tr("An unexpected error occurred: ") + translatedMsg;
     }
+}
+
+QString SystemService::getActionSuggestion(int errorCode, const QString& technicalMsg)
+{
+    ParsecError err = static_cast<ParsecError>(errorCode);
+    switch (err) {
+        case ParsecError::NETWORK_BIND_FAILED: return tr("Try changing the network interface in settings.");
+        case ParsecError::HANDSHAKE_TIMEOUT: return tr("Verify the Host IP and ensure you're on the same network.");
+        case ParsecError::DECODER_INIT_FAILED: return tr("Try disabling 'Hardware Acceleration' in settings.");
+        case ParsecError::ENCODER_INIT_FAILED: return tr("Lower the 'Resolution Scale' in settings.");
+        default: return "";
+    }
+}
+
+void SystemService::copyToClipboard(const QString& text) { QGuiApplication::clipboard()->setText(text); }
+QString SystemService::getIpFromInterface(const QString& info) {
+    QRegularExpression re("\\[(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})\\]");
+    auto match = re.match(info);
+    return match.hasMatch() ? match.captured(1) : "0.0.0.0";
 }
 
 void SystemService::stopSession()
 {
     Parsec_StopSession();
-
 #ifdef _WIN32
-    if (m_clientWindow) {
-        DestroyWindow((HWND)m_clientWindow);
-        m_clientWindow = nullptr;
-    }
+    if (m_clientWindow) { DestroyWindow((HWND)m_clientWindow); m_clientWindow = nullptr; }
 #endif
-
     m_isSessionActive = false;
     emit sessionStateChanged();
-    addLog("INFO", "Session", "Session stopped by user");
 }
 
 void SystemService::updateStats()
@@ -236,65 +218,55 @@ void SystemService::updateStats()
 #ifdef _WIN32
     MSG msg;
     while (PeekMessageA(&msg, (HWND)-1, 0, 0, PM_REMOVE)) {
-        TranslateMessage(&msg);
-        DispatchMessageA(&msg);
-        if (msg.message == WM_QUIT) {
-            stopSession();
-            break;
-        }
+        TranslateMessage(&msg); DispatchMessageA(&msg);
+        if (msg.message == WM_QUIT) { stopSession(); break; }
     }
 #endif
 
     if (m_isSessionActive && Parsec_GetTelemetry(&m_stats)) {
         emit statsChanged();
     } else {
-        // Reset volatile stats when not active
-        m_stats = {};
-        emit statsChanged();
+        m_stats = {}; emit statsChanged();
     }
 
-    // Actual system metrics
+    QString newTier = "High Performance";
+    if (m_isSessionActive) {
+        if (m_stats.bitrateMbps < 2.0) newTier = "Recovery Mode";
+        else if (m_stats.bitrateMbps < 5.0) newTier = "Low-End";
+        else if (m_stats.bitrateMbps < 10.0) newTier = "Balanced";
+    }
+
+    if (m_currentQualityTier != newTier) {
+        m_currentQualityTier = newTier;
+        emit qualityTierChanged();
+        if (m_isSessionActive) addLog("INFO", "AI Engine", "Quality adjusted to: " + newTier);
+    }
+
 #ifdef _WIN32
-    MEMORYSTATUSEX memInfo;
-    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
-    GlobalMemoryStatusEx(&memInfo);
+    MEMORYSTATUSEX memInfo; memInfo.dwLength = sizeof(MEMORYSTATUSEX); GlobalMemoryStatusEx(&memInfo);
     m_memoryUsage = 100.0 - (100.0 * memInfo.ullAvailPhys / memInfo.ullTotalPhys);
     m_cpuUsage = QRandomGenerator::global()->generateDouble() * 5.0 + 2.0;
 #else
-    m_cpuUsage = 5.0;
-    m_memoryUsage = 20.0;
+    m_cpuUsage = 5.0; m_memoryUsage = 20.0;
 #endif
 
-    // Update History
     updateHistory(m_cpuHistory, m_cpuUsage);
     updateHistory(m_memoryHistory, m_memoryUsage);
     updateHistory(m_fpsHistory, m_stats.fps);
     updateHistory(m_latencyHistory, m_stats.e2eLatency);
     emit historyChanged();
-
     emit cpuUsageChanged();
     emit memoryUsageChanged();
     emit uptimeChanged();
 }
 
-void SystemService::updateHistory(QVariantList& list, double value)
-{
-    list.append(value);
-    if (list.size() > m_maxHistory) {
-        list.removeFirst();
-    }
+void SystemService::updateHistory(QVariantList& list, double val) {
+    list.append(val); if (list.size() > m_maxHistory) list.removeFirst();
 }
 
-QString SystemService::uptime() const
-{
+QString SystemService::uptime() const {
     qint64 diff = QDateTime::currentSecsSinceEpoch() - m_startTime;
-    int hours = diff / 3600;
-    int minutes = (diff % 3600) / 60;
-    int seconds = diff % 60;
-    return QString("%1h %2m %3s").arg(hours).arg(minutes).arg(seconds);
+    return QString("%1h %2m %3s").arg(diff/3600).arg((diff%3600)/60).arg(diff%60);
 }
 
-void SystemService::addLog(const QString& level, const QString& event, const QString& desc)
-{
-    m_logModel->addLog(level, event, desc);
-}
+void SystemService::addLog(const QString& l, const QString& e, const QString& d) { m_logModel->addLog(l, e, d); }

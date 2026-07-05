@@ -6,7 +6,9 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/hwcontext.h>
+#ifdef _WIN32
 #include <libavutil/hwcontext_d3d11va.h>
+#endif
 #include <libswscale/swscale.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
@@ -39,9 +41,11 @@ struct DecoderHW::InternalData {
     bool lastUseHardware = true;
 
     // Software fallback resources
+#ifdef _WIN32
     ID3D11Device* device = nullptr;
     ID3D11DeviceContext* context = nullptr;
     ID3D11Texture2D* swTexture = nullptr;
+#endif
     SwsContext* swsCtx = nullptr;
     AVFrame* rgbaFrame = nullptr;
 };
@@ -69,6 +73,7 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
         return false;
     }
 
+#ifdef _WIN32
     if (useHardware && d3d11DevicePtr) {
         m_internal->hwDeviceCtx = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
         if (m_internal->hwDeviceCtx) {
@@ -86,6 +91,7 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
             }
         }
     }
+#endif
 
     if (avcodec_open2(m_internal->codecCtx, codec, NULL) < 0) {
         LOG_ERROR("Decoder", "Failed to open codec.");
@@ -101,6 +107,7 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
         return false;
     }
 
+#ifdef _WIN32
     if (d3d11DevicePtr) {
         m_internal->device = (ID3D11Device*)d3d11DevicePtr;
         m_internal->device->AddRef();
@@ -109,6 +116,7 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
             LOG_ERROR("Decoder", "Failed to get immediate context.");
         }
     }
+#endif
 
     LOG_INFO("Decoder", "FFmpeg Decoder initialized.");
     return true;
@@ -138,7 +146,7 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
 
     if (outIndex) *outIndex = 0;
 
-    // Log NAL units for debugging (only if suspecting issues or for keyframes)
+    // RESTORED: Log NAL units for debugging (only if suspecting issues or for keyframes)
     std::string nalTypes = "";
     if (size >= 4) {
         for (size_t i = 0; i + 3 < size; ) {
@@ -167,8 +175,6 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
     m_internal->pkt->size = (int)size;
 
     int ret = avcodec_send_packet(m_internal->codecCtx, m_internal->pkt);
-
-    // If decoder is full, we must drain it and retry
     if (ret == AVERROR(EAGAIN)) {
         int drainedCount = 0;
         while (avcodec_receive_frame(m_internal->codecCtx, m_internal->frame) >= 0) {
@@ -180,20 +186,16 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
 
     bool isKeyframe = false;
     if (m_internal->isHEVC) {
-        // HEVC IDR types are 19, 20
         if (nalTypes.find("19") != std::string::npos || nalTypes.find("20") != std::string::npos) isKeyframe = true;
     } else {
-        // H.264 IDR is type 5
         if (nalTypes.find("5") != std::string::npos) isKeyframe = true;
     }
 
-    if (isKeyframe || nalTypes.find("7") != std::string::npos || nalTypes.find("32") != std::string::npos ||
-        nalTypes.find("33") != std::string::npos || nalTypes.find("34") != std::string::npos || ret < 0) {
+    if (isKeyframe || ret < 0) {
         LOG_INFO("StreamTrace", "AV_SEND_PACKET ret=" + std::to_string(ret) +
                  " bytes=" + std::to_string(size) + " NALs=[" + nalTypes + "]");
     }
 
-    // Clear data/size to avoid accidental reuse of 'data' pointer which might be invalid after this call
     m_internal->pkt->data = nullptr;
     m_internal->pkt->size = 0;
 
@@ -202,7 +204,6 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
         return false;
     }
 
-    // Receive all available frames, but we'll only return the most recent one for real-time sync
     bool frameReady = false;
     while (true) {
         int recvRet = avcodec_receive_frame(m_internal->codecCtx, m_internal->tempFrame);
@@ -210,7 +211,6 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
             frameReady = true;
             av_frame_unref(m_internal->frame);
             av_frame_move_ref(m_internal->frame, m_internal->tempFrame);
-            // Continue to see if more frames are available
             continue;
         } else if (recvRet == AVERROR(EAGAIN) || recvRet == AVERROR_EOF) {
             break;
@@ -220,9 +220,7 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
         }
     }
 
-    if (!frameReady) {
-        return false;
-    }
+    if (!frameReady) return false;
 
     if (m_internal->frame->width <= 0 || m_internal->frame->height <= 0) {
         LOG_ERROR("Decoder", "Invalid frame dimensions: " + std::to_string(m_internal->frame->width) + "x" + std::to_string(m_internal->frame->height));
@@ -233,39 +231,26 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
              " height=" + std::to_string(m_internal->frame->height) +
              " format=" + std::to_string(m_internal->frame->format));
 
+#ifdef _WIN32
     if (m_internal->frame->format == AV_PIX_FMT_D3D11) {
         if (m_internal->frame->data[0]) {
-            ID3D11Texture2D* texture = (ID3D11Texture2D*)m_internal->frame->data[0];
-
-            // Safety check for D3D11 textures from FFmpeg
-            if (!texture) {
-                LOG_ERROR("StreamTrace", "DECODER_TEXTURE_OUT_FAIL texture_null_despite_fmt_d3d11");
-                return false;
-            }
-
-            D3D11_TEXTURE2D_DESC desc;
-            texture->GetDesc(&desc);
-            if (desc.Width == 0 || desc.Height == 0) {
-                 LOG_ERROR("StreamTrace", "DECODER_TEXTURE_OUT_FAIL invalid_texture_dimensions");
-                 return false;
-            }
-
-            *outTexture = texture;
+            *outTexture = m_internal->frame->data[0];
             if (outIndex) *outIndex = (int)(intptr_t)m_internal->frame->data[1];
-            LOG_INFO("StreamTrace", "DECODER_TEXTURE_OUT hw=1 texture=" + std::to_string(reinterpret_cast<uintptr_t>(*outTexture)) +
-                     " arrayIndex=" + std::to_string(outIndex ? *outIndex : 0));
+            LOG_INFO("StreamTrace", "DECODER_TEXTURE_OUT hw=1 texture=" + std::to_string(reinterpret_cast<uintptr_t>(*outTexture)));
+            return true;
         } else {
             LOG_ERROR("StreamTrace", "DECODER_TEXTURE_OUT_FAIL hw_frame_data_null");
             return false;
         }
     } else {
-        // Software frame fallback: Convert to RGBA and upload to D3D11 texture
         if (m_internal->device && m_internal->context) {
-            if (!m_internal->swsCtx || m_internal->rgbaFrame->width != m_internal->frame->width || m_internal->rgbaFrame->height != m_internal->frame->height) {
+#endif
+            if (!m_internal->swsCtx || !m_internal->rgbaFrame || m_internal->rgbaFrame->width != m_internal->frame->width || m_internal->rgbaFrame->height != m_internal->frame->height) {
                 if (m_internal->swsCtx) sws_freeContext(m_internal->swsCtx);
                 if (m_internal->rgbaFrame) av_frame_free(&m_internal->rgbaFrame);
+#ifdef _WIN32
                 if (m_internal->swTexture) { m_internal->swTexture->Release(); m_internal->swTexture = nullptr; }
-
+#endif
                 m_internal->swsCtx = sws_alloc_context();
                 if (m_internal->swsCtx) {
                     av_opt_set_int(m_internal->swsCtx, "srcw", m_internal->frame->width, 0);
@@ -275,10 +260,7 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
                     av_opt_set_int(m_internal->swsCtx, "dsth", m_internal->frame->height, 0);
                     av_opt_set_int(m_internal->swsCtx, "dst_format", AV_PIX_FMT_RGBA, 0);
                     av_opt_set_int(m_internal->swsCtx, "sws_flags", SWS_FAST_BILINEAR, 0);
-                    if (sws_init_context(m_internal->swsCtx, nullptr, nullptr) < 0) {
-                        sws_freeContext(m_internal->swsCtx);
-                        m_internal->swsCtx = nullptr;
-                    }
+                    sws_init_context(m_internal->swsCtx, nullptr, nullptr);
                 }
                 if (!m_internal->swsCtx) {
                     LOG_ERROR("Decoder", "Failed to create sws context.");
@@ -295,6 +277,7 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
                     return false;
                 }
 
+#ifdef _WIN32
                 D3D11_TEXTURE2D_DESC desc = {};
                 desc.Width = m_internal->frame->width;
                 desc.Height = m_internal->frame->height;
@@ -309,10 +292,12 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
                     LOG_ERROR("Decoder", "Failed to create fallback texture.");
                     return false;
                 }
+#endif
             }
 
-            sws_scale_frame(m_internal->swsCtx, m_internal->rgbaFrame, m_internal->frame);
+            if (m_internal->swsCtx) sws_scale_frame(m_internal->swsCtx, m_internal->rgbaFrame, m_internal->frame);
 
+#ifdef _WIN32
             m_internal->context->UpdateSubresource(m_internal->swTexture, 0, nullptr, m_internal->rgbaFrame->data[0], m_internal->rgbaFrame->linesize[0], 0);
             *outTexture = m_internal->swTexture;
             LOG_INFO("StreamTrace", "DECODER_TEXTURE_OUT hw=0 texture=" + std::to_string(reinterpret_cast<uintptr_t>(*outTexture)));
@@ -321,7 +306,7 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
             return false;
         }
     }
-
+#endif
     return true;
 }
 
@@ -332,16 +317,21 @@ bool DecoderHW::IsHardware() const {
 void DecoderHW::Shutdown() {
     if (m_internal->swsCtx) sws_freeContext(m_internal->swsCtx);
     if (m_internal->rgbaFrame) av_frame_free(&m_internal->rgbaFrame);
+#ifdef _WIN32
     if (m_internal->swTexture) m_internal->swTexture->Release();
     if (m_internal->context) m_internal->context->Release();
     if (m_internal->device) m_internal->device->Release();
+#endif
     m_internal->swsCtx = nullptr;
     m_internal->rgbaFrame = nullptr;
+#ifdef _WIN32
     m_internal->swTexture = nullptr;
     m_internal->context = nullptr;
     m_internal->device = nullptr;
+#endif
 
     if (m_internal->codecCtx) {
+#ifdef _WIN32
         if (m_internal->codecCtx->hw_device_ctx) {
             AVHWDeviceContext* device_ctx = (AVHWDeviceContext*)m_internal->codecCtx->hw_device_ctx->data;
             if (device_ctx->type == AV_HWDEVICE_TYPE_D3D11VA) {
@@ -349,6 +339,7 @@ void DecoderHW::Shutdown() {
                 if (d3d11_ctx->device) d3d11_ctx->device->Release();
             }
         }
+#endif
         avcodec_free_context(&m_internal->codecCtx);
     }
     if (m_internal->hwDeviceCtx) av_buffer_unref(&m_internal->hwDeviceCtx);
@@ -360,10 +351,7 @@ void DecoderHW::Shutdown() {
 struct DecoderHW::InternalData {};
 DecoderHW::DecoderHW() : m_internal(nullptr) {}
 DecoderHW::~DecoderHW() {}
-bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
-    LOG_ERROR("Decoder", "FFmpeg support not compiled in. Decoder is disabled.");
-    return false;
-}
+bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) { return false; }
 bool DecoderHW::DecodeFrame(const uint8_t* d, size_t s, void** o, int* i, bool h) { return false; }
 bool DecoderHW::IsHardware() const { return false; }
 void DecoderHW::Shutdown() {}

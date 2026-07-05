@@ -24,11 +24,16 @@ QtObject {
     readonly property color surface: "#151D2E"
     readonly property color surfaceSecondary: "#1E293B"
 
-    readonly property color primary: "#2563EB"
+    readonly property color primary: "#0078D4"
     readonly property color accent: "#8B5CF6"
-    readonly property color success: "#10B981"
-    readonly property color warning: "#F59E0B"
-    readonly property color danger: "#EF4444"
+    readonly property color success: "#6BB05D"
+    readonly property color warning: "#FCE100"
+    readonly property color danger: "#E81123"
+
+    // Semantic status colors
+    readonly property color statusGood: success
+    readonly property color statusFair: warning
+    readonly property color statusPoor: danger
 
     readonly property color textPrimary: "#F8FAFC"
     readonly property color textSecondary: "#94A3B8"
