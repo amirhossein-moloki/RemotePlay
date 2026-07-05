@@ -133,6 +133,13 @@ If you are just using Parsec-Lite and don't want to build it yourself:
 
 ---
 
+## 🏗️ Architecture & Roadmap
+The project is evolving through several key phases:
+- **[Phase 1: Security Hardening](docs/SECURITY_ARCHITECTURE_PHASE_1.md)**: X25519/XChaCha20-Poly1305 integration.
+- **[Phase 2: Media Streaming Engine](docs/PHASE2_ARCHITECTURE.md)**: Low-latency audio/video pipeline.
+- **[Phase 3: WAN Enablement](docs/PHASE3_WAN_ARCHITECTURE.md)**: STUN/ICE and Edge Relay infrastructure.
+- **[Phase 4: Cloud Scaling](docs/PHASE4_CLOUD_SCALING.md)**: Global infrastructure and orchestration.
+
 ## 🚀 Key Features
 - **Ultra-Low Latency**: Target < 20ms E2E latency on standard Gigabit LAN.
 - **High-Performance Capture**: GPU-direct frame access via Windows DXGI Desktop Duplication API.

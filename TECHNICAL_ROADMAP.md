@@ -64,3 +64,9 @@ To modernize the UI while preserving the ultra-low latency C++ streaming engine,
 - Port the ImGui overlay logic to a high-performance Win2D or D3D11 overlay managed by the core.
 - Implement "Recent Connections" persistence (SQLite or JSON).
 - Final Accessibility audit and focus-ring tuning.
+
+### Phase E: Cloud Scaling & Global Infrastructure (Target: Q3/Q4)
+- **Containerization**: Dockerize Core/Relay/Signaling services.
+- **Orchestration**: K8s deployment with GPU-aware scheduling.
+- **Global Routing**: Geo-DNS and Latency-based server selection.
+- **Observability**: OpenTelemetry and Grafana integration.
