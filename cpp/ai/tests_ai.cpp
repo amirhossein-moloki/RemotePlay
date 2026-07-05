@@ -6,6 +6,7 @@
 #include "stream_engine.hpp"
 #include "intelligent_router.hpp"
 #include "input_predictor.hpp"
+#include "cloud_optimizer.hpp"
 
 void testLatencyPredictor() {
     std::cout << "Testing LatencyPredictor..." << std::endl;
@@ -51,13 +52,13 @@ void testIntelligentRouter() {
     AI::IntelligentRouter router;
 
     std::vector<AI::RouteCandidate> candidates = {
-        {"region-1", "1.1.1.1", 5005, 50.0f, 0.0f, 10},
-        {"region-2", "2.2.2.2", 5005, 20.0f, 0.0f, 80},
-        {"region-3", "3.3.3.3", 5005, 150.0f, 0.05f, 5}
+        {"region-1", "1.1.1.1", 5005, 50.0f, 0.0f, 10, 0.0f},
+        {"region-2", "2.2.2.2", 5005, 20.0f, 0.0f, 80, 0.8f}, // High latency trend improvement
+        {"region-3", "3.3.3.3", 5005, 150.0f, 0.05f, 5, -0.5f}
     };
 
     auto best = router.SelectBestRoute(candidates);
-    std::cout << "  Best Route: " << best.id << " (Expected region-2 due to low latency)" << std::endl;
+    std::cout << "  Best Route: " << best.id << " (Expected region-2 due to low latency and positive trend)" << std::endl;
     assert(best.id == "region-2");
 
     std::cout << "  IntelligentRouter passed." << std::endl;
@@ -75,7 +76,37 @@ void testInputPredictor() {
     assert(pred.x == 120);
     assert(pred.y == 120);
 
+    // Test Smoothing
+    predictor.RecordInput(100, 100, 1000); // Initialize smoother
+    AI::InputSample raw = { 200, 200, 1030 };
+    auto smoothed = predictor.Smooth(raw);
+    std::cout << "  Smoothed X: " << smoothed.x << " (Expected < 200 due to filter)" << std::endl;
+    assert(smoothed.x < 200);
+
     std::cout << "  InputPredictor passed." << std::endl;
+}
+
+void testCloudOptimizer() {
+    std::cout << "Testing CloudOptimizer..." << std::endl;
+    AI::CloudOptimizer optimizer;
+
+    std::vector<AI::NodeStats> nodes = {
+        {"node-1", 0.95f, 0.5f, 9, 10, 1},
+        {"node-2", 0.85f, 0.2f, 4, 10, 1},
+        {"node-3", 0.80f, 0.6f, 8, 10, 1}
+    };
+
+    // Test scaling (Avg load = 0.86, threshold = 0.75)
+    auto signal = optimizer.AnalyzeRegionalLoad(1, nodes);
+    std::cout << "  Scale Up: " << (signal.scaleUp ? "Yes" : "No") << " (Expected Yes)" << std::endl;
+    assert(signal.scaleUp == true);
+
+    // Test Session Packing (Should pick node-3 as it's highest load that fits)
+    auto best = optimizer.SelectOptimalNode(nodes, 500);
+    std::cout << "  Best Node for Packing: " << best << " (Expected node-1 or node-3)" << std::endl;
+    assert(best == "node-1" || best == "node-3");
+
+    std::cout << "  CloudOptimizer passed." << std::endl;
 }
 
 int main() {
@@ -84,6 +115,7 @@ int main() {
         testStreamEngine();
         testIntelligentRouter();
         testInputPredictor();
+        testCloudOptimizer();
         std::cout << "\nAll AI Unit Tests Passed!" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Test failed: " << e.what() << std::endl;

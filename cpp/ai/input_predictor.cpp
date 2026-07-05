@@ -10,6 +10,11 @@ void InputPredictor::RecordInput(int32_t x, int32_t y, uint64_t timestamp) {
     if (m_history.size() > m_historySize) {
         m_history.pop_front();
     }
+
+    if (m_lastSmoothX == 0 && m_lastSmoothY == 0) {
+        m_lastSmoothX = (float)x;
+        m_lastSmoothY = (float)y;
+    }
 }
 
 InputSample InputPredictor::Predict(uint64_t targetTimestamp) {
@@ -36,6 +41,22 @@ InputSample InputPredictor::Predict(uint64_t targetTimestamp) {
     prediction.timestamp = targetTimestamp;
 
     return prediction;
+}
+
+InputSample InputPredictor::Smooth(const InputSample& raw) {
+    if (m_lastSmoothX == 0 && m_lastSmoothY == 0) {
+        m_lastSmoothX = (float)raw.x;
+        m_lastSmoothY = (float)raw.y;
+        return raw;
+    }
+
+    m_lastSmoothX = m_lastSmoothX * SMOOTHING_FACTOR + (float)raw.x * (1.0f - SMOOTHING_FACTOR);
+    m_lastSmoothY = m_lastSmoothY * SMOOTHING_FACTOR + (float)raw.y * (1.0f - SMOOTHING_FACTOR);
+
+    InputSample smoothed = raw;
+    smoothed.x = (int32_t)m_lastSmoothX;
+    smoothed.y = (int32_t)m_lastSmoothY;
+    return smoothed;
 }
 
 } // namespace AI

@@ -101,6 +101,7 @@ private:
     float m_lastFrameDropRate = 0.0f;
     float m_lastAvgEncodeTimeMs = 0.0f;
     uint64_t m_lastAdjustmentTime = 0;
+    size_t m_lastEncodedSize = 0;
 
     // AI Components
     std::unique_ptr<AI::StreamEngine> m_streamEngine;

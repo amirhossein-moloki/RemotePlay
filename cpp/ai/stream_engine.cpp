@@ -36,32 +36,42 @@ AdaptationDecision StreamEngine::Analyze(const StreamState& state, const Latency
         return decision;
     }
 
+    // Motion-Aware Bitrate Adjustment
+    float complexityMultiplier = 1.0f + (state.sceneComplexity * 0.5f); // Increase bitrate up to 50% for high motion
+    int idealBitrate = (int)(decision.targetBitrateKbps * complexityMultiplier);
+
     // Proactive Congestion Avoidance
     if (prediction.predictedLossRate > 0.02f || prediction.predictedRttMs > state.rttMs * 1.2f) {
         decision.action = AdaptationAction::DecreaseBitrate;
-        decision.targetBitrateKbps = (int)(state.currentBitrateKbps * 0.85f);
+        decision.targetBitrateKbps = (int)(state.currentBitrateKbps * 0.80f);
         decision.reason = "Predicted latency spike or packet loss";
         m_lastActionTime = now;
     }
     // Recovery / Quality Improvement
     else if (prediction.predictedLossRate < 0.005f && prediction.predictedRttMs < 50.0f && state.packetLoss < 0.001f) {
-        if (state.currentBitrateKbps < 20000) {
+        if (state.currentBitrateKbps < 30000) {
             decision.action = AdaptationAction::IncreaseBitrate;
-            decision.targetBitrateKbps = (int)(state.currentBitrateKbps * 1.15f);
-            decision.reason = "Stable network, increasing quality";
+            decision.targetBitrateKbps = std::min(30000, idealBitrate);
+            decision.reason = "Stable network, motion-aware quality increase";
             m_lastActionTime = now;
         }
     }
 
     // Resolution scaling logic based on bitrate thresholds
-    if (decision.targetBitrateKbps < 2000 && state.currentWidth > 854) {
+    if (decision.targetBitrateKbps < 2500 && state.currentWidth > 854) {
         decision.action = AdaptationAction::DecreaseResolution;
         decision.targetWidth = 854;
         decision.targetHeight = 480;
+        decision.targetFPS = 30;
+    } else if (decision.targetBitrateKbps > 12000 && state.currentWidth < 3840 && state.currentWidth >= 1920) {
+        decision.action = AdaptationAction::IncreaseResolution;
+        decision.targetWidth = 3840;
+        decision.targetHeight = 2160;
     } else if (decision.targetBitrateKbps > 6000 && state.currentWidth < 1920) {
         decision.action = AdaptationAction::IncreaseResolution;
         decision.targetWidth = 1920;
         decision.targetHeight = 1080;
+        decision.targetFPS = 60;
     }
 
     return decision;
