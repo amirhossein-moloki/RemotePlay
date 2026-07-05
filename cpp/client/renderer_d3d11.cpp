@@ -273,7 +273,7 @@ bool RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
 
     if (!texture) {
         // No cached frame available yet
-        return;
+        return false;
     }
     LOG_INFO("StreamTrace", "RENDER_INPUT texture=" + std::to_string(reinterpret_cast<uintptr_t>(texture)) +
              " arrayIndex=" + std::to_string(arrayIndex));
@@ -283,7 +283,7 @@ bool RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
         if (FAILED(hr)) {
             char hex[16]; snprintf(hex, sizeof(hex), "0x%08X", (uint32_t)hr);
             LOG_ERROR("Renderer", "D3D11 Device Lost! Reason: " + std::string(hex));
-            return;
+            return false;
         }
     }
 
@@ -299,7 +299,7 @@ bool RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
         std::stringstream ss;
         ss << "0x" << std::hex << hr;
         LOG_ERROR("Renderer", "Failed to get swap chain buffer index " + std::to_string(m_currentBufferIndex) + ". HR: " + ss.str());
-        return;
+        return false;
     }
 
     D3D11_TEXTURE2D_DESC dstDesc;
