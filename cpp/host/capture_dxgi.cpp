@@ -69,14 +69,23 @@ bool CaptureDXGI::Initialize() {
 HRESULT CaptureDXGI::AcquireFrame(ID3D11Texture2D** texture) {
     if (!m_dupl) return DXGI_ERROR_INVALID_CALL;
 
+    if (m_device) {
+        HRESULT reason = m_device->GetDeviceRemovedReason();
+        if (FAILED(reason)) {
+            LOG_WARN("Capture", "D3D11 Device removed detected in AcquireFrame.");
+            Cleanup();
+            return reason;
+        }
+    }
+
     DXGI_OUTDUPL_FRAME_INFO frameInfo;
     IDXGIResource* desktopResource = nullptr;
     HRESULT hr = m_dupl->AcquireNextFrame(100, &frameInfo, &desktopResource);
     if (FAILED(hr)) {
-        if (hr == DXGI_ERROR_ACCESS_LOST || hr == DXGI_ERROR_DEVICE_REMOVED) {
+        if (hr == DXGI_ERROR_ACCESS_LOST || hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
             std::stringstream ss;
             ss << "0x" << std::hex << hr;
-            LOG_WARN("Capture", "DXGI Device lost (HR: " + ss.str() + "), cleaning up for re-init.");
+            LOG_WARN("Capture", "DXGI Device lost or access lost (HR: " + ss.str() + "), cleaning up for re-init.");
             Cleanup();
         }
         return hr;
