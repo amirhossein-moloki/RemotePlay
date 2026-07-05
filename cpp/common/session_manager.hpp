@@ -28,6 +28,22 @@ public:
 
     void handleMessage(uint32_t msg, uint64_t wParam, int64_t lParam);
 
+    // WAN Negotiation Support
+    struct ConnectivityCandidate {
+        std::string ip;
+        uint16_t port;
+        uint8_t priority; // 0: LAN, 1: Srflx, 2: Relay
+    };
+
+    enum class SignalingState {
+        IDLE,
+        GATHERING_CANDIDATES,
+        EXCHANGING,
+        HOLE_PUNCHING,
+        CONNECTED,
+        FAILED
+    };
+
 private:
     SessionManager() = default;
     ~SessionManager() { stopSession(); }
@@ -50,6 +66,8 @@ private:
         bool approved = false;
         bool waiting = true;
         std::vector<uint8_t> clientPublicKey;
+        std::vector<ConnectivityCandidate> candidates;
+        SignalingState signalingState = SignalingState::IDLE;
     };
     std::vector<PendingClient> m_pendingClients;
     std::mutex m_pendingClientsMutex;

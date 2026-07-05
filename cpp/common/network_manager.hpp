@@ -48,6 +48,9 @@ public:
 
     int ReceiveFrom(void* buffer, size_t maxSize, std::string& senderIp, uint16_t& senderPort);
 
+    // STUN Discovery for WAN Reflexive candidates
+    bool GetPublicEndpoint(const std::string& stunServer, uint16_t stunPort, std::string& publicIp, uint16_t& publicPort);
+
 private:
 #ifdef _WIN32
     SOCKET m_socket;
