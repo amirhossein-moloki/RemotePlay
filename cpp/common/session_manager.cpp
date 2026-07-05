@@ -443,7 +443,7 @@ void SessionManager::runHost(ParsecConfig config) {
                                                                    securePkt->data.data() + sizeof(Protocol::SecureHeader),
                                                                sh_stack.authTag)) {
                                 memcpy(securePkt->data.data(), &sh_stack, sizeof(Protocol::SecureHeader));
-                                    securePkt->size = sizeof(Protocol::SecureHeader) + sh->encryptedSize;
+                                    securePkt->size = sizeof(Protocol::SecureHeader) + sh_stack.encryptedSize;
                                     ctx->udpPool.release(std::move(udpPkt));
                                     udpPkt = std::move(securePkt);
                                 } else {
@@ -773,14 +773,14 @@ void SessionManager::runHost(ParsecConfig config) {
                             // Replay protection (Simple for Host in Phase 1)
                             // Note: Production should use the same sliding window as client.
                             static thread_local std::map<uint64_t, uint64_t> lastSeqs;
-                            if (sh->sequenceNumber >= lastSeqs[sh->sessionId]) {
-                                lastSeqs[sh->sessionId] = sh->sequenceNumber + 1;
+                            if (sh.sequenceNumber >= lastSeqs[sh.sessionId]) {
+                                lastSeqs[sh.sessionId] = sh.sequenceNumber + 1;
 
                                 Protocol::PacketType innerType = (Protocol::PacketType)decrypted[0];
-                                if (innerType == Protocol::PacketType::Input && sh->encryptedSize >= (int)sizeof(Protocol::InputHeader)) {
+                                if (innerType == Protocol::PacketType::Input && sh.encryptedSize >= (int)sizeof(Protocol::InputHeader)) {
                                     Protocol::InputHeader* ih = (Protocol::InputHeader*)decrypted;
                                     uint8_t* payload = decrypted + sizeof(Protocol::InputHeader);
-                                    int payloadLen = sh->encryptedSize - (int)sizeof(Protocol::InputHeader);
+                                    int payloadLen = sh.encryptedSize - (int)sizeof(Protocol::InputHeader);
 
                                     if (ih->inputType == (uint8_t)Protocol::InputType::Keyboard && payloadLen >= (int)sizeof(Protocol::KeyboardEvent)) {
                                         ctx->injector.InjectKeyboard(*(Protocol::KeyboardEvent*)payload);
@@ -795,7 +795,7 @@ void SessionManager::runHost(ParsecConfig config) {
                                     } else if (ih->inputType == (uint8_t)Protocol::InputType::Gamepad && payloadLen >= (int)sizeof(Protocol::GamepadState)) {
                                         ctx->injector.InjectGamepad(senderIp, *(Protocol::GamepadState*)payload);
                                     }
-                                } else if (innerType == Protocol::PacketType::Feedback && sh->encryptedSize >= (int)sizeof(Protocol::FeedbackHeader)) {
+                                } else if (innerType == Protocol::PacketType::Feedback && sh.encryptedSize >= (int)sizeof(Protocol::FeedbackHeader)) {
                                     Protocol::FeedbackHeader* fh = (Protocol::FeedbackHeader*)decrypted;
                                     Profiler::getInstance().recordValue("Network_LossRate", fh->lossRate);
                                     Profiler::getInstance().recordValue("Network_RTT", (double)fh->rttMs);
@@ -816,7 +816,7 @@ void SessionManager::runHost(ParsecConfig config) {
                                         LOG_INFO("Session", "Keyframe requested by client " + senderIp);
                                         targetClient->encoder->RequestKeyframe();
                                     }
-                                } else if (innerType == Protocol::PacketType::RetransmitRequest && sh->encryptedSize >= (int)sizeof(Protocol::RetransmitRequestPacket)) {
+                                } else if (innerType == Protocol::PacketType::RetransmitRequest && sh.encryptedSize >= (int)sizeof(Protocol::RetransmitRequestPacket)) {
                                     Protocol::RetransmitRequestPacket* rrp = (Protocol::RetransmitRequestPacket*)decrypted;
                                     uint32_t cacheIdx = (rrp->frameId << 6) ^ rrp->fragmentIndex;
                                     std::lock_guard<std::mutex> lock(targetClient->stateMutex);
@@ -832,7 +832,7 @@ void SessionManager::runHost(ParsecConfig config) {
                                             LOG_INFO("Session", "Retransmitting frame=" + std::to_string(rrp->frameId) + " frag=" + std::to_string(rrp->fragmentIndex));
                                         }
                                     }
-                                } else if (innerType == Protocol::PacketType::TimeSync && sh->encryptedSize >= (int)sizeof(Protocol::TimeSyncPacket)) {
+                                } else if (innerType == Protocol::PacketType::TimeSync && sh.encryptedSize >= (int)sizeof(Protocol::TimeSyncPacket)) {
                                     Protocol::TimeSyncPacket* tsp = (Protocol::TimeSyncPacket*)decrypted;
                                     Protocol::TimeSyncResponsePacket tsrp;
                                     tsrp.type = (uint8_t)Protocol::PacketType::TimeSync;
