@@ -57,6 +57,8 @@ DecoderHW::~DecoderHW() {
 }
 
 bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
+    Shutdown(); // Ensure previous resources are released
+
     m_internal->lastD3D11Device = d3d11DevicePtr;
     m_internal->lastUseHardware = useHardware;
 

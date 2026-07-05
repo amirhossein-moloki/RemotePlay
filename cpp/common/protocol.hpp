@@ -20,7 +20,8 @@ enum class PacketType : uint8_t {
     Audio = 0x0B,
     TimeSync = 0x0C,
     CandidateDiscovery = 0x0D,
-    RelayData = 0x0E
+    RelayData = 0x0E,
+    RetransmitRequest = 0x0F
 };
 
 // Input subtypes
@@ -201,6 +202,13 @@ struct RelayHeader {
     uint8_t type;            // PacketType::RelayData
     uint64_t sessionId;      // Target session ID
     uint16_t dataSize;       // Encapsulated payload size
+};
+
+// Selective Retransmission Request (NACK)
+struct RetransmitRequestPacket {
+    uint8_t type;            // PacketType::RetransmitRequest
+    uint32_t frameId;
+    uint16_t fragmentIndex;
 };
 
 #pragma pack(pop)

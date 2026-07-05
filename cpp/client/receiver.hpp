@@ -55,6 +55,13 @@ public:
     void ReturnToPool(FramePtr frame);
     void ReturnToPoolRaw(FrameData* frame);
 
+    // Selective Retransmission
+    struct NACK {
+        uint32_t frameId;
+        uint16_t fragmentIndex;
+    };
+    std::vector<NACK> GetPendingNACKs();
+
     // Replay protection
     bool ValidateSequence(uint64_t sequenceNumber);
 
