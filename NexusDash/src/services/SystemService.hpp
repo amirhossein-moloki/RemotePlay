@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QAbstractListModel>
 #include <QDateTime>
+#include <QStringListModel>
 #include "common/parsec_lite_api.h"
 
 struct LogEntry {
@@ -76,6 +77,8 @@ class SystemService : public QObject
     Q_PROPERTY(int encoderPreset READ encoderPreset WRITE setEncoderPreset NOTIFY encoderPresetChanged)
     Q_PROPERTY(double resolutionScale READ resolutionScale WRITE setResolutionScale NOTIFY resolutionScaleChanged)
     Q_PROPERTY(QAbstractListModel* logModel READ logModel CONSTANT)
+    Q_PROPERTY(QStringList recentHosts READ recentHosts NOTIFY recentHostsChanged)
+    Q_PROPERTY(QString currentQualityTier READ currentQualityTier NOTIFY qualityTierChanged)
 
     // Historical data for graphs
     Q_PROPERTY(QVariantList cpuHistory READ cpuHistory NOTIFY historyChanged)
@@ -89,6 +92,9 @@ public:
     Q_INVOKABLE void startHost(const QString& interfaceInfo, int bitrate, int fps);
     Q_INVOKABLE void startClient(const QString& interfaceInfo, const QString& hostIp, int bitrate, int fps);
     Q_INVOKABLE void stopSession();
+
+    Q_INVOKABLE void copyToClipboard(const QString& text);
+    Q_INVOKABLE QString getIpFromInterface(const QString& interfaceInfo);
 
     double cpuUsage() const { return m_cpuUsage; }
     double memoryUsage() const { return m_memoryUsage; }
@@ -108,11 +114,14 @@ public:
     void setEncoderPreset(int preset);
     double resolutionScale() const { return m_resolutionScale; }
     void setResolutionScale(double scale);
+    QStringList recentHosts() const { return m_recentHosts; }
+    QString currentQualityTier() const { return m_currentQualityTier; }
 
     QAbstractListModel* logModel() const { return m_logModel; }
 
     // Error mapping for UI
     Q_INVOKABLE QString getFriendlyError(int errorCode, const QString& technicalMsg);
+    Q_INVOKABLE QString getActionSuggestion(int errorCode, const QString& technicalMsg);
 
     QVariantList cpuHistory() const { return m_cpuHistory; }
     QVariantList memoryHistory() const { return m_memoryHistory; }
@@ -131,12 +140,15 @@ signals:
     void useHardwareEncodingChanged();
     void encoderPresetChanged();
     void resolutionScaleChanged();
-    void errorOccurred(const QString& title, const QString& message);
+    void qualityTierChanged();
+    void recentHostsChanged();
+    void errorOccurred(const QString& title, const QString& message, const QString& suggestion = "");
 
 private:
     void updateStats();
     void addLog(const QString& level, const QString& event, const QString& desc);
     void updateHistory(QVariantList& list, double value);
+    void addToHistory(const QString& host);
 
     double m_cpuUsage = 0.0;
     double m_memoryUsage = 0.0;
@@ -147,10 +159,12 @@ private:
     double m_resolutionScale = 1.0;
     void* m_clientWindow = nullptr;
     QStringList m_networkInterfaces;
+    QStringList m_recentHosts;
     ParsecTelemetry m_stats = {};
     QTimer *m_timer;
     qint64 m_startTime;
     LogModel* m_logModel;
+    QString m_currentQualityTier = "High Performance";
 
     QVariantList m_cpuHistory;
     QVariantList m_memoryHistory;

@@ -8,8 +8,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
 
 qt_standard_project_setup()
-qt_policy(SET QTP0001 NEW)
-qt_policy(SET QTP0004 NEW)
+if(COMMAND qt_policy)
+    qt_policy(SET QTP0001 NEW)
+    qt_policy(SET QTP0004 NEW)
+endif()
 
 qt_add_executable(appNexusDash
     src/main.cpp
@@ -32,6 +34,7 @@ qt_add_qml_module(appNexusDash
         qml/main.qml
         qml/theme/Theme.qml
         qml/components/NexusButton.qml
+        qml/components/NetworkStatusIndicator.qml
         qml/components/DashboardHeader.qml
         qml/components/NexusGraph.qml
         qml/components/NexusComboBox.qml

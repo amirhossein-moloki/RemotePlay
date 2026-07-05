@@ -144,9 +144,10 @@ ApplicationWindow {
 
     Connections {
         target: backend.system
-        function onErrorOccurred(title, message) {
+        function onErrorOccurred(title, message, suggestion) {
             errorDialog.title = title
             errorDialog.message = message
+            errorDialog.suggestion = suggestion
             errorDialog.open()
         }
     }

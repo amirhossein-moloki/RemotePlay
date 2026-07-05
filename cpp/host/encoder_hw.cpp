@@ -9,7 +9,9 @@ extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/hwcontext.h>
+#ifdef _WIN32
 #include <libavutil/hwcontext_d3d11va.h>
+#endif
 #include <libswscale/swscale.h>
 }
 #endif
@@ -26,9 +28,11 @@ struct FFmpegHardwareEncoder::InternalData {
     int64_t frameCounter = 0;
 
     // Software fallback resources
+#ifdef _WIN32
     ID3D11Device* d3d11Device = nullptr;
     ID3D11DeviceContext* d3d11Context = nullptr;
     ID3D11Texture2D* stagingTex = nullptr;
+#endif
     SwsContext* swsCtx = nullptr;
     AVFrame* swFrame = nullptr;
 };
@@ -48,11 +52,13 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
     m_fps = fps;
     m_bitrate = bitrateKbps;
 
+#ifdef _WIN32
     if (d3d11Device) {
         m_internal->d3d11Device = (ID3D11Device*)d3d11Device;
         m_internal->d3d11Device->AddRef();
         m_internal->d3d11Device->GetImmediateContext(&m_internal->d3d11Context);
     }
+#endif
 
     auto tryInitialize = [&](bool softwareFallback) -> bool {
         const AVCodec* codec = nullptr;
@@ -144,6 +150,7 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
         }
         av_opt_set(m_internal->codecCtx->priv_data, "rc", "cbr", 0);
 
+#ifdef _WIN32
         if (d3d11Device && !isSoftware) {
             bool supportsD3D11 = false;
             const enum AVPixelFormat* pix_fmts = nullptr;
@@ -190,6 +197,7 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
                 LOG_WARN("Encoder", "Codec " + std::string(codec->name) + " does not support D3D11 pixel format directly. Using software-to-hardware upload path.");
             }
         }
+#endif
 
         if (avcodec_open2(m_internal->codecCtx, codec, NULL) < 0) {
             Shutdown(); // Clean up before retrying or failing
@@ -232,6 +240,7 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
     AVFrame* encodeFrame = m_internal->frame;
     av_frame_unref(encodeFrame);
 
+#ifdef _WIN32
     if (m_internal->codecCtx->hw_frames_ctx) {
         // Zero-copy path: Wrap the D3D11 texture directly
         // Note: This only works if captured resolution matches encoder resolution.
@@ -347,11 +356,17 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
         } else {
             return false;
         }
+    }
+#else
+    // Non-Windows (e.g. Linux) - Hardware path using d3d11 is not supported.
+    // Use swFrame if available
+    if (m_internal->swFrame) {
+        encodeFrame = m_internal->swFrame;
     } else {
-        LOG_ERROR("Encoder", "Encoder not initialized correctly for hardware or software path.");
+        LOG_ERROR("Encoder", "No software frame available for non-Windows encoding.");
         return false;
     }
-    }
+#endif
 
     encodeFrame->width = m_internal->codecCtx->width;
     encodeFrame->height = m_internal->codecCtx->height;
@@ -489,6 +504,7 @@ bool FFmpegHardwareEncoder::IsHEVC() const {
 void FFmpegHardwareEncoder::Shutdown() {
     m_initialized = false;
     if (m_internal->codecCtx) {
+#ifdef _WIN32
         if (m_internal->codecCtx->hw_device_ctx) {
             AVHWDeviceContext* device_ctx = (AVHWDeviceContext*)m_internal->codecCtx->hw_device_ctx->data;
             if (device_ctx->type == AV_HWDEVICE_TYPE_D3D11VA) {
@@ -496,6 +512,7 @@ void FFmpegHardwareEncoder::Shutdown() {
                 if (d3d11_ctx->device) d3d11_ctx->device->Release();
             }
         }
+#endif
         avcodec_free_context(&m_internal->codecCtx);
     }
     if (m_internal->hwDeviceCtx) av_buffer_unref(&m_internal->hwDeviceCtx);
@@ -504,9 +521,11 @@ void FFmpegHardwareEncoder::Shutdown() {
 
     if (m_internal->swsCtx) { sws_freeContext(m_internal->swsCtx); m_internal->swsCtx = nullptr; }
     if (m_internal->swFrame) { av_frame_free(&m_internal->swFrame); m_internal->swFrame = nullptr; }
+#ifdef _WIN32
     if (m_internal->stagingTex) { m_internal->stagingTex->Release(); m_internal->stagingTex = nullptr; }
     if (m_internal->d3d11Context) { m_internal->d3d11Context->Release(); m_internal->d3d11Context = nullptr; }
     if (m_internal->d3d11Device) { m_internal->d3d11Device->Release(); m_internal->d3d11Device = nullptr; }
+#endif
 }
 
 #else

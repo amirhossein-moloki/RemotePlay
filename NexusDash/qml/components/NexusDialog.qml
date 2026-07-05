@@ -7,6 +7,7 @@ Dialog {
     id: control
 
     property alias message: messageText.text
+    property string suggestion: ""
 
     x: (parent.width - width) / 2
     y: (parent.height - height) / 2
@@ -45,6 +46,32 @@ Dialog {
             font.pixelSize: 14
             color: Theme.textSecondary
             horizontalAlignment: Text.AlignHCenter
+        }
+
+        // Action Suggestions
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: suggestionText.implicitHeight + 24
+            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+            radius: Theme.radiusMedium
+            visible: control.suggestion !== ""
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 12
+                spacing: 12
+                Text { text: "💡"; font.pixelSize: 16 }
+                Text {
+                    id: suggestionText
+                    text: control.suggestion
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    font.italic: true
+                    color: Theme.textPrimary
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+            }
         }
     }
 
