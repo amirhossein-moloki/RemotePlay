@@ -201,6 +201,7 @@ struct CandidatePacket {
 struct RelayHeader {
     uint8_t type;            // PacketType::RelayData
     uint64_t sessionId;      // Target session ID
+    uint8_t targetUUID[16];  // Edge routing destination
     uint16_t dataSize;       // Encapsulated payload size
 };
 

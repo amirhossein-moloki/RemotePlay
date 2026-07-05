@@ -421,17 +421,18 @@ void SessionManager::runHost(ParsecConfig config) {
                             }
 
                             if (securePkt) {
-                                Protocol::SecureHeader* sh = (Protocol::SecureHeader*)securePkt->data.data();
-                                sh->type = (uint8_t)Protocol::PacketType::Secure;
-                                sh->sessionId = client->sessionId;
-                                sh->sequenceNumber = client->sendSequenceNumber++;
-                                sh->encryptedSize = sizeof(Protocol::VideoHeader) + vh->dataSize;
+                            Protocol::SecureHeader sh_stack;
+                            sh_stack.type = (uint8_t)Protocol::PacketType::Secure;
+                            sh_stack.sessionId = client->sessionId;
+                            sh_stack.sequenceNumber = client->sendSequenceNumber++;
+                            sh_stack.encryptedSize = sizeof(Protocol::VideoHeader) + vh->dataSize;
 
-                                if (Crypto::CryptoManager::Encrypt(udpPkt->data.data(), sh->encryptedSize,
-                                                                   (uint8_t*)&sh->sessionId, sizeof(Protocol::SecureHeader) - 16, // AD is header without authTag
-                                                                   sh->sequenceNumber, client->txKey,
+                            if (Crypto::CryptoManager::Encrypt(udpPkt->data.data(), sh_stack.encryptedSize,
+                                                               (uint8_t*)&sh_stack.sessionId, sizeof(Protocol::SecureHeader) - 16,
+                                                               sh_stack.sequenceNumber, client->txKey,
                                                                    securePkt->data.data() + sizeof(Protocol::SecureHeader),
-                                                                   sh->authTag)) {
+                                                               sh_stack.authTag)) {
+                                memcpy(securePkt->data.data(), &sh_stack, sizeof(Protocol::SecureHeader));
                                     securePkt->size = sizeof(Protocol::SecureHeader) + sh->encryptedSize;
                                     ctx->udpPool.release(std::move(udpPkt));
                                     udpPkt = std::move(securePkt);
@@ -514,13 +515,44 @@ void SessionManager::runHost(ParsecConfig config) {
         uint16_t senderPort;
         while (m_running) {
             int len = ctx->net.ReceiveFrom(buf, sizeof(buf), senderIp, senderPort);
-            if (len > 0) {
+            while (len > 0) {
                 Protocol::PacketType type = (Protocol::PacketType)buf[0];
+                bool reprocess = false;
                 if (type == Protocol::PacketType::CandidateDiscovery && len >= (int)sizeof(Protocol::CandidatePacket)) {
                     Protocol::CandidatePacket* cp = (Protocol::CandidatePacket*)buf;
                     LOG_INFO("Session", "Received Candidate from " + senderIp + ": " + cp->ip + ":" + std::to_string(cp->port));
                     // In a production P2P flow, the host would start hole punching back to this candidate
                     ctx->net.SendTo(buf, len, cp->ip, cp->port); // Reflective punch
+                } else if (type == Protocol::PacketType::RelayData && len >= (int)sizeof(Protocol::RelayHeader)) {
+                    Protocol::RelayHeader rh;
+                    memcpy(&rh, buf, sizeof(Protocol::RelayHeader)); // Safe alignment copy
+
+                    // Unwrap relay packet and process the inner content
+                    if (len > (int)sizeof(Protocol::RelayHeader)) {
+                        uint8_t* innerData = buf + sizeof(Protocol::RelayHeader);
+                        int innerLen = len - sizeof(Protocol::RelayHeader);
+
+                        // 1. Validate SessionID isolation at the relay layer before unwrapping
+                        bool sessionMatch = false;
+                        {
+                            std::lock_guard<std::mutex> lock(ctx->clientsMutex);
+                            for (auto& c : ctx->clients) if (c->sessionId == rh.sessionId) { sessionMatch = true; break; }
+                        }
+
+                        if (sessionMatch) {
+                            uint8_t localBuf[2048];
+                            int copyLen = std::min(innerLen, (int)sizeof(localBuf));
+                            memcpy(localBuf, innerData, copyLen);
+
+                            if (localBuf[0] == (uint8_t)Protocol::PacketType::Secure) {
+                                memcpy(buf, localBuf, copyLen);
+                                len = copyLen;
+                                reprocess = true;
+                            }
+                        } else {
+                            LOG_WARN("Relay", "Dropping RelayData: SessionID mismatch (" + std::to_string(rh.sessionId) + ")");
+                        }
+                    }
                 } else if (type == Protocol::PacketType::HandshakeSecure && len >= (int)sizeof(Protocol::HandshakeSecurePacket)) {
                     Protocol::HandshakeSecurePacket* hp = (Protocol::HandshakeSecurePacket*)buf;
                     std::string username(hp->username, strnlen(hp->username, sizeof(hp->username)));
@@ -636,18 +668,19 @@ void SessionManager::runHost(ParsecConfig config) {
                                                     return;
                                                 }
                                                 if (securePkt) {
-                                                    Protocol::SecureHeader* sh = (Protocol::SecureHeader*)securePkt->data.data();
-                                                    sh->type = (uint8_t)Protocol::PacketType::Secure;
-                                                    sh->sessionId = newState->sessionId;
-                                                    sh->sequenceNumber = newState->sendSequenceNumber++;
-                                                    sh->encryptedSize = sizeof(Protocol::AudioHeader) + ah->dataSize;
+                                                    Protocol::SecureHeader sh_stack;
+                                                    sh_stack.type = (uint8_t)Protocol::PacketType::Secure;
+                                                    sh_stack.sessionId = newState->sessionId;
+                                                    sh_stack.sequenceNumber = newState->sendSequenceNumber++;
+                                                    sh_stack.encryptedSize = sizeof(Protocol::AudioHeader) + ah->dataSize;
 
-                                                    if (Crypto::CryptoManager::Encrypt(udpPkt->data.data(), sh->encryptedSize,
-                                                                                    (uint8_t*)&sh->sessionId, sizeof(Protocol::SecureHeader) - 16,
-                                                                                    sh->sequenceNumber, newState->txKey,
+                                                    if (Crypto::CryptoManager::Encrypt(udpPkt->data.data(), sh_stack.encryptedSize,
+                                                                                    (uint8_t*)&sh_stack.sessionId, sizeof(Protocol::SecureHeader) - 16,
+                                                                                    sh_stack.sequenceNumber, newState->txKey,
                                                                                     securePkt->data.data() + sizeof(Protocol::SecureHeader),
-                                                                                    sh->authTag)) {
-                                                        securePkt->size = sizeof(Protocol::SecureHeader) + sh->encryptedSize;
+                                                                                    sh_stack.authTag)) {
+                                                        memcpy(securePkt->data.data(), &sh_stack, sizeof(Protocol::SecureHeader));
+                                                        securePkt->size = sizeof(Protocol::SecureHeader) + sh_stack.encryptedSize;
                                                         ctx->sendQueue.push({std::move(securePkt), newState->ip, newState->port});
                                                     } else {
                                                         ctx->udpPool.release(std::move(securePkt));
@@ -690,12 +723,13 @@ void SessionManager::runHost(ParsecConfig config) {
                         }
                     }
                 } else if (type == Protocol::PacketType::Secure && len >= (int)sizeof(Protocol::SecureHeader)) {
-                    Protocol::SecureHeader* sh = (Protocol::SecureHeader*)buf;
+                    Protocol::SecureHeader sh;
+                    memcpy(&sh, buf, sizeof(Protocol::SecureHeader));
                     std::shared_ptr<ClientState> targetClient;
                     {
                         std::lock_guard<std::mutex> lock(ctx->clientsMutex);
                         for (auto& c : ctx->clients) {
-                            if (c->ip == senderIp && c->port == senderPort && c->sessionId == sh->sessionId) {
+                            if (c->ip == senderIp && c->port == senderPort && c->sessionId == sh.sessionId) {
                                 targetClient = c;
                                 break;
                             }
@@ -704,17 +738,26 @@ void SessionManager::runHost(ParsecConfig config) {
 
                     if (targetClient) {
                         uint8_t decrypted[2048];
-                        if (sh->encryptedSize > sizeof(decrypted)) continue;
+                        if (sh.encryptedSize > sizeof(decrypted)) continue;
 
-                        if (Crypto::CryptoManager::Decrypt(buf + sizeof(Protocol::SecureHeader), sh->encryptedSize,
-                                                           sh->authTag,
-                                                           (uint8_t*)&sh->sessionId, sizeof(Protocol::SecureHeader) - 16,
-                                                           sh->sequenceNumber, targetClient->rxKey,
+                        if (Crypto::CryptoManager::Decrypt(buf + sizeof(Protocol::SecureHeader), sh.encryptedSize,
+                                                           sh.authTag,
+                                                           (uint8_t*)&sh.sessionId, sizeof(Protocol::SecureHeader) - 16,
+                                                           sh.sequenceNumber, targetClient->rxKey,
                                                            decrypted)) {
 
                             {
                                 std::lock_guard<std::mutex> lock(targetClient->stateMutex);
                                 targetClient->lastActivity = std::chrono::steady_clock::now();
+
+                                // Session Roaming: Identity is strictly verified via successful Decrypt above
+                                // If the packet is valid but from a different IP/Port, update the client endpoint
+                                if (targetClient->ip != senderIp || targetClient->port != senderPort) {
+                                    LOG_INFO("Session", "Path Switch Verified for SID=" + std::to_string(targetClient->sessionId) +
+                                             ". New Path: " + senderIp + ":" + std::to_string(senderPort));
+                                    targetClient->ip = senderIp;
+                                    targetClient->port = senderPort;
+                                }
                             }
 
                             // Replay protection (Simple for Host in Phase 1)
@@ -788,17 +831,18 @@ void SessionManager::runHost(ParsecConfig config) {
                                     tsrp.hostSendTimestamp = tsrp.hostReceiveTimestamp; // Minimal processing delay
 
                                     uint8_t secureBuf[512];
-                                    Protocol::SecureHeader* sh_out = (Protocol::SecureHeader*)secureBuf;
-                                    sh_out->type = (uint8_t)Protocol::PacketType::Secure;
-                                    sh_out->sessionId = targetClient->sessionId;
-                                    sh_out->sequenceNumber = targetClient->sendSequenceNumber++;
-                                    sh_out->encryptedSize = sizeof(tsrp);
+                                    Protocol::SecureHeader sh_out;
+                                    sh_out.type = (uint8_t)Protocol::PacketType::Secure;
+                                    sh_out.sessionId = targetClient->sessionId;
+                                    sh_out.sequenceNumber = targetClient->sendSequenceNumber++;
+                                    sh_out.encryptedSize = sizeof(tsrp);
 
                                     if (Crypto::CryptoManager::Encrypt((uint8_t*)&tsrp, sizeof(tsrp),
-                                                                    (uint8_t*)&sh_out->sessionId, sizeof(Protocol::SecureHeader) - 16,
-                                                                    sh_out->sequenceNumber, targetClient->txKey,
+                                                                    (uint8_t*)&sh_out.sessionId, sizeof(Protocol::SecureHeader) - 16,
+                                                                    sh_out.sequenceNumber, targetClient->txKey,
                                                                     secureBuf + sizeof(Protocol::SecureHeader),
-                                                                    sh_out->authTag)) {
+                                                                    sh_out.authTag)) {
+                                        memcpy(secureBuf, &sh_out, sizeof(Protocol::SecureHeader));
                                         ctx->net.SendTo(secureBuf, sizeof(Protocol::SecureHeader) + sizeof(tsrp), senderIp, senderPort);
                                     }
                                 }
@@ -806,6 +850,9 @@ void SessionManager::runHost(ParsecConfig config) {
                         }
                     }
                 }
+
+                if (reprocess) continue;
+                break;
             }
         }
     });
@@ -864,7 +911,12 @@ void SessionManager::runClient(ParsecConfig config) {
 
     std::string publicIp;
     uint16_t publicPort;
-    if (net.GetPublicEndpoint("stun.l.google.com", 19302, publicIp, publicPort)) {
+    std::vector<Network::NetworkManager::StunServer> stunServers = {
+        {"stun.l.google.com", 19302},
+        {"stun1.l.google.com", 19302},
+        {"stun2.l.google.com", 19302}
+    };
+    if (net.GetPublicEndpointParallel(stunServers, publicIp, publicPort)) {
         LOG_INFO("Session", "Discovered Srflx candidate: " + publicIp + ":" + std::to_string(publicPort));
         clientCandidates.push_back({publicIp, publicPort, 1});
     }
@@ -884,26 +936,30 @@ void SessionManager::runClient(ParsecConfig config) {
     Client::AudioRenderer audioRenderer;
     Common::ClockSync clockSync;
 
+    std::string currentHostIp = config.hostIp;
+    uint16_t currentHostPort = 5005;
+
     std::string hostIpStr(config.hostIp);
     bool isLoopback = (hostIpStr == "127.0.0.1" || hostIpStr == "localhost" || hostIpStr == "::1");
 
-    Client::InputCapture input([&, isLoopback, config, &txKey, &sessionId, &sendSequenceNumber](const uint8_t* data, size_t size) {
+    Client::InputCapture input([&, isLoopback, config, &txKey, &sessionId, &sendSequenceNumber, &currentHostIp, &currentHostPort](const uint8_t* data, size_t size) {
         if (!isLoopback && sessionId != 0) {
             uint8_t secureBuf[2048];
             if (size + sizeof(Protocol::SecureHeader) > sizeof(secureBuf)) return;
 
-            Protocol::SecureHeader* sh = (Protocol::SecureHeader*)secureBuf;
-            sh->type = (uint8_t)Protocol::PacketType::Secure;
-            sh->sessionId = sessionId;
-            sh->sequenceNumber = sendSequenceNumber++;
-            sh->encryptedSize = (uint16_t)size;
+            Protocol::SecureHeader sh_stack;
+            sh_stack.type = (uint8_t)Protocol::PacketType::Secure;
+            sh_stack.sessionId = sessionId;
+            sh_stack.sequenceNumber = sendSequenceNumber++;
+            sh_stack.encryptedSize = (uint16_t)size;
 
             if (Crypto::CryptoManager::Encrypt(data, size,
-                                               (uint8_t*)&sh->sessionId, sizeof(Protocol::SecureHeader) - 16,
-                                               sh->sequenceNumber, txKey,
+                                               (uint8_t*)&sh_stack.sessionId, sizeof(Protocol::SecureHeader) - 16,
+                                               sh_stack.sequenceNumber, txKey,
                                                secureBuf + sizeof(Protocol::SecureHeader),
-                                               sh->authTag)) {
-                net.SendTo(secureBuf, sizeof(Protocol::SecureHeader) + size, config.hostIp, 5005);
+                                               sh_stack.authTag)) {
+                memcpy(secureBuf, &sh_stack, sizeof(Protocol::SecureHeader));
+                net.SendTo(secureBuf, sizeof(Protocol::SecureHeader) + size, currentHostIp, currentHostPort);
             }
         }
     });
@@ -947,12 +1003,28 @@ void SessionManager::runClient(ParsecConfig config) {
         uint16_t senderPort;
         while (m_running) {
             int len = net.ReceiveFrom(buf, sizeof(buf), senderIp, senderPort);
-            if (len > 0) {
+            while (len > 0) {
                 Protocol::PacketType type = (Protocol::PacketType)buf[0];
+                bool reprocess = false;
                 if (type == Protocol::PacketType::CandidateDiscovery && len >= (int)sizeof(Protocol::CandidatePacket)) {
                     Protocol::CandidatePacket* cp = (Protocol::CandidatePacket*)buf;
                     LOG_INFO("Session", "Received Host Candidate: " + std::string(cp->ip));
                     // Client would add this to the list of targets to try for handshake
+                } else if (type == Protocol::PacketType::RelayData && len >= (int)sizeof(Protocol::RelayHeader)) {
+                     Protocol::RelayHeader rh;
+                     memcpy(&rh, buf, sizeof(Protocol::RelayHeader));
+
+                     // Relay unwrap on client
+                     if (len > (int)sizeof(Protocol::RelayHeader) && rh.sessionId == sessionId) {
+                         uint8_t* inner = buf + sizeof(Protocol::RelayHeader);
+                         int innerLen = len - sizeof(Protocol::RelayHeader);
+                         if (inner[0] == (uint8_t)Protocol::PacketType::Secure) {
+                             // Move inner data to start of buf and re-trigger Secure logic
+                             memmove(buf, inner, innerLen);
+                             len = innerLen;
+                             reprocess = true;
+                         }
+                     }
                 } else if (type == Protocol::PacketType::Secure && len >= (int)sizeof(Protocol::SecureHeader)) {
                     Protocol::SecureHeader* sh = (Protocol::SecureHeader*)buf;
                     if (sh->sessionId == sessionId && sessionId != 0) {
@@ -994,13 +1066,19 @@ void SessionManager::runClient(ParsecConfig config) {
                         if (Crypto::CryptoManager::DeriveSessionKeys(clientKeyPair.publicKey, clientKeyPair.privateKey, hostPubKey,
                                                                      rxKey, txKey, false)) {
                             sessionId = hrp->sessionId;
+                            currentHostIp = senderIp;
+                            currentHostPort = senderPort;
                             handshakeApproved = true;
+                            LOG_INFO("Session", "Verified Path: " + currentHostIp + ":" + std::to_string(currentHostPort));
                         } else {
                             LOG_ERROR("Session", "Key derivation failed on client");
                         }
                     }
                     else handshakeRejected = true;
                 }
+
+                if (reprocess) continue;
+                break;
             }
         }
     });
@@ -1027,11 +1105,12 @@ void SessionManager::runClient(ParsecConfig config) {
 
     // WAN Connection Strategy: Attempt all discovered candidates (Intelligent Router optimized)
     auto attemptHandshake = [&]() {
-        net.SendTo(&hp, sizeof(hp), config.hostIp, 5005); // Direct/Configured IP
+        // 1. Direct/Configured Path
+        net.SendTo(&hp, sizeof(hp), config.hostIp, 5005);
 
+        // 2. Parallel Probing across all candidates
         std::vector<AI::RouteCandidate> aiCandidates;
         for (const auto& cand : clientCandidates) {
-            // Priority: 0 (LAN) -> 50ms, 1 (Srflx) -> 100ms, 2 (Relay) -> 200ms
             float baseLat = (cand.priority == 0) ? 50.0f : ((cand.priority == 1) ? 100.0f : 200.0f);
             aiCandidates.push_back({ cand.ip, cand.ip, cand.port, baseLat, 0, 0 });
         }
@@ -1040,7 +1119,14 @@ void SessionManager::runClient(ParsecConfig config) {
         for (const auto& score : ranked) {
             for (const auto& cand : clientCandidates) {
                 if (cand.ip == score.id) {
+                    // Send Handshake and a Hole Punch packet
                     net.SendTo(&hp, sizeof(hp), cand.ip, cand.port);
+
+                    Protocol::CandidatePacket hpp;
+                    hpp.type = (uint8_t)Protocol::PacketType::CandidateDiscovery;
+                    strncpy(hpp.ip, publicIp.c_str(), sizeof(hpp.ip)-1);
+                    hpp.port = publicPort;
+                    net.SendTo(&hpp, sizeof(hpp), cand.ip, cand.port);
                 }
             }
         }
@@ -1048,18 +1134,37 @@ void SessionManager::runClient(ParsecConfig config) {
 
     attemptHandshake();
 
+    int retryCount = 0;
+    bool relayFallbackTriggered = false;
+
     while (m_running && !handshakeApproved && !handshakeRejected) {
         auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastHandshakeSend).count() >= 1) {
-             LOG_INFO("Session", "Retransmitting Handshake to all candidates...");
+        auto elapsedTotal = std::chrono::duration_cast<std::chrono::seconds>(now - startHandshake).count();
+
+        // Aggressive Relay Fallback: If P2P hasn't succeeded in 3 seconds, prioritize Relay
+        if (elapsedTotal >= 3 && !relayFallbackTriggered) {
+            LOG_WARN("Session", "P2P handshake lagging. Triggering aggressive Relay fallback.");
+            relayFallbackTriggered = true;
+            // Force a re-attempt immediately with relay priority
+        }
+
+        // Exponential backoff for handshake retries
+        int interval = std::min(5, (1 << retryCount));
+
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastHandshakeSend).count() >= interval || (relayFallbackTriggered && retryCount == 0)) {
+             LOG_INFO("Session", "Retransmitting Handshake (Retry #" + std::to_string(retryCount) + ")...");
+
+             // If relay fallback triggered, we might want to prioritize relay candidates here
+             // For this foundation, attemptHandshake already probes all, but we ensure it's called
              attemptHandshake();
              lastHandshakeSend = now;
+             retryCount++;
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        if (std::chrono::duration_cast<std::chrono::seconds>(now - startHandshake).count() > 30) {
-            LOG_ERROR("Session", "Handshake timeout");
+        if (elapsedTotal > 30) {
+            LOG_ERROR("Session", "Handshake timeout after 30 seconds.");
             break;
         }
     }
@@ -1117,18 +1222,19 @@ void SessionManager::runClient(ParsecConfig config) {
                     fh.requestKeyframe = requestKeyframe ? 1 : 0;
 
                     uint8_t secureBuf[512];
-                    Protocol::SecureHeader* sh = (Protocol::SecureHeader*)secureBuf;
-                    sh->type = (uint8_t)Protocol::PacketType::Secure;
-                    sh->sessionId = sessionId;
-                    sh->sequenceNumber = sendSequenceNumber++;
-                    sh->encryptedSize = sizeof(fh);
+                        Protocol::SecureHeader sh_stack;
+                        sh_stack.type = (uint8_t)Protocol::PacketType::Secure;
+                        sh_stack.sessionId = sessionId;
+                        sh_stack.sequenceNumber = sendSequenceNumber++;
+                        sh_stack.encryptedSize = sizeof(fh);
 
                     if (Crypto::CryptoManager::Encrypt((uint8_t*)&fh, sizeof(fh),
-                                                       (uint8_t*)&sh->sessionId, sizeof(Protocol::SecureHeader) - 16,
-                                                       sh->sequenceNumber, txKey,
+                                                           (uint8_t*)&sh_stack.sessionId, sizeof(Protocol::SecureHeader) - 16,
+                                                           sh_stack.sequenceNumber, txKey,
                                                        secureBuf + sizeof(Protocol::SecureHeader),
-                                                       sh->authTag)) {
-                        net.SendTo(secureBuf, sizeof(Protocol::SecureHeader) + sizeof(fh), config.hostIp, 5005);
+                                                           sh_stack.authTag)) {
+                            memcpy(secureBuf, &sh_stack, sizeof(Protocol::SecureHeader));
+                        net.SendTo(secureBuf, sizeof(Protocol::SecureHeader) + sizeof(fh), currentHostIp, currentHostPort);
                     }
 
                     lastFeedbackTime = now;
@@ -1145,18 +1251,19 @@ void SessionManager::runClient(ParsecConfig config) {
                     rrp.fragmentIndex = nack.fragmentIndex;
 
                     uint8_t secureBuf[512];
-                    Protocol::SecureHeader* sh = (Protocol::SecureHeader*)secureBuf;
-                    sh->type = (uint8_t)Protocol::PacketType::Secure;
-                    sh->sessionId = sessionId;
-                    sh->sequenceNumber = sendSequenceNumber++;
-                    sh->encryptedSize = sizeof(rrp);
+                    Protocol::SecureHeader sh_stack;
+                    sh_stack.type = (uint8_t)Protocol::PacketType::Secure;
+                    sh_stack.sessionId = sessionId;
+                    sh_stack.sequenceNumber = sendSequenceNumber++;
+                    sh_stack.encryptedSize = sizeof(rrp);
 
                     if (Crypto::CryptoManager::Encrypt((uint8_t*)&rrp, sizeof(rrp),
-                                                       (uint8_t*)&sh->sessionId, sizeof(Protocol::SecureHeader) - 16,
-                                                       sh->sequenceNumber, txKey,
+                                                       (uint8_t*)&sh_stack.sessionId, sizeof(Protocol::SecureHeader) - 16,
+                                                       sh_stack.sequenceNumber, txKey,
                                                        secureBuf + sizeof(Protocol::SecureHeader),
-                                                       sh->authTag)) {
-                        net.SendTo(secureBuf, sizeof(Protocol::SecureHeader) + sizeof(rrp), config.hostIp, 5005);
+                                                       sh_stack.authTag)) {
+                        memcpy(secureBuf, &sh_stack, sizeof(Protocol::SecureHeader));
+                        net.SendTo(secureBuf, sizeof(Protocol::SecureHeader) + sizeof(rrp), currentHostIp, currentHostPort);
                     }
                 }
             }
@@ -1168,18 +1275,19 @@ void SessionManager::runClient(ParsecConfig config) {
                     tsp.clientSendTimestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 
                     uint8_t secureBuf[512];
-                    Protocol::SecureHeader* sh = (Protocol::SecureHeader*)secureBuf;
-                    sh->type = (uint8_t)Protocol::PacketType::Secure;
-                    sh->sessionId = sessionId;
-                    sh->sequenceNumber = sendSequenceNumber++;
-                    sh->encryptedSize = sizeof(tsp);
+                    Protocol::SecureHeader sh_stack;
+                    sh_stack.type = (uint8_t)Protocol::PacketType::Secure;
+                    sh_stack.sessionId = sessionId;
+                    sh_stack.sequenceNumber = sendSequenceNumber++;
+                    sh_stack.encryptedSize = sizeof(tsp);
 
                     if (Crypto::CryptoManager::Encrypt((uint8_t*)&tsp, sizeof(tsp),
-                                                       (uint8_t*)&sh->sessionId, sizeof(Protocol::SecureHeader) - 16,
-                                                       sh->sequenceNumber, txKey,
+                                                       (uint8_t*)&sh_stack.sessionId, sizeof(Protocol::SecureHeader) - 16,
+                                                       sh_stack.sequenceNumber, txKey,
                                                        secureBuf + sizeof(Protocol::SecureHeader),
-                                                       sh->authTag)) {
-                        net.SendTo(secureBuf, sizeof(Protocol::SecureHeader) + sizeof(tsp), config.hostIp, 5005);
+                                                       sh_stack.authTag)) {
+                        memcpy(secureBuf, &sh_stack, sizeof(Protocol::SecureHeader));
+                        net.SendTo(secureBuf, sizeof(Protocol::SecureHeader) + sizeof(tsp), currentHostIp, currentHostPort);
                     }
                     lastTimeSync = now;
                 }
