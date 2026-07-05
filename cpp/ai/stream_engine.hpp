@@ -25,6 +25,7 @@ struct StreamState {
     int currentFPS;
     float packetLoss;
     float rttMs;
+    float sceneComplexity; // 0.0 to 1.0 (heuristic based on frame deltas)
 };
 
 struct AdaptationDecision {

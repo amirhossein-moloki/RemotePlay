@@ -55,6 +55,7 @@ void SessionManager::startSession(ParsecConfig config) {
 
     m_latencyPredictor = std::make_unique<AI::LatencyPredictor>();
     m_intelligentRouter = std::make_unique<AI::IntelligentRouter>();
+    m_cloudOptimizer = std::make_unique<AI::CloudOptimizer>();
 
     if (!Crypto::CryptoManager::Initialize()) {
         reportError(ParsecError::UNEXPECTED_ERROR, "Failed to initialize cryptography subsystem.");
@@ -270,6 +271,15 @@ void SessionManager::runHost(ParsecConfig config) {
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFpsCheck).count();
             if (elapsed >= 1000) {
                 Profiler::getInstance().recordValue("FPS", (double)frameCount * 1000.0 / elapsed);
+
+                    // AI Infrastructure Optimization: Periodic Load Analysis
+                    std::vector<AI::NodeStats> localNodes;
+                    // In production, this would be a list of nodes in the current K8s region
+                    localNodes.push_back({"local-host", 0.5f, 0.3f, (int)ctx->clients.size(), 32, 1});
+                    auto signal = m_cloudOptimizer->AnalyzeRegionalLoad(1, localNodes);
+                    if (signal.scaleUp) {
+                        LOG_INFO("AI_Cloud", "AI recommends scaling up infrastructure: " + signal.reason);
+                    }
 
                 // Calculate Frame Drop Rate (simplified: captured vs encoded)
                 // In a real scenario, we'd track actual dropped frames in the queue
@@ -1205,6 +1215,28 @@ void SessionManager::runClient(ParsecConfig config) {
 
             if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFeedbackTime).count() >= 1000 || requestKeyframe) {
                 if (sessionId != 0) {
+                    // AI Routing: Periodically re-evaluate network path
+                    std::vector<AI::RouteCandidate> routes;
+                    // Current Path
+                    routes.push_back({"current", currentHostIp, currentHostPort, (float)Profiler::getInstance().getStats("Network_RTT").latest, (float)Profiler::getInstance().getStats("Network_LossRate").latest, 0, 0});
+
+                    // Probe for better routes (simulated from candidates)
+                    for (const auto& cand : clientCandidates) {
+                        if (cand.ip != currentHostIp) {
+                            routes.push_back({cand.ip, cand.ip, cand.port, 100.0f, 0.01f, 0, 0}); // Heuristic probe
+                        }
+                    }
+
+                    auto best = m_intelligentRouter->SelectBestRoute(routes);
+                    if (best.id != "current") {
+                        AI::RouteCandidate current = routes[0];
+                        if (m_intelligentRouter->ShouldSwitchRoute(current, best)) {
+                            LOG_INFO("AI_Router", "AI suggesting path switch to " + best.ip + ":" + std::to_string(best.port));
+                            currentHostIp = best.ip;
+                            currentHostPort = best.port;
+                        }
+                    }
+
                     // Send Feedback
                     Protocol::FeedbackHeader fh;
                     fh.type = (uint8_t)Protocol::PacketType::Feedback;

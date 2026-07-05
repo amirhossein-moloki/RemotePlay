@@ -79,4 +79,5 @@ private:
     // AI Components
     std::unique_ptr<AI::LatencyPredictor> m_latencyPredictor;
     std::unique_ptr<AI::IntelligentRouter> m_intelligentRouter;
+    std::unique_ptr<AI::CloudOptimizer> m_cloudOptimizer;
 };
