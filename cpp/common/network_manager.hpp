@@ -51,6 +51,12 @@ public:
     // STUN Discovery for WAN Reflexive candidates
     bool GetPublicEndpoint(const std::string& stunServer, uint16_t stunPort, std::string& publicIp, uint16_t& publicPort);
 
+    struct StunServer {
+        std::string host;
+        uint16_t port;
+    };
+    bool GetPublicEndpointParallel(const std::vector<StunServer>& servers, std::string& publicIp, uint16_t& publicPort);
+
 private:
 #ifdef _WIN32
     SOCKET m_socket;

@@ -29,21 +29,23 @@ std::vector<RouteScore> IntelligentRouter::RankRoutes(const std::vector<RouteCan
 }
 
 float IntelligentRouter::CalculateScore(const RouteCandidate& c) {
-    // Scoring weights
+    // Scoring weights (Hardened for WAN - Aligned with docs/PHASE2_WAN_HARDENING.md)
     const float LATENCY_WEIGHT = 0.6f;
     const float LOSS_WEIGHT = 0.3f;
-    const float LOAD_WEIGHT = 0.1f;
+    const float STABILITY_WEIGHT = 0.1f;
 
-    // Normalize latency (assuming 200ms is "worst" acceptable)
-    float latScore = std::max(0.0f, 1.0f - (c.measuredLatencyMs / 200.0f));
+    // Normalize latency (assuming 250ms is "worst" acceptable for WAN)
+    float latScore = std::max(0.0f, 1.0f - (c.measuredLatencyMs / 250.0f));
 
-    // Normalize loss (assuming 10% is "worst")
-    float lossScore = std::max(0.0f, 1.0f - (c.packetLoss / 0.1f));
+    // Normalize loss (assuming 15% is "worst" for WAN with FEC)
+    float lossScore = std::max(0.0f, 1.0f - (c.packetLoss / 0.15f));
 
-    // Normalize load
-    float loadScore = 1.0f - (c.regionalLoad / 100.0f);
+    // Stability score: Based on regional load as a proxy for shared-medium congestion
+    float stabilityScore = 1.0f - (c.regionalLoad / 100.0f);
 
-    return (latScore * LATENCY_WEIGHT) + (lossScore * LOSS_WEIGHT) + (loadScore * LOAD_WEIGHT);
+    return (latScore * LATENCY_WEIGHT) +
+           (lossScore * LOSS_WEIGHT) +
+           (stabilityScore * STABILITY_WEIGHT);
 }
 
 } // namespace AI

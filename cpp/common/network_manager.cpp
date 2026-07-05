@@ -301,4 +301,87 @@ bool NetworkManager::GetPublicEndpoint(const std::string& stunServer, uint16_t s
     return false;
 }
 
+bool NetworkManager::GetPublicEndpointParallel(const std::vector<StunServer>& servers, std::string& publicIp, uint16_t& publicPort) {
+    if (servers.empty()) return false;
+
+    auto sendAll = [&]() {
+        for (const auto& s : servers) {
+            #pragma pack(push, 1)
+            struct STUNHeader {
+                uint16_t type;
+                uint16_t length;
+                uint32_t cookie;
+                uint8_t transactionId[12];
+            };
+            #pragma pack(pop)
+
+            STUNHeader req;
+            req.type = htons(0x0001);
+            req.length = 0;
+            req.cookie = htonl(0x2112A442);
+            for(int i=0; i<12; ++i) req.transactionId[i] = (uint8_t)(rand() % 256);
+
+            SendTo(&req, sizeof(req), s.host, s.port);
+        }
+    };
+
+    sendAll();
+
+    // Wait for the first valid response with a timeout and retry
+    auto start = std::chrono::steady_clock::now();
+    auto lastSend = start;
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() < 3000) {
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastSend).count() > 500) {
+            sendAll(); // Retry every 500ms
+            lastSend = now;
+        }
+        uint8_t buf[512];
+        std::string senderIp;
+        uint16_t sPort;
+        int len = ReceiveFrom(buf, sizeof(buf), senderIp, sPort);
+
+        if (len >= 20) {
+            uint16_t type = ntohs(*(uint16_t*)buf);
+            if (type == 0x0101) { // Binding Success
+                // Reuse the parsing logic from GetPublicEndpoint or refactor
+                // For brevity in this hardening phase, we'll implement a robust parse here
+                int offset = 20;
+                int payloadLen = ntohs(*(uint16_t*)(buf + 2));
+                if (offset + payloadLen > len) payloadLen = len - offset;
+
+                while (offset + 4 <= len) {
+                    uint16_t attrType = ntohs(*(uint16_t*)(buf + offset));
+                    uint16_t attrLen = ntohs(*(uint16_t*)(buf + offset + 2));
+                    if (offset + 4 + attrLen > len) break;
+
+                    if (attrType == 0x0001 && attrLen >= 8) { // MAPPED-ADDRESS
+                        publicPort = ntohs(*(uint16_t*)(buf + offset + 6));
+                        struct in_addr addr;
+                        memcpy(&addr, buf + offset + 8, 4);
+                        char ipBuf[INET_ADDRSTRLEN];
+                        inet_ntop(AF_INET, &addr, ipBuf, sizeof(ipBuf));
+                        publicIp = ipBuf;
+                        return true;
+                    } else if (attrType == 0x0020 && attrLen >= 8) { // XOR-MAPPED-ADDRESS
+                        publicPort = ntohs(*(uint16_t*)(buf + offset + 6)) ^ (0x2112A442 >> 16);
+                        uint32_t xIp = *(uint32_t*)(buf + offset + 8) ^ htonl(0x2112A442);
+                        struct in_addr addr;
+                        addr.s_addr = xIp;
+                        char ipBuf[INET_ADDRSTRLEN];
+                        inet_ntop(AF_INET, &addr, ipBuf, sizeof(ipBuf));
+                        publicIp = ipBuf;
+                        return true;
+                    }
+                    offset += 4 + attrLen;
+                    if (attrLen % 4 != 0) offset += (4 - (attrLen % 4));
+                }
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    return false;
+}
+
 } // namespace Network
