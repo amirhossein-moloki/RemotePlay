@@ -356,6 +356,9 @@ bool FFmpegHardwareEncoder::EncodeFrame(void* texturePtr, std::vector<EncodedPac
         } else {
             return false;
         }
+    } else {
+        return false;
+    }
     }
 #else
     // Non-Windows (e.g. Linux) - Hardware path using d3d11 is not supported.

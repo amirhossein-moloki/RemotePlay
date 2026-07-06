@@ -4,6 +4,10 @@
 #include <string>
 #include <cstdint>
 
+#ifdef PARSEC_LITE_ENABLE_SODIUM
+#include <sodium.h>
+#endif
+
 namespace Crypto {
 
 class CryptoManager {

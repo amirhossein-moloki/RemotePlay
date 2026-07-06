@@ -4,6 +4,7 @@
 #ifdef _WIN32
 #include <ks.h>
 #include <ksmedia.h>
+#include <mmreg.h>
 #pragma comment(lib, "Ole32.lib")
 
 namespace Client {
@@ -40,7 +41,7 @@ bool AudioRenderer::Initialize(int sampleRate, int channels) {
     wfx.Format.nAvgBytesPerSec = wfx.Format.nSamplesPerSec * wfx.Format.nBlockAlign;
     wfx.Format.cbSize = 22;
     wfx.Samples.wValidBitsPerSample = 32;
-    wfx.dwChannelMask = (channels == 2) ? (KSAUDIO_SPEAKER_FRONT_LEFT | KSAUDIO_SPEAKER_FRONT_RIGHT) : KSAUDIO_SPEAKER_MONO;
+    wfx.dwChannelMask = (channels == 2) ? (SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT) : SPEAKER_MONO;
     wfx.SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
 
     hr = m_audioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, 0, 0, (WAVEFORMATEX*)&wfx, NULL);
