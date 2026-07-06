@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import NexusDash
+import "../theme"
 
 ComboBox {
     id: control

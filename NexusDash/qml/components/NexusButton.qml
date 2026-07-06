@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import NexusDash
+import "../theme"
 
 Button {
     id: control

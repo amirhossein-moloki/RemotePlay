@@ -1,5 +1,5 @@
 import QtQuick
-import NexusDash
+import "../theme"
 
 Rectangle {
     id: root

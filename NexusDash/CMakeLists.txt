@@ -30,24 +30,26 @@ set_source_files_properties(qml/theme/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE
 qt_add_qml_module(appNexusDash
     URI NexusDash
     VERSION 1.0
+    RESOURCE_PREFIX /qt/qml
+    WORKING_DIRECTORY qml
     QML_FILES
-        qml/main.qml
-        qml/theme/Theme.qml
-        qml/components/NexusButton.qml
-        qml/components/NetworkStatusIndicator.qml
-        qml/components/DashboardHeader.qml
-        qml/components/NexusGraph.qml
-        qml/components/NexusComboBox.qml
-        qml/components/NexusCard.qml
-        qml/components/NexusInput.qml
-        qml/components/NexusTable.qml
-        qml/components/NexusDialog.qml
-        qml/components/NexusNotification.qml
-        qml/components/Sidebar.qml
-        qml/components/SidebarItem.qml
-        qml/pages/DashboardPage.qml
-        qml/pages/SettingsPage.qml
-        qml/pages/AboutPage.qml
+        main.qml
+        theme/Theme.qml
+        components/NexusButton.qml
+        components/NetworkStatusIndicator.qml
+        components/DashboardHeader.qml
+        components/NexusGraph.qml
+        components/NexusComboBox.qml
+        components/NexusCard.qml
+        components/NexusInput.qml
+        components/NexusTable.qml
+        components/NexusDialog.qml
+        components/NexusNotification.qml
+        components/Sidebar.qml
+        components/SidebarItem.qml
+        pages/DashboardPage.qml
+        pages/SettingsPage.qml
+        pages/AboutPage.qml
 )
 
 target_link_libraries(appNexusDash PRIVATE

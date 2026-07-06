@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
-import NexusDash
+import QtQuick.Controls
+import "../theme"
 
 RowLayout {
     id: root
