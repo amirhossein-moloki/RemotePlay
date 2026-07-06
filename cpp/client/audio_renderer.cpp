@@ -7,6 +7,10 @@
 #include <mmreg.h>
 #pragma comment(lib, "Ole32.lib")
 
+#ifndef SPEAKER_MONO
+#define SPEAKER_MONO 0x00000004
+#endif
+
 namespace Client {
 
 AudioRenderer::AudioRenderer() {}
@@ -16,6 +20,7 @@ AudioRenderer::~AudioRenderer() {
 }
 
 bool AudioRenderer::Initialize(int sampleRate, int channels) {
+    m_channels = channels;
     HRESULT hr;
     IMMDeviceEnumerator* enumerator = nullptr;
     IMMDevice* device = nullptr;
@@ -92,11 +97,11 @@ void AudioRenderer::RenderThread() {
             m_renderClient->GetBuffer(available, &pData);
 
             std::lock_guard<std::mutex> lock(m_mutex);
-            size_t toCopy = std::min((size_t)available * 2, m_buffer.size()); // Assuming Stereo
+            size_t toCopy = std::min((size_t)available * m_channels, m_buffer.size());
             if (toCopy > 0) {
                 memcpy(pData, m_buffer.data(), toCopy * sizeof(float));
                 m_buffer.erase(m_buffer.begin(), m_buffer.begin() + toCopy);
-                m_renderClient->ReleaseBuffer((UINT32)(toCopy / 2), 0);
+                m_renderClient->ReleaseBuffer((UINT32)(toCopy / m_channels), 0);
             } else {
                 m_renderClient->ReleaseBuffer(available, AUDCLNT_BUFFERFLAGS_SILENT);
             }
