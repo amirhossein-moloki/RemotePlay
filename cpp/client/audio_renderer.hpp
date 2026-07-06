@@ -32,6 +32,7 @@ private:
     IAudioRenderClient* m_renderClient = nullptr;
     WAVEFORMATEX* m_pwfx = nullptr;
     HANDLE m_event = NULL;
+    int m_channels = 2;
 };
 
 } // namespace Client
