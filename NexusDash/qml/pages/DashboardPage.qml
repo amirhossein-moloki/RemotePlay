@@ -10,402 +10,358 @@ ScrollView {
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
     clip: true
 
-    readonly property bool isActive: backend.system.isSessionActive
-
-    // UI States: Idle, HostingActive, ClientConnected
-    state: !isActive ? "Idle" : (backend.system.rtt > 0 ? "ClientConnected" : "HostingActive")
+    readonly property int appStatus: backend.system.appStatus
 
     ColumnLayout {
         width: root.availableWidth
-        spacing: Theme.adaptiveCardSpacing
-        anchors.margins: Theme.spacingTiny
+        spacing: Theme.spacingLarge
+        anchors.margins: Theme.adaptiveMargin
 
-        DashboardHeader {
-            title: root.state === "Idle" ? "Dashboard" : (root.state === "HostingActive" ? "Hosting Active" : "Live Session")
+        // --- 1. GLOBAL CONNECTION STATUS (TOP) ---
+        NexusCard {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 100
 
             RowLayout {
-                Layout.alignment: Qt.AlignVCenter
-                spacing: Theme.spacingMedium
-                visible: root.isActive
+                anchors.fill: parent
+                anchors.margins: Theme.spacingMedium
+                spacing: Theme.spacingLarge
 
-                // Quality Feedback
+                // Animated Status Indicator
                 Rectangle {
-                    Layout.preferredHeight: 24
-                    Layout.preferredWidth: tierLabel.implicitWidth + 20
-                    radius: 12
-                    color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.1)
-                    border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.3)
-                    visible: root.state === "ClientConnected"
+                    Layout.preferredWidth: 64
+                    Layout.preferredHeight: 64
+                    radius: 32
+                    color: Qt.rgba(statusColor.r, statusColor.g, statusColor.b, 0.1)
 
-                    RowLayout {
+                    Rectangle {
                         anchors.centerIn: parent
-                        spacing: 4
-                        Text { text: "⚡"; font.pixelSize: 10 }
-                        Text {
-                            id: tierLabel
-                            text: backend.system.currentQualityTier
-                            color: Theme.accent
-                            font.pixelSize: 10
-                            font.weight: Font.Bold
-                            font.family: Theme.fontFamily
+                        width: 16
+                        height: 16
+                        radius: 8
+                        color: statusColor
+
+                        SequentialAnimation on opacity {
+                            loops: Animation.Infinite
+                            running: root.appStatus !== 0 // Idle
+                            NumberAnimation { from: 1.0; to: 0.4; duration: 1000; easing.type: Easing.InOutQuad }
+                            NumberAnimation { from: 0.4; to: 1.0; duration: 1000; easing.type: Easing.InOutQuad }
                         }
                     }
                 }
 
-                NetworkStatusIndicator {
-                    latency: backend.system.e2eLatency
-                    loss: backend.system.lossRate
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Text {
+                        text: statusTitle
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 20
+                        font.weight: Font.Bold
+                        color: Theme.textPrimary
+                    }
+                    Text {
+                        text: statusSubtitle
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 13
+                        color: Theme.textSecondary
+                    }
+                }
+
+                RowLayout {
+                    spacing: Theme.spacingMedium
+                    visible: root.appStatus === 2 // Connected
+
+                    NetworkStatusIndicator {
+                        latency: backend.system.e2eLatency
+                        loss: backend.system.lossRate
+                    }
                 }
 
                 NexusButton {
-                    text: "Stop Session"
-                    Layout.preferredHeight: 32
+                    text: "End Session"
+                    visible: root.appStatus === 1 || root.appStatus === 2 || root.appStatus === 4 // Hosting, Connected, Reconnecting
                     onClicked: backend.system.stopSession()
+                }
+            }
+
+            readonly property color statusColor: {
+                switch(root.appStatus) {
+                    case 1: return Theme.active;     // Hosting (Blue)
+                    case 2: return Theme.success;    // Connected (Green)
+                    case 3: return Theme.danger;     // Error (Red)
+                    case 4: return Theme.warning;    // Reconnecting/Connecting (Yellow)
+                    default: return Theme.textSecondary; // Idle
+                }
+            }
+
+            readonly property string statusTitle: {
+                switch(root.appStatus) {
+                    case 1: return "Hosting Active";
+                    case 2: return "Live Session Active";
+                    case 3: return "System Error";
+                    case 4: return "Establishing Connection...";
+                    default: return "System Idle";
+                }
+            }
+
+            readonly property string statusSubtitle: {
+                switch(root.appStatus) {
+                    case 1: return "Your machine is ready for incoming connections.";
+                    case 2: return "Connected to remote host. Stream is live.";
+                    case 3: return "A critical error occurred. Check logs for details.";
+                    case 4: return "Handshake in progress. Resolving network...";
+                    default: return "Start a new session or connect to a remote host.";
                 }
             }
         }
 
-        // --- IDLE STATE ---
-        GridLayout {
-            id: idleGrid
+        // --- 2. SESSION CONTROLS (MIDDLE) ---
+
+        // Connection Progress Indicator (only visible when connecting)
+        NexusCard {
             Layout.fillWidth: true
-            columnSpacing: Theme.adaptiveCardSpacing
-            rowSpacing: Theme.adaptiveCardSpacing
+            visible: root.appStatus === 4 // Reconnecting/Connecting
+            title: "Connection Pipeline"
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingLarge
+                spacing: 0
+
+                Repeater {
+                    model: ["Resolving", "Handshake", "Encrypting", "Connected"]
+                    delegate: RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Rectangle {
+                            width: 24; height: 24; radius: 12
+                            color: backend.system.connectionStep >= index + 1 ? Theme.success : Theme.surface
+                            Text {
+                                anchors.centerIn: parent
+                                text: backend.system.connectionStep > index + 1 ? "✓" : (index + 1)
+                                color: "white"; font.pixelSize: 10; font.weight: Font.Bold
+                            }
+                        }
+
+                        Text {
+                            text: modelData
+                            color: backend.system.connectionStep >= index + 1 ? Theme.textPrimary : Theme.textSecondary
+                            font.pixelSize: 12; font.weight: backend.system.connectionStep === index + 1 ? Font.Bold : Font.Normal
+                        }
+
+                        Rectangle {
+                            visible: index < 3
+                            Layout.fillWidth: true; height: 2; color: backend.system.connectionStep > index + 1 ? Theme.success : Theme.border
+                            Layout.leftMargin: 8; Layout.rightMargin: 16
+                        }
+                    }
+                }
+            }
+        }
+
+        // Action Cards (Idle State)
+        GridLayout {
+            Layout.fillWidth: true
             columns: Theme.isSmall ? 1 : 2
-            visible: root.state === "Idle"
+            columnSpacing: Theme.adaptiveCardSpacing
+            visible: root.appStatus === 0 || root.appStatus === 3 // Idle or Error
 
             NexusCard {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 400
-                title: "Start Hosting"
+                Layout.fillWidth: true; Layout.preferredHeight: 320
+                title: "Host Session"
                 ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Theme.spacingMedium
-                    spacing: Theme.spacingMedium
-
+                    anchors.fill: parent; anchors.margins: Theme.spacingLarge; spacing: Theme.spacingMedium
                     Text {
-                        text: "Allow others to connect and play on your system."
-                        color: Theme.textSecondary
-                        font.pixelSize: 13
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
+                        text: "Turn this machine into a high-performance streaming host."
+                        color: Theme.textSecondary; font.pixelSize: 13; wrapMode: Text.WordWrap; Layout.fillWidth: true
                     }
 
                     ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingSmall
-                        Text { text: "Network Interface"; color: Theme.textSecondary; font.pixelSize: 11; font.weight: Font.Bold }
-                        NexusComboBox {
-                            id: interfaceCombo
-                            Layout.fillWidth: true
-                            model: backend.system.networkInterfaces
-                        }
+                        Layout.fillWidth: true; spacing: 4
+                        Text { text: "NETWORK INTERFACE"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.Black; font.letterSpacing: 1 }
+                        NexusComboBox { id: interfaceCombo; Layout.fillWidth: true; model: backend.system.networkInterfaces }
                     }
 
                     Item { Layout.fillHeight: true }
-
                     NexusButton {
-                        text: "Go Live"
-                        Layout.fillWidth: true
+                        text: "Start Hosting Session"; Layout.fillWidth: true; primary: true
                         onClicked: backend.system.startHost(interfaceCombo.currentText, 5000, 60)
                     }
                 }
             }
 
             NexusCard {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 400
+                Layout.fillWidth: true; Layout.preferredHeight: 320
                 title: "Connect to Host"
-
-                property bool isConnecting: false
-
                 ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Theme.spacingMedium
-                    spacing: Theme.spacingMedium
-                    visible: !parent.isConnecting
-
-                    NexusInput {
-                        id: hostIpInput
-                        placeholderText: "Remote Host IP (e.g. 192.168.1.XX)"
-                        Layout.fillWidth: true
-                    }
+                    anchors.fill: parent; anchors.margins: Theme.spacingLarge; spacing: Theme.spacingMedium
+                    NexusInput { id: hostIpInput; placeholderText: "Remote Host IP (e.g. 192.168.1.50)"; Layout.fillWidth: true }
 
                     ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingTiny
-                        Text { text: "Recent Connections"; color: Theme.textSecondary; font.pixelSize: 11; font.weight: Font.Bold }
-                        ListView {
-                            Layout.fillWidth: true
-                            height: 120
-                            clip: true
-                            model: backend.system.recentHosts
-                            delegate: Item {
-                                width: parent.width; height: 36
-                                Rectangle {
-                                    anchors.fill: parent; anchors.margins: 2; radius: 6; color: Theme.surfaceSecondary
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 12; anchors.rightMargin: 12
-                                        Text { text: modelData; color: Theme.textPrimary; font.pixelSize: 12; Layout.fillWidth: true }
-                                        Text { text: "Saved"; color: Theme.success; font.pixelSize: 10; font.weight: Font.Bold }
-                                    }
-                                    MouseArea { anchors.fill: parent; onClicked: hostIpInput.text = modelData; cursorShape: Qt.PointingHandCursor }
+                        Layout.fillWidth: true; spacing: 8
+                        Text { text: "RECENT CONNECTIONS"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.Black; font.letterSpacing: 1 }
+                        RowLayout {
+                            spacing: 8
+                            Repeater {
+                                model: backend.system.recentHosts
+                                delegate: NexusButton {
+                                    text: modelData; primary: false; Layout.preferredHeight: 32
+                                    onClicked: hostIpInput.text = modelData
                                 }
                             }
-                            Text {
-                                anchors.centerIn: parent
-                                visible: parent.count === 0
-                                text: "No history yet"
-                                color: Theme.textSecondary
-                                font.pixelSize: 11
-                            }
+                            Text { text: "No history"; visible: backend.system.recentHosts.length === 0; color: Theme.textSecondary; font.pixelSize: 12 }
                         }
                     }
 
                     Item { Layout.fillHeight: true }
-
                     NexusButton {
-                        text: "Connect"
-                        Layout.fillWidth: true
+                        text: "Connect to Host"; Layout.fillWidth: true; primary: true
+                        loading: root.appStatus === 4
                         onClicked: {
-                            var ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/
-                            if (!ipRegex.test(hostIpInput.text)) {
+                            if (hostIpInput.text === "") {
                                 hostIpInput.isInvalid = true
-                                hostIpInput.errorMessage = "Enter a valid IP (e.g. 192.168.1.10)"
                                 return
                             }
-                            hostIpInput.isInvalid = false
-                            parent.isConnecting = true
                             backend.system.startClient(interfaceCombo.currentText, hostIpInput.text, 5000, 60)
                         }
                     }
                 }
-
-                // Connecting State Overlay
-                ColumnLayout {
-                    anchors.centerIn: parent
-                    spacing: Theme.spacingMedium
-                    visible: parent.isConnecting
-
-                    BusyIndicator {
-                        Layout.alignment: Qt.AlignHCenter
-                        running: parent.visible
-                    }
-
-                    Text {
-                        text: "Establishing Secure Connection..."
-                        color: Theme.textPrimary
-                        font.pixelSize: 14
-                        font.weight: Font.Medium
-                        Layout.alignment: Qt.AlignHCenter
-                    }
-
-                    Text {
-                        text: "Attempting handshake with " + hostIpInput.text
-                        color: Theme.textSecondary
-                        font.pixelSize: 12
-                        Layout.alignment: Qt.AlignHCenter
-                    }
-
-                    NexusButton {
-                        text: "Cancel"
-                        primary: false
-                        Layout.alignment: Qt.AlignHCenter
-                        onClicked: {
-                            backend.system.stopSession()
-                            parent.parent.isConnecting = false
-                        }
-                    }
-                }
-
-                Connections {
-                    target: backend.system
-                    function onSessionStateChanged() {
-                        if (!backend.system.isSessionActive) {
-                            parent.isConnecting = false
-                        }
-                    }
-                }
             }
         }
 
-        // --- HOSTING ACTIVE STATE ---
+        // Hosting Active Info
         NexusCard {
             Layout.fillWidth: true
-            Layout.preferredHeight: 300
-            visible: root.state === "HostingActive"
-            title: "Host Information"
+            visible: root.appStatus === 1 // Hosting
+            title: "Host Configuration"
 
-            ColumnLayout {
+            RowLayout {
                 anchors.fill: parent
                 anchors.margins: Theme.spacingLarge
-                spacing: Theme.spacingLarge
+                spacing: Theme.spacingExtraHuge
 
                 ColumnLayout {
-                    Layout.alignment: Qt.AlignHCenter
-                    spacing: Theme.spacingSmall
-                    Text { text: "YOUR IP ADDRESS"; color: Theme.textSecondary; font.pixelSize: 11; font.weight: Font.Bold; Layout.alignment: Qt.AlignHCenter }
+                    spacing: 4
+                    Text { text: "LOCAL ACCESS IP"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.Black }
+                    Text {
+                        text: backend.system.getIpFromInterface(interfaceCombo.currentText)
+                        font.family: Theme.monoFontFamily; font.pixelSize: 32; font.weight: Font.Bold; color: Theme.primary
+                    }
+                }
+
+                ColumnLayout {
+                    spacing: 8
+                    Text { text: "Share this IP with clients on your network."; color: Theme.textSecondary; font.pixelSize: 13 }
                     RowLayout {
-                        spacing: Theme.spacingMedium
-                        Text {
-                            text: backend.system.getIpFromInterface(interfaceCombo.currentText)
-                            font.pixelSize: 32
-                            font.family: Theme.monoFontFamily
-                            font.weight: Font.Bold
-                            color: Theme.primary
-                        }
+                        spacing: 12
                         NexusButton {
-                            text: "Copy"
-                            primary: false
-                            Layout.preferredHeight: 32
+                            text: "Copy Invite"; primary: true; iconSource: "📋"
                             onClicked: {
                                 var ip = backend.system.getIpFromInterface(interfaceCombo.currentText);
                                 backend.system.copyToClipboard(ip);
-                                globalNotification.show("IP Copied to Clipboard: " + ip, "Success")
+                                globalNotification.show("Host IP copied to clipboard", "Success")
                             }
                         }
                     }
                 }
 
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
-
-                Text {
-                    text: "Waiting for incoming connections..."
-                    color: Theme.textSecondary
-                    Layout.alignment: Qt.AlignHCenter
-                    font.italic: true
-                }
+                Item { Layout.fillWidth: true }
             }
         }
 
-        // --- CLIENT CONNECTED STATE (CONTROL CENTER) ---
+        // --- 3. SYSTEM MONITORING (BOTTOM) ---
+        Text {
+            text: "System Telemetry"
+            font.family: Theme.fontFamily; font.pixelSize: 18; font.weight: Font.Bold; color: Theme.textPrimary
+            Layout.topMargin: Theme.spacingMedium
+        }
+
         GridLayout {
             Layout.fillWidth: true
-            columns: Theme.isSmall ? 1 : 4
-            columnSpacing: Theme.adaptiveCardSpacing
-            visible: root.state === "ClientConnected"
+            columnSpacing: Theme.spacingLarge
+            rowSpacing: Theme.spacingLarge
+            columns: Theme.isSmall ? 1 : 3
 
+            // CPU Monitor
             NexusCard {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 120
-                MetricLarge { label: "LATENCY"; value: backend.system.e2eLatency.toFixed(1); suffix: "ms"; color: Theme.accent; anchors.centerIn: parent }
-            }
-            NexusCard {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 120
-                MetricLarge { label: "FPS"; value: backend.system.fps.toFixed(0); suffix: "fps"; color: Theme.success; anchors.centerIn: parent }
-            }
-            NexusCard {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 120
-                MetricLarge { label: "BITRATE"; value: backend.system.bitrate.toFixed(1); suffix: "Mbps"; color: Theme.primary; anchors.centerIn: parent }
-            }
-            NexusCard {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 120
-                MetricLarge { label: "LOSS"; value: (backend.system.lossRate * 100).toFixed(2); suffix: "%"; color: Theme.danger; anchors.centerIn: parent }
-            }
-        }
-
-        NexusCard {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 250
-            visible: root.state === "ClientConnected"
-            title: "Performance History"
-
-            NexusGraph {
-                anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
-                dataModel: backend.system.fpsHistory
-                maxValue: 70
-                lineWeightColor: Theme.success
-            }
-        }
-
-        // --- SYSTEM METRICS (ALWAYS VISIBLE) ---
-        GridLayout {
-            Layout.fillWidth: true
-            columnSpacing: Theme.adaptiveCardSpacing
-            rowSpacing: Theme.adaptiveCardSpacing
-            columns: Theme.isSmall ? 1 : (Theme.isLarge ? 3 : 2)
-
-            NexusCard {
-                Layout.fillWidth: true; Layout.preferredHeight: 280
-                title: "CPU Usage"
+                Layout.fillWidth: true; Layout.preferredHeight: 200
+                title: "Processor Load"
                 ColumnLayout {
-                    anchors.fill: parent; anchors.margins: Theme.spacingMedium; spacing: Theme.spacingMedium
-                    MetricCircular { value: backend.system.cpuUsage; color: Theme.accent; label: "CPU Load" }
-                    NexusGraph { Layout.fillWidth: true; Layout.preferredHeight: 60; dataModel: backend.system.cpuHistory; maxValue: 100; lineWeightColor: Theme.accent }
+                    anchors.fill: parent; anchors.margins: Theme.spacingMedium; spacing: Theme.spacingSmall
+                    RowLayout {
+                        Text { text: backend.system.cpuUsage.toFixed(1) + "%"; font.family: Theme.monoFontFamily; font.pixelSize: 24; font.weight: Font.Bold; color: Theme.textPrimary }
+                        Item { Layout.fillWidth: true }
+                        StatusBadge { value: backend.system.cpuUsage; labels: ["OPTIMAL", "HIGH", "CRITICAL"]; thresholds: [70, 90] }
+                    }
+                    NexusGraph { Layout.fillWidth: true; Layout.fillHeight: true; dataModel: backend.system.cpuHistory; maxValue: 100; lineWeightColor: Theme.primary }
                 }
             }
+
+            // RAM Monitor
             NexusCard {
-                Layout.fillWidth: true; Layout.preferredHeight: 280
+                Layout.fillWidth: true; Layout.preferredHeight: 200
                 title: "Memory Usage"
                 ColumnLayout {
-                    anchors.fill: parent; anchors.margins: Theme.spacingMedium; spacing: Theme.spacingMedium
-                    MetricCircular { value: backend.system.memoryUsage; color: Theme.success; label: "RAM Used" }
-                    NexusGraph { Layout.fillWidth: true; Layout.preferredHeight: 60; dataModel: backend.system.memoryHistory; maxValue: 100; lineWeightColor: Theme.success }
+                    anchors.fill: parent; anchors.margins: Theme.spacingMedium; spacing: Theme.spacingSmall
+                    RowLayout {
+                        Text { text: backend.system.memoryUsage.toFixed(1) + "%"; font.family: Theme.monoFontFamily; font.pixelSize: 24; font.weight: Font.Bold; color: Theme.textPrimary }
+                        Item { Layout.fillWidth: true }
+                        StatusBadge { value: backend.system.memoryUsage; labels: ["GOOD", "HEAVY", "CRITICAL"]; thresholds: [75, 90] }
+                    }
+                    NexusGraph { Layout.fillWidth: true; Layout.fillHeight: true; dataModel: backend.system.memoryHistory; maxValue: 100; lineWeightColor: Theme.success }
                 }
             }
+
+            // Network/Uptime Monitor
             NexusCard {
-                Layout.fillWidth: true; Layout.preferredHeight: 280
-                title: "System Uptime"
+                Layout.fillWidth: true; Layout.preferredHeight: 200
+                title: "Session Analytics"
                 ColumnLayout {
                     anchors.fill: parent; anchors.margins: Theme.spacingMedium; spacing: Theme.spacingMedium
-                    Item { Layout.fillHeight: true }
-                    Text { Layout.alignment: Qt.AlignHCenter; text: backend.system.uptime; font.family: Theme.monoFontFamily; font.pixelSize: 32; font.weight: Font.Bold; color: Theme.primary }
-                    Text { Layout.alignment: Qt.AlignHCenter; text: "SYSTEM ACTIVE TIME"; font.pixelSize: 10; font.weight: Font.Black; color: Theme.textSecondary; font.letterSpacing: 1 }
-                    Item { Layout.fillHeight: true }
-                    NexusGraph { Layout.fillWidth: true; Layout.preferredHeight: 40; dataModel: backend.system.latencyHistory; maxValue: 100; lineWeightColor: Theme.success; fillEnabled: false }
+
+                    ColumnLayout {
+                        spacing: 2
+                        Text { text: "APP UPTIME"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.Black }
+                        Text { text: backend.system.uptime; font.family: Theme.monoFontFamily; font.pixelSize: 16; color: Theme.textPrimary }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+
+                    ColumnLayout {
+                        spacing: 2
+                        Text { text: "SESSION UPTIME"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.Black }
+                        Text {
+                            text: backend.system.sessionUptime
+                            font.family: Theme.monoFontFamily; font.pixelSize: 16
+                            color: root.appStatus === 0 ? Theme.textSecondary : Theme.success
+                        }
+                    }
                 }
             }
         }
+
+        Item { Layout.preferredHeight: Theme.spacingHuge }
     }
 
-    // --- REUSABLE COMPONENTS ---
-    component MetricLarge : Column {
-        id: metricRoot
-        property string label: ""
-        property string value: ""
-        property string suffix: ""
-        property color color: Theme.textPrimary
-        spacing: 2
-        Text { text: label; color: Theme.textSecondary; font.pixelSize: 11; font.weight: Font.Bold; anchors.horizontalCenter: parent.horizontalCenter }
-        Row {
-            anchors.horizontalCenter: parent.horizontalCenter
-            spacing: 4
-            Text { text: value; color: metricRoot.color; font.pixelSize: 32; font.weight: Font.Bold; font.family: Theme.monoFontFamily }
-            Text { text: suffix; color: Theme.textSecondary; font.pixelSize: 12; anchors.bottom: parent.bottom; anchors.bottomMargin: 6 }
-        }
-    }
-
-    component MetricCircular : RowLayout {
+    // Helper for status badges
+    component StatusBadge : Rectangle {
         property real value: 0
-        property color color: Theme.primary
-        property string label: ""
-        spacing: Theme.spacingLarge
-        Layout.alignment: Qt.AlignHCenter
+        property var labels: []
+        property var thresholds: []
 
-        Item {
-            width: 80; height: 80
-            Canvas {
-                anchors.fill: parent
-                onPaint: {
-                    var ctx = getContext("2d");
-                    ctx.clearRect(0, 0, width, height);
-                    ctx.beginPath(); ctx.arc(width/2, height/2, 35, 0, 2*Math.PI);
-                    ctx.strokeStyle = Theme.surfaceSecondary; ctx.lineWidth = 8; ctx.stroke();
-                    ctx.beginPath(); ctx.arc(width/2, height/2, 35, -Math.PI/2, (-Math.PI/2) + (value/100 * 2*Math.PI));
-                    ctx.strokeStyle = color; ctx.lineWidth = 8; ctx.lineCap = "round"; ctx.stroke();
-                }
-                Connections { target: backend.system; function onCpuUsageChanged() { parent.requestPaint() } function onMemoryUsageChanged() { parent.requestPaint() } }
-            }
-            Text { anchors.centerIn: parent; text: value.toFixed(0) + "%"; font.family: Theme.fontFamily; font.pixelSize: 16; font.weight: Font.Bold; color: Theme.textPrimary }
-        }
-        Column {
-            Text { text: label; color: Theme.textSecondary; font.pixelSize: 12 }
-            Text { text: value > 80 ? "High Load" : "Optimal"; color: value > 80 ? Theme.danger : Theme.success; font.weight: Font.Bold; font.pixelSize: 14 }
+        width: badgeText.implicitWidth + 16; height: 22; radius: 11
+        color: value > thresholds[1] ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.1) :
+               (value > thresholds[0] ? Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.1) :
+                                       Qt.rgba(Theme.success.r, Theme.success.g, Theme.success.b, 0.1))
+
+        Text {
+            id: badgeText
+            anchors.centerIn: parent
+            text: value > thresholds[1] ? labels[2] : (value > thresholds[0] ? labels[1] : labels[0])
+            font.pixelSize: 9; font.weight: Font.Black; font.letterSpacing: 0.5
+            color: value > thresholds[1] ? Theme.danger : (value > thresholds[0] ? Theme.warning : Theme.success)
         }
     }
 }

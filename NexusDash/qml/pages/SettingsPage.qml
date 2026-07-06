@@ -4,150 +4,150 @@ import QtQuick.Controls
 import "../theme"
 import "../components"
 
-ScrollView {
+Item {
     id: root
-    contentWidth: availableWidth
-    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-    clip: true
 
     ColumnLayout {
-        width: root.availableWidth
-        spacing: Theme.adaptiveCardSpacing
-        anchors.margins: Theme.spacingTiny
+        anchors.fill: parent
+        anchors.margins: Theme.adaptiveMargin
+        spacing: Theme.spacingLarge
 
         Text {
             text: "Settings"
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.isSmall ? 24 : 28
+            font.pixelSize: Theme.fontSizeH1
             font.weight: Font.Bold
             color: Theme.textPrimary
-            Layout.topMargin: Theme.spacingMedium
         }
 
-        // --- GENERAL SETTINGS ---
-        Text {
-            text: "General"
-            font.family: Theme.fontFamily
-            font.pixelSize: 18
-            font.weight: Font.DemiBold
-            color: Theme.primary
-            Layout.topMargin: Theme.spacingSmall
+        // --- TAB NAVIGATION ---
+        RowLayout {
+            spacing: Theme.spacingMedium
+            NexusButton {
+                text: "General"; primary: settingsStack.currentIndex === 0
+                onClicked: settingsStack.currentIndex = 0
+            }
+            NexusButton {
+                text: "Streaming & Performance"; primary: settingsStack.currentIndex === 1
+                onClicked: settingsStack.currentIndex = 1
+            }
+            NexusButton {
+                text: "Network"; primary: settingsStack.currentIndex === 2
+                onClicked: settingsStack.currentIndex = 2
+            }
+            NexusButton {
+                text: "Appearance"; primary: settingsStack.currentIndex === 3
+                onClicked: settingsStack.currentIndex = 3
+            }
         }
 
-        GridLayout {
-            columns: Theme.isSmall ? 1 : 2
-            columnSpacing: Theme.adaptiveCardSpacing
-            rowSpacing: Theme.adaptiveCardSpacing
+        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+
+        StackLayout {
+            id: settingsStack
             Layout.fillWidth: true
+            Layout.fillHeight: true
 
-            NexusCard {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 160
-                title: "User Profile"
+            // --- GENERAL TAB ---
+            ScrollView {
+                clip: true
                 ColumnLayout {
-                    anchors.fill: parent; anchors.margins: Theme.spacingMedium; spacing: Theme.spacingSmall
-                    Text { text: "Display Name"; color: Theme.textPrimary; font.pixelSize: 13 }
-                    NexusInput {
-                        id: usernameInput
-                        Layout.fillWidth: true
-                        text: backend.system.username
-                        placeholderText: "Enter your username"
-                        onTextChanged: backend.system.username = text
-                    }
-                }
-            }
-
-            NexusCard {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 160
-                title: "Appearance"
-                ColumnLayout {
-                    anchors.fill: parent; anchors.margins: Theme.spacingMedium; spacing: Theme.spacingSmall
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Text { text: "Dark Mode"; color: Theme.textPrimary; Layout.fillWidth: true; font.pixelSize: 13 }
-                        Switch { checked: backend.theme.darkMode; onClicked: backend.theme.darkMode = checked }
-                    }
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Text { text: "Interface Scaling"; color: Theme.textPrimary; Layout.fillWidth: true; font.pixelSize: 13 }
-                        ComboBox { model: ["Auto", "100%", "125%", "150%"]; Layout.preferredWidth: 100 }
-                    }
-                }
-            }
-        }
-
-        // --- ADVANCED SETTINGS ---
-        Text {
-            text: "Advanced (Streaming & Performance)"
-            font.family: Theme.fontFamily
-            font.pixelSize: 18
-            font.weight: Font.DemiBold
-            color: Theme.primary
-            Layout.topMargin: Theme.spacingLarge
-        }
-
-        GridLayout {
-            columns: Theme.isSmall ? 1 : 2
-            columnSpacing: Theme.adaptiveCardSpacing
-            rowSpacing: Theme.adaptiveCardSpacing
-            Layout.fillWidth: true
-
-            NexusCard {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 220
-                title: "Encoder & Video"
-                ColumnLayout {
-                    anchors.fill: parent; anchors.margins: Theme.spacingMedium; spacing: Theme.spacingSmall
-
-                    SettingRow {
-                        label: "Hardware Acceleration"
-                        description: "Use GPU for faster encoding/decoding"
-                        control: Switch {
-                            checked: backend.system.useHardwareEncoding
-                            onClicked: backend.system.useHardwareEncoding = checked
-                        }
-                    }
-
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
-
-                    SettingRow {
-                        label: "Encoder Preset"
-                        description: "Quality vs Performance tradeoff"
-                        control: ComboBox {
-                            model: ["Performance", "Balanced", "Quality"]
-                            currentIndex: backend.system.encoderPreset
-                            onActivated: (index) => { backend.system.encoderPreset = index }
+                    width: settingsStack.width; spacing: Theme.spacingLarge
+                    NexusCard {
+                        Layout.fillWidth: true; title: "User Identity"
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: Theme.spacingLarge; spacing: Theme.spacingMedium
+                            SettingRow {
+                                label: "Display Name"
+                                description: "How you appear to remote hosts and clients."
+                                control: NexusInput {
+                                    text: backend.system.username
+                                    onTextChanged: backend.system.username = text
+                                    Layout.preferredWidth: 300
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            NexusCard {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 220
-                title: "Network & Bitrate"
+            // --- STREAMING & PERFORMANCE TAB ---
+            ScrollView {
+                clip: true
                 ColumnLayout {
-                    anchors.fill: parent; anchors.margins: Theme.spacingMedium; spacing: Theme.spacingSmall
+                    width: settingsStack.width; spacing: Theme.spacingLarge
+                    NexusCard {
+                        Layout.fillWidth: true; title: "Encoding Strategy"
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: Theme.spacingLarge; spacing: Theme.spacingLarge
 
-                    SettingRow {
-                        label: "Target Bitrate"
-                        description: "Higher means better quality but more bandwidth"
-                        control: RowLayout {
-                            NexusInput { text: "5000"; Layout.preferredWidth: 80 }
-                            Text { text: "kbps"; color: Theme.textSecondary; font.pixelSize: 11 }
+                            SettingRow {
+                                label: "Hardware Acceleration"
+                                description: "Use dedicated GPU silicon for encoding/decoding. Significant latency reduction."
+                                hasTooltip: true
+                                tooltipText: "Highly recommended for gaming. Uses NVENC, QSV, or AMF depending on your GPU."
+                                control: Switch {
+                                    checked: backend.system.useHardwareEncoding
+                                    onClicked: backend.system.useHardwareEncoding = checked
+                                }
+                            }
+
+                            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+
+                            SettingRow {
+                                label: "Encoder Preset"
+                                description: "Balance between image fidelity and processing speed."
+                                control: NexusSegmentedControl {
+                                    model: ["Performance", "Balanced", "Quality"]
+                                    currentIndex: backend.system.encoderPreset
+                                    onActivated: (index) => backend.system.encoderPreset = index
+                                    Layout.preferredWidth: 400
+                                }
+                            }
                         }
                     }
+                }
+            }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+            // --- NETWORK TAB ---
+            ScrollView {
+                clip: true
+                ColumnLayout {
+                    width: settingsStack.width; spacing: Theme.spacingLarge
+                    NexusCard {
+                        Layout.fillWidth: true; title: "Connectivity"
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: Theme.spacingLarge; spacing: Theme.spacingLarge
+                            SettingRow {
+                                label: "Primary Network Interface"
+                                description: "The interface used for local discovery and streaming traffic."
+                                control: NexusComboBox {
+                                    model: backend.system.networkInterfaces
+                                    Layout.preferredWidth: 400
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
-                    SettingRow {
-                        label: "Target FPS"
-                        description: "Frames per second for the stream"
-                        control: ComboBox {
-                            model: ["30", "60", "120", "144"]
-                            currentIndex: 1
+            // --- APPEARANCE TAB ---
+            ScrollView {
+                clip: true
+                ColumnLayout {
+                    width: settingsStack.width; spacing: Theme.spacingLarge
+                    NexusCard {
+                        Layout.fillWidth: true; title: "Visual Experience"
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: Theme.spacingLarge; spacing: Theme.spacingLarge
+                            SettingRow {
+                                label: "Dark Mode"
+                                description: "Switch between light and dark UI themes."
+                                control: Switch {
+                                    checked: backend.theme.darkMode
+                                    onClicked: backend.theme.darkMode = checked
+                                }
+                            }
                         }
                     }
                 }
@@ -159,13 +159,25 @@ ScrollView {
     component SettingRow : RowLayout {
         property string label: ""
         property string description: ""
+        property bool hasTooltip: false
+        property string tooltipText: ""
         property Item control: null
 
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 2
-            Text { text: label; color: Theme.textPrimary; font.pixelSize: 13; font.weight: Font.Medium }
-            Text { text: description; color: Theme.textSecondary; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            spacing: 4
+            RowLayout {
+                spacing: 8
+                Text { text: label; color: Theme.textPrimary; font.pixelSize: 15; font.weight: Font.DemiBold }
+                Rectangle {
+                    visible: hasTooltip; width: 16; height: 16; radius: 8; color: Theme.surface
+                    Text { anchors.centerIn: parent; text: "?"; color: Theme.textSecondary; font.pixelSize: 10; font.weight: Font.Bold }
+                    ToolTip.visible: mouseArea.containsMouse
+                    ToolTip.text: tooltipText
+                    MouseArea { id: mouseArea; anchors.fill: parent; hoverEnabled: true }
+                }
+            }
+            Text { text: description; color: Theme.textSecondary; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
         }
 
         Item {
