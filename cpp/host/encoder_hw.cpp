@@ -204,12 +204,12 @@ bool FFmpegHardwareEncoder::Initialize(int width, int height, int fps, int bitra
             return false;
         }
 
-    // Always allocate swFrame if we might need scaling or software fallback
-    m_internal->swFrame = av_frame_alloc();
-    m_internal->swFrame->format = isSoftware ? AV_PIX_FMT_YUV420P : AV_PIX_FMT_NV12;
-    m_internal->swFrame->width = width;
-    m_internal->swFrame->height = height;
-    av_frame_get_buffer(m_internal->swFrame, 0);
+        // Always allocate swFrame if we might need scaling or software fallback
+        m_internal->swFrame = av_frame_alloc();
+        m_internal->swFrame->format = AV_PIX_FMT_NV12;
+        m_internal->swFrame->width = width;
+        m_internal->swFrame->height = height;
+        av_frame_get_buffer(m_internal->swFrame, 0);
 
         return true;
     };

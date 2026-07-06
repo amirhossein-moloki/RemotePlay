@@ -60,8 +60,8 @@ void EncoderManager::DetectCapabilities(bool useHardware) {
         ctx->width = 1280; ctx->height = 720; ctx->time_base = {1, 60};
         ctx->pix_fmt = (name == "libx264") ? AV_PIX_FMT_YUV420P : AV_PIX_FMT_NV12;
 
-        const enum AVPixelFormat* pix_fmts = codec->pix_fmts;
-        if (pix_fmts) {
+        const enum AVPixelFormat* pix_fmts = nullptr;
+        if (avcodec_get_supported_config(ctx, codec, AV_CODEC_CONFIG_PIX_FORMAT, 0, (const void**)&pix_fmts, nullptr) >= 0 && pix_fmts) {
             bool found = false;
             for (const enum AVPixelFormat* p = pix_fmts; *p != AV_PIX_FMT_NONE; p++) {
                 if (*p == ctx->pix_fmt) { found = true; break; }

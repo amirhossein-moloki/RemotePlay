@@ -952,7 +952,7 @@ void SessionManager::runClient(ParsecConfig config) {
     std::string hostIpStr(config.hostIp);
     bool isLoopback = (hostIpStr == "127.0.0.1" || hostIpStr == "localhost" || hostIpStr == "::1");
 
-    Client::InputCapture input([&, isLoopback, config, &txKey, &sessionId, &sendSequenceNumber, &currentHostIp, &currentHostPort](const uint8_t* data, size_t size) {
+    Client::InputCapture input([&, isLoopback, config](const uint8_t* data, size_t size) mutable {
         if (!isLoopback && sessionId != 0) {
             uint8_t secureBuf[2048];
             if (size + sizeof(Protocol::SecureHeader) > sizeof(secureBuf)) return;
@@ -960,7 +960,7 @@ void SessionManager::runClient(ParsecConfig config) {
             Protocol::SecureHeader sh_stack;
             sh_stack.type = (uint8_t)Protocol::PacketType::Secure;
             sh_stack.sessionId = sessionId;
-            sh_stack.sequenceNumber = sendSequenceNumber++;
+            sh_stack.sequenceNumber = sendSequenceNumber.fetch_add(1);
             sh_stack.encryptedSize = (uint16_t)size;
 
             if (Crypto::CryptoManager::Encrypt(data, size,

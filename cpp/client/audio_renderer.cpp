@@ -2,6 +2,8 @@
 #include "../common/logger.hpp"
 
 #ifdef _WIN32
+#include <ks.h>
+#include <ksmedia.h>
 #pragma comment(lib, "Ole32.lib")
 
 namespace Client {
