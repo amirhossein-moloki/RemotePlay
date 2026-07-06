@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
 
         backend.initialize(&engine);
 
-        const QUrl url(u"qrc:/qt/qml/NexusDash/qml/main.qml"_qs);
+        const QUrl url(u"qrc:/qt/qml/NexusDash/main.qml"_qs);
         QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,
                          &app, [url](QObject *obj, const QUrl &objUrl) {
             if (!obj && url == objUrl) {

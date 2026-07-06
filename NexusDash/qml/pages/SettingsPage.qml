@@ -1,7 +1,8 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import NexusDash
+import "../theme"
+import "../components"
 
 ScrollView {
     id: root
