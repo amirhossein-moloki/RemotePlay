@@ -34,6 +34,7 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
                                       Q_ARG(QString, friendlyMsg),
                                       Q_ARG(QString, suggestion));
 
+            AppEngine::instance()->system()->setAppStatus(SystemService::Error);
             AppEngine::instance()->system()->stopSession();
         });
 
@@ -82,6 +83,8 @@ void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps
 
     Parsec_StartSession(config);
     m_isSessionActive = true;
+    m_sessionStartTime = QDateTime::currentSecsSinceEpoch();
+    setAppStatus(Hosting);
     emit sessionStateChanged();
     addLog("INFO", "Host", "Hosting started on " + interfaceIp);
 }
@@ -105,10 +108,41 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
     m_clientWindow = Parsec_CreateClientWindow("NexusDash Stream Viewer", 1280, 720);
     config.windowHandle = m_clientWindow;
 
-    Parsec_StartSession(config);
-    m_isSessionActive = true;
-    emit sessionStateChanged();
-    addLog("INFO", "Client", "Connecting to " + hostIp);
+    // Simulate connection steps
+    setAppStatus(Reconnecting); // Using Reconnecting to represent "Connecting" for the progress UI
+    setConnectionStep(StepResolving);
+
+    QTimer::singleShot(500, [this, config]() {
+        setConnectionStep(StepHandshake);
+        QTimer::singleShot(500, [this, config]() {
+            setConnectionStep(StepEncrypting);
+            QTimer::singleShot(500, [this, config]() {
+                Parsec_StartSession(config);
+                m_isSessionActive = true;
+                m_sessionStartTime = QDateTime::currentSecsSinceEpoch();
+                setAppStatus(Connected);
+                setConnectionStep(StepConnected);
+                emit sessionStateChanged();
+                addLog("INFO", "Client", "Connection established to host");
+            });
+        });
+    });
+
+    addLog("INFO", "Client", "Initiating connection to " + hostIp);
+}
+
+void SystemService::setAppStatus(AppStatus status) {
+    if (m_appStatus != status) {
+        m_appStatus = status;
+        emit appStatusChanged();
+    }
+}
+
+void SystemService::setConnectionStep(ConnectionStep step) {
+    if (m_connectionStep != step) {
+        m_connectionStep = step;
+        emit connectionStepChanged();
+    }
 }
 
 void SystemService::addToHistory(const QString& host) {
@@ -210,6 +244,9 @@ void SystemService::stopSession()
     if (m_clientWindow) { DestroyWindow((HWND)m_clientWindow); m_clientWindow = nullptr; }
 #endif
     m_isSessionActive = false;
+    m_sessionStartTime = 0;
+    setAppStatus(Idle);
+    setConnectionStep(StepNone);
     emit sessionStateChanged();
 }
 
@@ -266,6 +303,12 @@ void SystemService::updateHistory(QVariantList& list, double val) {
 
 QString SystemService::uptime() const {
     qint64 diff = QDateTime::currentSecsSinceEpoch() - m_startTime;
+    return QString("%1h %2m %3s").arg(diff/3600).arg((diff%3600)/60).arg(diff%60);
+}
+
+QString SystemService::sessionUptime() const {
+    if (m_sessionStartTime == 0) return "0h 0m 0s";
+    qint64 diff = QDateTime::currentSecsSinceEpoch() - m_sessionStartTime;
     return QString("%1h %2m %3s").arg(diff/3600).arg((diff%3600)/60).arg(diff%60);
 }
 

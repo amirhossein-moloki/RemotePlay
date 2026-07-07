@@ -28,7 +28,7 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.topMargin: Theme.spacingLarge
+        anchors.topMargin: Theme.spacingHuge
         anchors.bottomMargin: Theme.spacingLarge
         spacing: Theme.spacingTiny
 
@@ -43,9 +43,9 @@ Rectangle {
                 spacing: Theme.spacingMedium
 
                 Rectangle {
-                    width: 40
-                    height: 40
-                    radius: 10
+                    width: 44
+                    height: 44
+                    radius: 12
                     color: Theme.primary
 
                     Text {
@@ -53,7 +53,7 @@ Rectangle {
                         text: "N"
                         color: "white"
                         font.bold: true
-                        font.pixelSize: 22
+                        font.pixelSize: 24
                     }
 
                     // Glow effect
@@ -61,9 +61,9 @@ Rectangle {
                         anchors.fill: parent
                         radius: parent.radius
                         color: Theme.primary
-                        opacity: 0.3
+                        opacity: 0.2
                         z: -1
-                        scale: 1.1
+                        scale: 1.15
                     }
                 }
 
@@ -73,28 +73,28 @@ Rectangle {
                     Text {
                         text: "NexusDash"
                         font.family: Theme.fontFamily
-                        font.pixelSize: 18
+                        font.pixelSize: 20
                         font.weight: Font.Bold
                         color: Theme.textPrimary
                     }
                     Text {
-                        text: "PREMIUM"
+                        text: "ENTERPRISE"
                         font.family: Theme.fontFamily
-                        font.pixelSize: 10
+                        font.pixelSize: 9
                         font.weight: Font.Black
                         color: Theme.accent
-                        font.letterSpacing: 1
+                        font.letterSpacing: 1.5
                     }
                 }
             }
         }
 
-        Item { Layout.preferredHeight: Theme.spacingHuge }
+        Item { Layout.preferredHeight: Theme.spacingGiga }
 
         // Navigation Items
         SidebarItem {
             label: "Dashboard"
-            icon: "D"
+            icon: "󰕒"
             active: root.currentIndex === 0
             collapsed: root.collapsed
             onClicked: root.currentIndex = 0
@@ -102,7 +102,7 @@ Rectangle {
 
         SidebarItem {
             label: "Settings"
-            icon: "S"
+            icon: "󰒓"
             active: root.currentIndex === 1
             collapsed: root.collapsed
             onClicked: root.currentIndex = 1
@@ -110,7 +110,7 @@ Rectangle {
 
         SidebarItem {
             label: "About"
-            icon: "A"
+            icon: "󰋼"
             active: root.currentIndex === 2
             collapsed: root.collapsed
             onClicked: root.currentIndex = 2
@@ -121,7 +121,7 @@ Rectangle {
         // Collapse Button
         SidebarItem {
             label: root.collapsed ? "Expand" : "Collapse"
-            icon: root.collapsed ? "→" : "←"
+            icon: root.collapsed ? "󰁔" : "󰁍"
             collapsed: root.collapsed
             onClicked: root.collapsed = !root.collapsed
         }

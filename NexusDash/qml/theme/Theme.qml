@@ -13,22 +13,23 @@ QtObject {
     readonly property bool isMedium: windowWidth >= 1000 && windowWidth < 1400
     readonly property bool isLarge: windowWidth >= 1400
 
-    // Adaptive Spacings
+    // Adaptive Spacings (8pt Grid System)
     readonly property int adaptiveMargin: isSmall ? spacingMedium : (isMedium ? spacingLarge : spacingHuge)
     readonly property int adaptiveSpacing: isSmall ? spacingSmall : spacingMedium
     readonly property int adaptiveCardSpacing: isSmall ? spacingMedium : spacingLarge
 
-    // Colors - Refined for Premium Dashboard
-    readonly property color background: "#0B1020"
-    readonly property color panel: "#111827"
-    readonly property color surface: "#151D2E"
-    readonly property color surfaceSecondary: "#1E293B"
+    // Colors - Enterprise Navy/Charcoal Palette
+    readonly property color background: "#0F172A"      // Deep Navy
+    readonly property color panel: "#1E293B"           // Charcoal Navy
+    readonly property color surface: "#334155"         // Lighter Slate/Charcoal
+    readonly property color surfaceSecondary: "#475569"
 
-    readonly property color primary: "#0078D4"
-    readonly property color accent: "#8B5CF6"
-    readonly property color success: "#6BB05D"
-    readonly property color warning: "#FCE100"
-    readonly property color danger: "#E81123"
+    readonly property color primary: "#3B82F6"         // Modern Blue
+    readonly property color accent: "#8B5CF6"          // Purple Accent
+    readonly property color success: "#22C55E"         // Green
+    readonly property color warning: "#F59E0B"         // Amber/Yellow
+    readonly property color danger: "#EF4444"          // Red
+    readonly property color active: "#3B82F6"          // Blue for active processes
 
     // Semantic status colors
     readonly property color statusGood: success
@@ -37,18 +38,20 @@ QtObject {
 
     readonly property color textPrimary: "#F8FAFC"
     readonly property color textSecondary: "#94A3B8"
-    readonly property color border: "#1E293B"
+    readonly property color border: "#334155"
 
     // Functional Colors
     readonly property color accentHover: "#7C3AED"
-    readonly property color primaryHover: "#1D4ED8"
+    readonly property color primaryHover: "#2563EB"
 
-    // Spacing (4px Grid System)
+    // Spacing (8pt Grid System)
     readonly property int spacingTiny: 4
     readonly property int spacingSmall: 8
     readonly property int spacingMedium: 16
     readonly property int spacingLarge: 24
     readonly property int spacingHuge: 32
+    readonly property int spacingExtraHuge: 48
+    readonly property int spacingGiga: 64
 
     // Radius
     readonly property int radiusSmall: 4
@@ -56,6 +59,14 @@ QtObject {
     readonly property int radiusLarge: 12
 
     // Typography
-    readonly property string fontFamily: "Segoe UI Variable, Inter, -apple-system, sans-serif"
-    readonly property string monoFontFamily: "Consolas, 'Courier New', monospace"
+    readonly property string fontFamily: "Inter, Segoe UI Variable, -apple-system, sans-serif"
+    readonly property string monoFontFamily: "JetBrains Mono, Fira Code, Consolas, monospace"
+
+    // Typography Sizes
+    readonly property int fontSizeH1: 32
+    readonly property int fontSizeH2: 24
+    readonly property int fontSizeH3: 18
+    readonly property int fontSizeBody: 14
+    readonly property int fontSizeSmall: 12
+    readonly property int fontSizeTiny: 10
 }

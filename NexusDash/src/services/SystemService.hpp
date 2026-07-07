@@ -62,9 +62,13 @@ private:
 class SystemService : public QObject
 {
     Q_OBJECT
+    Q_ENUMS(AppStatus)
+    Q_ENUMS(ConnectionStep)
+
     Q_PROPERTY(double cpuUsage READ cpuUsage NOTIFY cpuUsageChanged)
     Q_PROPERTY(double memoryUsage READ memoryUsage NOTIFY memoryUsageChanged)
     Q_PROPERTY(QString uptime READ uptime NOTIFY uptimeChanged)
+    Q_PROPERTY(QString sessionUptime READ sessionUptime NOTIFY uptimeChanged)
     Q_PROPERTY(double e2eLatency READ e2eLatency NOTIFY statsChanged)
     Q_PROPERTY(double fps READ fps NOTIFY statsChanged)
     Q_PROPERTY(double bitrate READ bitrate NOTIFY statsChanged)
@@ -72,6 +76,8 @@ class SystemService : public QObject
     Q_PROPERTY(double rtt READ rtt NOTIFY statsChanged)
     Q_PROPERTY(QStringList networkInterfaces READ networkInterfaces NOTIFY networkInterfacesChanged)
     Q_PROPERTY(bool isSessionActive READ isSessionActive NOTIFY sessionStateChanged)
+    Q_PROPERTY(AppStatus appStatus READ appStatus NOTIFY appStatusChanged)
+    Q_PROPERTY(ConnectionStep connectionStep READ connectionStep NOTIFY connectionStepChanged)
     Q_PROPERTY(QString username READ username WRITE setUsername NOTIFY usernameChanged)
     Q_PROPERTY(bool useHardwareEncoding READ useHardwareEncoding WRITE setUseHardwareEncoding NOTIFY useHardwareEncodingChanged)
     Q_PROPERTY(int encoderPreset READ encoderPreset WRITE setEncoderPreset NOTIFY encoderPresetChanged)
@@ -87,6 +93,22 @@ class SystemService : public QObject
     Q_PROPERTY(QVariantList latencyHistory READ latencyHistory NOTIFY historyChanged)
 
 public:
+    enum AppStatus {
+        Idle,
+        Hosting,
+        Connected,
+        Error,
+        Reconnecting
+    };
+
+    enum ConnectionStep {
+        StepNone,
+        StepResolving,
+        StepHandshake,
+        StepEncrypting,
+        StepConnected
+    };
+
     explicit SystemService(QObject *parent = nullptr);
 
     Q_INVOKABLE void startHost(const QString& interfaceInfo, int bitrate, int fps);
@@ -99,6 +121,7 @@ public:
     double cpuUsage() const { return m_cpuUsage; }
     double memoryUsage() const { return m_memoryUsage; }
     QString uptime() const;
+    QString sessionUptime() const;
     double e2eLatency() const { return m_stats.e2eLatency; }
     double fps() const { return m_stats.fps; }
     double bitrate() const { return m_stats.bitrateMbps; }
@@ -106,6 +129,8 @@ public:
     double rtt() const { return m_stats.rtt; }
     QStringList networkInterfaces() const { return m_networkInterfaces; }
     bool isSessionActive() const { return m_isSessionActive; }
+    AppStatus appStatus() const { return m_appStatus; }
+    ConnectionStep connectionStep() const { return m_connectionStep; }
     QString username() const { return m_username; }
     void setUsername(const QString& username);
     bool useHardwareEncoding() const { return m_useHardwareEncoding; }
@@ -135,6 +160,8 @@ signals:
     void statsChanged();
     void networkInterfacesChanged();
     void sessionStateChanged();
+    void appStatusChanged();
+    void connectionStepChanged();
     void historyChanged();
     void usernameChanged();
     void useHardwareEncodingChanged();
@@ -149,10 +176,14 @@ private:
     void addLog(const QString& level, const QString& event, const QString& desc);
     void updateHistory(QVariantList& list, double value);
     void addToHistory(const QString& host);
+    void setAppStatus(AppStatus status);
+    void setConnectionStep(ConnectionStep step);
 
     double m_cpuUsage = 0.0;
     double m_memoryUsage = 0.0;
     bool m_isSessionActive = false;
+    AppStatus m_appStatus = Idle;
+    ConnectionStep m_connectionStep = StepNone;
     QString m_username;
     bool m_useHardwareEncoding = true;
     int m_encoderPreset = 0;
@@ -163,6 +194,7 @@ private:
     ParsecTelemetry m_stats = {};
     QTimer *m_timer;
     qint64 m_startTime;
+    qint64 m_sessionStartTime = 0;
     LogModel* m_logModel;
     QString m_currentQualityTier = "High Performance";
 

@@ -61,7 +61,7 @@ ApplicationWindow {
         // Bottom Status Bar
         Rectangle {
             Layout.fillWidth: true
-            height: 32
+            height: 40
             color: Theme.panel
             border.color: Theme.border
             border.width: 1
@@ -73,7 +73,7 @@ ApplicationWindow {
                 spacing: Theme.spacingLarge
 
                 Text {
-                    text: "NexusDash v1.0.0"
+                    text: "NexusDash v1.1.0"
                     color: Theme.textSecondary
                     font.pixelSize: 11
                     font.family: Theme.fontFamily
@@ -82,13 +82,13 @@ ApplicationWindow {
                 Item { Layout.fillWidth: true }
 
                 Row {
-                    spacing: Theme.spacingMedium
+                    spacing: Theme.spacingLarge
                     Layout.alignment: Qt.AlignVCenter
 
                     StatusIndicator {
-                        label: "STATUS"
-                        value: backend.system.isSessionActive ? "CONNECTED" : "IDLE"
-                        valueColor: backend.system.isSessionActive ? Theme.success : Theme.textSecondary
+                        label: "APP STATE"
+                        value: statusLabel
+                        valueColor: statusColor
                     }
 
                     Rectangle { width: 1; height: 16; color: Theme.border; Layout.alignment: Qt.AlignVCenter }
@@ -112,6 +112,26 @@ ApplicationWindow {
                     }
                 }
             }
+
+            readonly property int appStatus: backend.system.appStatus
+            readonly property color statusColor: {
+                switch(appStatus) {
+                    case 1: return Theme.active;
+                    case 2: return Theme.success;
+                    case 3: return Theme.danger;
+                    case 4: return Theme.warning;
+                    default: return Theme.textSecondary;
+                }
+            }
+            readonly property string statusLabel: {
+                switch(appStatus) {
+                    case 1: return "HOSTING";
+                    case 2: return "CONNECTED";
+                    case 3: return "ERROR";
+                    case 4: return "PENDING";
+                    default: return "IDLE";
+                }
+            }
         }
     }
 
@@ -127,15 +147,16 @@ ApplicationWindow {
             text: label
             color: Theme.textSecondary
             font.pixelSize: 10
-            font.weight: Font.Bold
+            font.weight: Font.Black
             font.family: Theme.fontFamily
+            font.letterSpacing: 1
             anchors.verticalCenter: parent.verticalCenter
         }
         Text {
             text: value
             color: valueColor
             font.pixelSize: 11
-            font.weight: Font.Medium
+            font.weight: Font.Bold
             font.family: Theme.monoFontFamily
             anchors.verticalCenter: parent.verticalCenter
         }
