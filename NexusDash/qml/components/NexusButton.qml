@@ -10,14 +10,14 @@ Button {
     property bool loading: false
     property string iconSource: ""
 
-    contentItem: RowLayout {
+    contentItem: Row {
         spacing: Theme.spacingSmall
-        alignment: Qt.AlignHCenter
+        anchors.centerIn: parent
 
         Item {
             visible: control.loading
-            Layout.preferredWidth: 16
-            Layout.preferredHeight: 16
+            width: 16
+            height: 16
 
             RotationAnimation on rotation {
                 running: control.loading
