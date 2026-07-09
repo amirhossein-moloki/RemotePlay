@@ -46,6 +46,7 @@ qt_add_qml_module(appNexusDash
         qml/components/NexusNotification.qml
         qml/components/Sidebar.qml
         qml/components/SidebarItem.qml
+        qml/components/NexusSegmentedControl.qml
         qml/pages/DashboardPage.qml
         qml/pages/SettingsPage.qml
         qml/pages/AboutPage.qml
