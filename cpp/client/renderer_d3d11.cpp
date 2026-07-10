@@ -183,6 +183,12 @@ bool RendererD3D11::EndFrame() {
         return false;
     }
 
+    // Clamp current buffer index to safe bounds
+    if (m_bufferCount <= 0) m_bufferCount = 1;
+    if (m_currentBufferIndex < 0 || m_currentBufferIndex >= (int)m_bufferCount) {
+        m_currentBufferIndex = 0;
+    }
+
     ImGui::Render();
     if (m_backBufferViews[m_currentBufferIndex]) {
         m_context->OMSetRenderTargets(1, &m_backBufferViews[m_currentBufferIndex], nullptr);
@@ -272,8 +278,9 @@ bool RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
     }
 
     if (!texture) {
-        // No cached frame available yet
-        return false;
+        // No cached frame available yet - this is perfectly fine and expected during delayed stream start
+        LOG_INFO("Renderer", "No decoded frame available yet. Safe presentation wait.");
+        return true;
     }
     LOG_INFO("StreamTrace", "RENDER_INPUT texture=" + std::to_string(reinterpret_cast<uintptr_t>(texture)) +
              " arrayIndex=" + std::to_string(arrayIndex));
@@ -286,6 +293,15 @@ bool RendererD3D11::Render(ID3D11Texture2D* texture, int arrayIndex) {
             return false;
         }
     }
+
+    // Secure buffer index clamping to avoid out of bounds swap chain buffer requests
+    if (m_bufferCount <= 0) m_bufferCount = 1;
+    if (m_currentBufferIndex < 0 || m_currentBufferIndex >= (int)m_bufferCount) {
+        m_currentBufferIndex = 0;
+    }
+
+    LOG_INFO("Renderer", "Renderer Render: texture pointer=" + std::to_string(reinterpret_cast<uintptr_t>(texture)) +
+             " buffer index=" + std::to_string(m_currentBufferIndex) + " buffer count=" + std::to_string(m_bufferCount));
 
     D3D11_TEXTURE2D_DESC srcDesc;
     texture->GetDesc(&srcDesc);
