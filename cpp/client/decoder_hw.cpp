@@ -80,16 +80,26 @@ bool DecoderHW::Initialize(void* d3d11DevicePtr, bool useHardware) {
         m_internal->hwDeviceCtx = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
         if (m_internal->hwDeviceCtx) {
             AVHWDeviceContext* deviceCtx = (AVHWDeviceContext*)m_internal->hwDeviceCtx->data;
-            AVD3D11VADeviceContext* d3d11Ctx = (AVD3D11VADeviceContext*)deviceCtx->hwctx;
-            d3d11Ctx->device = (ID3D11Device*)d3d11DevicePtr;
-            d3d11Ctx->device->AddRef();
+            if (deviceCtx) {
+                AVD3D11VADeviceContext* d3d11Ctx = (AVD3D11VADeviceContext*)deviceCtx->hwctx;
+                if (d3d11Ctx) {
+                    d3d11Ctx->device = (ID3D11Device*)d3d11DevicePtr;
+                    d3d11Ctx->device->AddRef();
 
-            if (av_hwdevice_ctx_init(m_internal->hwDeviceCtx) < 0) {
-                LOG_ERROR("Decoder", "Failed to initialize HW device context.");
-                av_buffer_unref(&m_internal->hwDeviceCtx);
+                    if (av_hwdevice_ctx_init(m_internal->hwDeviceCtx) < 0) {
+                        LOG_ERROR("Decoder", "Failed to initialize HW device context.");
+                        av_buffer_unref(&m_internal->hwDeviceCtx);
+                    } else {
+                        m_internal->codecCtx->hw_device_ctx = av_buffer_ref(m_internal->hwDeviceCtx);
+                        m_internal->codecCtx->get_format = get_format;
+                    }
+                } else {
+                    LOG_ERROR("Decoder", "D3D11VADeviceContext is null.");
+                    av_buffer_unref(&m_internal->hwDeviceCtx);
+                }
             } else {
-                m_internal->codecCtx->hw_device_ctx = av_buffer_ref(m_internal->hwDeviceCtx);
-                m_internal->codecCtx->get_format = get_format;
+                LOG_ERROR("Decoder", "AVHWDeviceContext is null.");
+                av_buffer_unref(&m_internal->hwDeviceCtx);
             }
         }
     }
@@ -172,6 +182,13 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
         }
     }
 
+    if (!m_internal->pkt) {
+        LOG_ERROR("Decoder", "AVPacket is null during DecodeFrame.");
+        return false;
+    }
+
+    LOG_INFO("Decoder", "Decoding frame: packet ptr=" + std::to_string(reinterpret_cast<uintptr_t>(m_internal->pkt)) + " size=" + std::to_string(size));
+
     av_packet_unref(m_internal->pkt);
     m_internal->pkt->data = (uint8_t*)data;
     m_internal->pkt->size = (int)size;
@@ -206,6 +223,11 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
         return false;
     }
 
+    if (!m_internal->tempFrame || !m_internal->frame) {
+        LOG_ERROR("Decoder", "Internal AVFrames are null during DecodeFrame.");
+        return false;
+    }
+
     bool frameReady = false;
     while (true) {
         int recvRet = avcodec_receive_frame(m_internal->codecCtx, m_internal->tempFrame);
@@ -223,6 +245,8 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
     }
 
     if (!frameReady) return false;
+
+    LOG_INFO("Decoder", "Received decoded frame pointer=" + std::to_string(reinterpret_cast<uintptr_t>(m_internal->frame)) + " format=" + std::to_string(m_internal->frame->format));
 
     if (m_internal->frame->width <= 0 || m_internal->frame->height <= 0) {
         LOG_ERROR("Decoder", "Invalid frame dimensions: " + std::to_string(m_internal->frame->width) + "x" + std::to_string(m_internal->frame->height));
@@ -297,12 +321,22 @@ bool DecoderHW::DecodeFrame(const uint8_t* data, size_t size, void** outTexture,
 #endif
             }
 
-            if (m_internal->swsCtx) sws_scale_frame(m_internal->swsCtx, m_internal->rgbaFrame, m_internal->frame);
+            if (m_internal->swsCtx && m_internal->rgbaFrame && m_internal->frame) {
+                sws_scale_frame(m_internal->swsCtx, m_internal->rgbaFrame, m_internal->frame);
+            } else {
+                LOG_ERROR("Decoder", "sws_scale_frame parameters are invalid or null.");
+                return false;
+            }
 
 #ifdef _WIN32
-            m_internal->context->UpdateSubresource(m_internal->swTexture, 0, nullptr, m_internal->rgbaFrame->data[0], m_internal->rgbaFrame->linesize[0], 0);
-            *outTexture = m_internal->swTexture;
-            LOG_INFO("StreamTrace", "DECODER_TEXTURE_OUT hw=0 texture=" + std::to_string(reinterpret_cast<uintptr_t>(*outTexture)));
+            if (m_internal->context && m_internal->swTexture && m_internal->rgbaFrame && m_internal->rgbaFrame->data[0]) {
+                m_internal->context->UpdateSubresource(m_internal->swTexture, 0, nullptr, m_internal->rgbaFrame->data[0], m_internal->rgbaFrame->linesize[0], 0);
+                *outTexture = m_internal->swTexture;
+                LOG_INFO("StreamTrace", "DECODER_TEXTURE_OUT hw=0 texture=" + std::to_string(reinterpret_cast<uintptr_t>(*outTexture)));
+            } else {
+                LOG_ERROR("Decoder", "D3D11 Context, Software Texture, or RGBA Frame data is null during software scaling.");
+                return false;
+            }
         } else {
             LOG_ERROR("StreamTrace", "DECODER_TEXTURE_OUT_FAIL no_d3d11_device_or_context_for_software_frame");
             return false;
@@ -333,15 +367,6 @@ void DecoderHW::Shutdown() {
 #endif
 
     if (m_internal->codecCtx) {
-#ifdef _WIN32
-        if (m_internal->codecCtx->hw_device_ctx) {
-            AVHWDeviceContext* device_ctx = (AVHWDeviceContext*)m_internal->codecCtx->hw_device_ctx->data;
-            if (device_ctx->type == AV_HWDEVICE_TYPE_D3D11VA) {
-                AVD3D11VADeviceContext* d3d11_ctx = (AVD3D11VADeviceContext*)device_ctx->hwctx;
-                if (d3d11_ctx->device) d3d11_ctx->device->Release();
-            }
-        }
-#endif
         avcodec_free_context(&m_internal->codecCtx);
     }
     if (m_internal->hwDeviceCtx) av_buffer_unref(&m_internal->hwDeviceCtx);
