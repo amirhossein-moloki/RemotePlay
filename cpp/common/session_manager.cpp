@@ -650,57 +650,60 @@ void SessionManager::runHost(ParsecConfig config) {
                                 newState->sessionId = sessionID;
 
                                 if (newState->encoder->Initialize(ctx->capturedWidth, ctx->capturedHeight, config.fps, ctx->capture.GetDevice(), config.useHardwareEncoding)) {
-                                    newState->audioEncoder->Initialize(48000, 2, 128000);
-                                    newState->audioCapture->Initialize([this, ctx, newState](const float* data, size_t samples) {
-                                        if (!m_running) return;
-                                        std::vector<uint8_t> opus;
-                                        if (newState->audioEncoder->Encode(data, samples, opus)) {
-                                            auto udpPkt = ctx->udpPool.acquire();
-                                            if (!udpPkt) {
-                                                LOG_WARN("Session", "UDP Pool exhausted during audio capture.");
-                                                return;
-                                            }
-                                            if (udpPkt) {
-                                                Protocol::AudioHeader* ah = (Protocol::AudioHeader*)udpPkt->data.data();
-                                                ah->type = (uint8_t)Protocol::PacketType::Audio;
-                                                {
-                                                    std::lock_guard<std::mutex> lock(newState->stateMutex);
-                                                    ah->frameId = newState->audioFrameId++;
-                                                }
-                                                ah->timestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-                                                ah->dataSize = (uint16_t)opus.size();
-                                                memcpy(udpPkt->data.data() + sizeof(Protocol::AudioHeader), opus.data(), opus.size());
-
-                                                auto securePkt = ctx->udpPool.acquire();
-                                                if (!securePkt) {
-                                                    LOG_WARN("Session", "UDP Pool exhausted during audio encryption.");
-                                                    ctx->udpPool.release(std::move(udpPkt));
+                                    if (newState->audioEncoder->Initialize(48000, 2, 128000)) {
+                                        newState->audioCapture->Initialize([this, ctx, newState](const float* data, size_t samples) {
+                                            if (!m_running) return;
+                                            std::vector<uint8_t> opus;
+                                            if (newState->audioEncoder->Encode(data, samples, opus)) {
+                                                auto udpPkt = ctx->udpPool.acquire();
+                                                if (!udpPkt) {
+                                                    LOG_WARN("Session", "UDP Pool exhausted during audio capture.");
                                                     return;
                                                 }
-                                                if (securePkt) {
-                                                    Protocol::SecureHeader sh_stack;
-                                                    sh_stack.type = (uint8_t)Protocol::PacketType::Secure;
-                                                    sh_stack.sessionId = newState->sessionId;
-                                                    sh_stack.sequenceNumber = newState->sendSequenceNumber++;
-                                                    sh_stack.encryptedSize = sizeof(Protocol::AudioHeader) + ah->dataSize;
-
-                                                    if (Crypto::CryptoManager::Encrypt(udpPkt->data.data(), sh_stack.encryptedSize,
-                                                                                    (uint8_t*)&sh_stack.sessionId, sizeof(Protocol::SecureHeader) - 16,
-                                                                                    sh_stack.sequenceNumber, newState->txKey,
-                                                                                    securePkt->data.data() + sizeof(Protocol::SecureHeader),
-                                                                                    sh_stack.authTag)) {
-                                                        memcpy(securePkt->data.data(), &sh_stack, sizeof(Protocol::SecureHeader));
-                                                        securePkt->size = sizeof(Protocol::SecureHeader) + sh_stack.encryptedSize;
-                                                        ctx->sendQueue.push({std::move(securePkt), newState->ip, newState->port});
-                                                    } else {
-                                                        ctx->udpPool.release(std::move(securePkt));
+                                                if (udpPkt) {
+                                                    Protocol::AudioHeader* ah = (Protocol::AudioHeader*)udpPkt->data.data();
+                                                    ah->type = (uint8_t)Protocol::PacketType::Audio;
+                                                    {
+                                                        std::lock_guard<std::mutex> lock(newState->stateMutex);
+                                                        ah->frameId = newState->audioFrameId++;
                                                     }
+                                                    ah->timestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                                                    ah->dataSize = (uint16_t)opus.size();
+                                                    memcpy(udpPkt->data.data() + sizeof(Protocol::AudioHeader), opus.data(), opus.size());
+
+                                                    auto securePkt = ctx->udpPool.acquire();
+                                                    if (!securePkt) {
+                                                        LOG_WARN("Session", "UDP Pool exhausted during audio encryption.");
+                                                        ctx->udpPool.release(std::move(udpPkt));
+                                                        return;
+                                                    }
+                                                    if (securePkt) {
+                                                        Protocol::SecureHeader sh_stack;
+                                                        sh_stack.type = (uint8_t)Protocol::PacketType::Secure;
+                                                        sh_stack.sessionId = newState->sessionId;
+                                                        sh_stack.sequenceNumber = newState->sendSequenceNumber++;
+                                                        sh_stack.encryptedSize = sizeof(Protocol::AudioHeader) + ah->dataSize;
+
+                                                        if (Crypto::CryptoManager::Encrypt(udpPkt->data.data(), sh_stack.encryptedSize,
+                                                                                        (uint8_t*)&sh_stack.sessionId, sizeof(Protocol::SecureHeader) - 16,
+                                                                                        sh_stack.sequenceNumber, newState->txKey,
+                                                                                        securePkt->data.data() + sizeof(Protocol::SecureHeader),
+                                                                                        sh_stack.authTag)) {
+                                                            memcpy(securePkt->data.data(), &sh_stack, sizeof(Protocol::SecureHeader));
+                                                            securePkt->size = sizeof(Protocol::SecureHeader) + sh_stack.encryptedSize;
+                                                            ctx->sendQueue.push({std::move(securePkt), newState->ip, newState->port});
+                                                        } else {
+                                                            ctx->udpPool.release(std::move(securePkt));
+                                                        }
+                                                    }
+                                                    ctx->udpPool.release(std::move(udpPkt));
                                                 }
-                                                ctx->udpPool.release(std::move(udpPkt));
                                             }
-                                        }
-                                    });
-                                    newState->audioCapture->Start();
+                                        });
+                                        newState->audioCapture->Start();
+                                    } else {
+                                        LOG_ERROR("Session", "Failed to initialize audio encoder for " + senderIp);
+                                    }
 
                                     {
                                         std::lock_guard<std::mutex> lock(ctx->clientsMutex);
@@ -1001,6 +1004,18 @@ void SessionManager::runClient(ParsecConfig config) {
             m_running = false;
             return;
         }
+    }
+
+    // Initialize audio subsystem
+    bool audioOk = audioDecoder.Initialize(48000, 2);
+    if (audioOk) {
+        audioOk = audioRenderer.Initialize(48000, 2);
+    }
+    if (audioOk) {
+        audioRenderer.Start();
+        LOG_INFO("Session", "Audio subsystem initialized and started (48000Hz, stereo).");
+    } else {
+        LOG_WARN("Session", "Failed to initialize audio subsystem. Audio will be disabled.");
     }
 
     std::atomic<uint32_t> lastFrameId{0};
