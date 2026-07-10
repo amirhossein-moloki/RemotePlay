@@ -49,6 +49,7 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
         }
 
         m_networkInterfaces << QString("[0.0.0.0] All Interfaces");
+        m_networkInterfaces << QString("[127.0.0.1] Local Loopback");
         auto interfaces = Network::NetworkManager::EnumerateInterfaces();
         for (const auto& iface : interfaces) {
             m_networkInterfaces << QString("[%1] %2").arg(QString::fromUtf8(iface.ip.c_str()), QString::fromUtf8(iface.name.c_str()));
@@ -94,6 +95,11 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
     QString interfaceIp = getIpFromInterface(interfaceInfo);
     addToHistory(hostIp);
 
+    QString resolvedHostIp = hostIp.trimmed();
+    if (resolvedHostIp.toLower() == "localhost") {
+        resolvedHostIp = "127.0.0.1";
+    }
+
     ParsecConfig config = {};
     config.isHost = false;
     config.bitrate = bitrate;
@@ -102,7 +108,7 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
     config.encoderPreset = m_encoderPreset;
     config.resolutionScale = (float)m_resolutionScale;
     strncpy(config.selectedIp, interfaceIp.toStdString().c_str(), sizeof(config.selectedIp) - 1);
-    strncpy(config.hostIp, hostIp.toStdString().c_str(), sizeof(config.hostIp) - 1);
+    strncpy(config.hostIp, resolvedHostIp.toStdString().c_str(), sizeof(config.hostIp) - 1);
     strncpy(config.username, m_username.toStdString().c_str(), sizeof(config.username) - 1);
 
     m_clientWindow = Parsec_CreateClientWindow("NexusDash Stream Viewer", 1280, 720);
