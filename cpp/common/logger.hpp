@@ -10,147 +10,129 @@
 #include <thread>
 #include <vector>
 #include <filesystem>
+#include <queue>
+#include <condition_variable>
+#include <algorithm>
+#include <atomic>
+
+#include "parsec_lite_api.h"
 
 enum class LogLevel {
+    LL_TRACE = 0,
     LL_DEBUG,
     LL_INFO,
     LL_WARN,
-    LL_ERROR
+    LL_ERROR,
+    LL_CRITICAL,
+    LL_FATAL
 };
 
-class Logger {
+// Compile-time filtering limit (Release build optimizes away lower log levels)
+#ifndef LOG_LEVEL_LIMIT
+#ifdef NDEBUG
+#define LOG_LEVEL_LIMIT LogLevel::LL_INFO
+#else
+#define LOG_LEVEL_LIMIT LogLevel::LL_TRACE
+#endif
+#endif
+
+struct LogRecord {
+    std::chrono::system_clock::time_point timestamp;
+    uint32_t processId;
+    uint32_t threadId;
+    std::string sessionId;
+    std::string module;
+    LogLevel level;
+    std::string file;
+    int line;
+    std::string function;
+    std::string message;
+};
+
+class PARSEC_API Logger {
 public:
     static Logger& getInstance() {
         static Logger instance;
         return instance;
     }
 
-    void init(const std::string& filename, size_t maxFileSize = 5 * 1024 * 1024, int maxFiles = 3) {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_maxFileSize = maxFileSize;
-        m_maxFiles = maxFiles;
+    // Initialize the logger for a specific role (Host, Client, Standalone, App)
+    void init(const std::string& role = "App", const std::string& logDir = "logs");
 
-        std::string target = filename;
-        for (int i = 0; i < 10; ++i) {
-            if (i > 0) {
-                size_t dot = filename.find_last_of('.');
-                if (dot != std::string::npos) {
-                    target = filename.substr(0, dot) + "-" + std::to_string(i) + filename.substr(dot);
-                } else {
-                    target = filename + "-" + std::to_string(i);
-                }
-            }
+    // Dynamic load configuration from config.ini
+    void loadConfig();
 
-            // Check if file is already locked/in-use by trying to rename it to itself.
-            // This is a common trick on Windows to check for exclusive access.
-            // Or just try to open and see.
-            std::ofstream test(target, std::ios::app);
-            if (test.is_open()) {
-                test.close();
-                // To be even safer against concurrent 'init' calls from different processes
-                // we can try to "consume" the file by keeping it open.
-                m_baseFilename = target;
-                openFile();
-                if (m_file.is_open()) return;
-            }
-        }
+    // Sets thread-local session ID
+    static void setThreadSessionId(uint64_t sessionId);
+    static void setThreadSessionId(const std::string& sessionIdStr);
+    static std::string getThreadSessionId();
 
-        m_baseFilename = filename;
-        openFile();
-    }
+    // Logging function
+    void log(LogLevel level, const std::string& module, const std::string& message,
+             const char* file = "", int line = 0, const char* function = "");
 
-    void log(LogLevel level, const std::string& module, const std::string& message) {
-        // High-frequency "StreamTrace" and "ClientTrace" modules should only log at WARN or higher by default
-        if ((module == "StreamTrace" || module == "ClientTrace") && level < LogLevel::LL_WARN) {
-            return;
-        }
+    // Shutdown the logging thread gracefully
+    void shutdown();
 
-        auto now = std::chrono::system_clock::now();
-        auto now_time = std::chrono::system_clock::to_time_t(now);
-        auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+    // Check if performance logging is enabled (thread-safe lock-free read)
+    bool isPerformanceLoggingEnabled() const { return m_enablePerformanceLogging.load(std::memory_order_relaxed); }
 
-        struct tm timeinfo;
-#ifdef _WIN32
-        localtime_s(&timeinfo, &now_time);
-#else
-        localtime_r(&now_time, &timeinfo);
-#endif
+    // Converts log level to a clean string
+    static const char* levelToString(LogLevel level);
 
-        std::stringstream ss;
-        ss << "[" << std::put_time(&timeinfo, "%Y-%m-%d %H:%M:%S") << "."
-           << std::setfill('0') << std::setw(3) << now_ms.count() << "] "
-           << "[" << std::this_thread::get_id() << "] "
-           << "[" << levelToString(level) << "] "
-           << "[" << module << "] "
-           << message << std::endl;
-
-        std::string logLine = ss.str();
-
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if (level >= LogLevel::LL_WARN) {
-            std::cout << logLine;
-        }
-        if (m_file.is_open()) {
-            m_file << logLine;
-            m_currentFileSize += logLine.size();
-
-            if (m_currentFileSize >= m_maxFileSize) {
-                rotateFiles();
-            } else if (level >= LogLevel::LL_WARN) {
-                m_file.flush();
-            }
-        }
-    }
+    // Converts string to LogLevel
+    static LogLevel stringToLevel(std::string str);
 
 private:
-    Logger() = default;
-    ~Logger() {
-        if (m_file.is_open()) m_file.close();
-    }
+    Logger();
+    ~Logger();
 
-    void openFile() {
-        if (m_file.is_open()) m_file.close();
-        m_file.open(m_baseFilename, std::ios::app);
-        if (m_file.is_open()) {
-            m_currentFileSize = (size_t)std::filesystem::file_size(m_baseFilename);
-        }
-    }
+    void openFile();
+    void rotateFiles();
+    void workerLoop();
+    void writeRecord(const LogRecord& record);
+    void writeSnapshot();
 
-    void rotateFiles() {
-        m_file.close();
-        for (int i = m_maxFiles - 1; i > 0; --i) {
-            std::string oldFile = m_baseFilename + "." + std::to_string(i);
-            std::string newFile = m_baseFilename + "." + std::to_string(i + 1);
-            if (std::filesystem::exists(oldFile)) {
-                std::filesystem::rename(oldFile, newFile);
-            }
-        }
-        if (std::filesystem::exists(m_baseFilename)) {
-            std::error_code ec;
-            std::filesystem::rename(m_baseFilename, m_baseFilename + ".1", ec);
-        }
-        openFile();
-    }
+    // Platform-dependent ID getters
+    static uint32_t getCurrentPid();
+    static uint32_t getCurrentTid();
 
-    const char* levelToString(LogLevel level) {
-        switch (level) {
-            case LogLevel::LL_DEBUG: return "DEBUG";
-            case LogLevel::LL_INFO:  return "INFO ";
-            case LogLevel::LL_WARN:  return "WARN ";
-            case LogLevel::LL_ERROR: return "ERROR";
-            default: return "UNKNOWN";
-        }
-    }
-
+    // Instance metadata
+    std::string m_role = "App";
+    std::string m_logDir = "logs";
     std::string m_baseFilename;
     std::ofstream m_file;
-    size_t m_maxFileSize = 5 * 1024 * 1024;
     size_t m_currentFileSize = 0;
-    int m_maxFiles = 3;
-    std::mutex m_mutex;
+
+    // Thread-safe config parameters (Atomics to avoid data races)
+    std::atomic<size_t> m_maxFileSize{100 * 1024 * 1024}; // Default 100 MB
+    std::atomic<int> m_maxFiles{5}; // Default history limit
+    std::atomic<bool> m_enablePerformanceLogging{false};
+    std::atomic<LogLevel> m_runtimeLogLevel{LogLevel::LL_TRACE};
+
+    std::atomic<bool> m_initialized{false};
+    std::atomic<bool> m_running{false};
+    std::thread m_workerThread;
+
+    // Queue synchronization
+    std::queue<LogRecord> m_queue;
+    std::mutex m_queueMutex;
+    std::condition_variable m_queueCond;
+
+    // Mutexes
+    std::mutex m_initMutex;
+    std::mutex m_configMutex;
+    std::mutex m_fileMutex; // Protects file writing & rotation from races
+
+    // Thread-local Session ID
+    static thread_local std::string m_threadSessionId;
 };
 
-#define LOG_DEBUG(mod, msg) Logger::getInstance().log(LogLevel::LL_DEBUG, mod, msg)
-#define LOG_INFO(mod, msg)  Logger::getInstance().log(LogLevel::LL_INFO, mod, msg)
-#define LOG_WARN(mod, msg)  Logger::getInstance().log(LogLevel::LL_WARN, mod, msg)
-#define LOG_ERROR(mod, msg) Logger::getInstance().log(LogLevel::LL_ERROR, mod, msg)
+// Thread-safe Macros with Compile-Time Filtering
+#define LOG_TRACE(mod, msg)    do { if (LogLevel::LL_TRACE >= LOG_LEVEL_LIMIT) Logger::getInstance().log(LogLevel::LL_TRACE, mod, msg, __FILE__, __LINE__, __FUNCTION__); } while(0)
+#define LOG_DEBUG(mod, msg)    do { if (LogLevel::LL_DEBUG >= LOG_LEVEL_LIMIT) Logger::getInstance().log(LogLevel::LL_DEBUG, mod, msg, __FILE__, __LINE__, __FUNCTION__); } while(0)
+#define LOG_INFO(mod, msg)     do { if (LogLevel::LL_INFO >= LOG_LEVEL_LIMIT)  Logger::getInstance().log(LogLevel::LL_INFO, mod, msg, __FILE__, __LINE__, __FUNCTION__); } while(0)
+#define LOG_WARN(mod, msg)     do { if (LogLevel::LL_WARN >= LOG_LEVEL_LIMIT)  Logger::getInstance().log(LogLevel::LL_WARN, mod, msg, __FILE__, __LINE__, __FUNCTION__); } while(0)
+#define LOG_ERROR(mod, msg)    do { if (LogLevel::LL_ERROR >= LOG_LEVEL_LIMIT) Logger::getInstance().log(LogLevel::LL_ERROR, mod, msg, __FILE__, __LINE__, __FUNCTION__); } while(0)
+#define LOG_CRITICAL(mod, msg) do { if (LogLevel::LL_CRITICAL >= LOG_LEVEL_LIMIT) Logger::getInstance().log(LogLevel::LL_CRITICAL, mod, msg, __FILE__, __LINE__, __FUNCTION__); } while(0)
+#define LOG_FATAL(mod, msg)    do { if (LogLevel::LL_FATAL >= LOG_LEVEL_LIMIT) Logger::getInstance().log(LogLevel::LL_FATAL, mod, msg, __FILE__, __LINE__, __FUNCTION__); } while(0)

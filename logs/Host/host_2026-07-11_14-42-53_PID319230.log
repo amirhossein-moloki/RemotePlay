@@ -1,0 +1,24 @@
+================================================================================
+                          CONFIGURATION SNAPSHOT
+================================================================================
+Application Mode:     Host
+Build Version:        v1.2.0-Production
+Process ID (PID):     319230
+Operating System:     Linux / POSIX
+Total Physical RAM:   7959 MB
+Available RAM:        7158 MB
+FFmpeg Version:       6.1.1-3ubuntu5
+Qt Version:           Not Linked / Static Engine
+
+--- active config.ini parameters ---
+log_level=INFO
+max_log_file_size_mb=100
+max_log_files=5
+enable_performance_logging=false
+username=User
+useHardwareEncoding=true
+encoderPreset=0
+resolutionScale=1
+================================================================================
+
+[2026-07-11 14:42:53.220] [PID:319230] [TID:319230] [Session:00000000] [TestHost] [INFO] observability_test.cpp:32 main() Logging from simulated Host mode.

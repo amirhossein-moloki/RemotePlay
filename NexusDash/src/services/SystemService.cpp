@@ -25,6 +25,7 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
 
         Parsec_SetErrorCallback([](ParsecError error, const char* message) {
             QString technicalMsg = QString::fromUtf8(message);
+            LOG_ERROR("UI_Error", "ParsecCore error callback triggered: " + technicalMsg.toStdString() + " (Code: " + std::to_string((int)error) + ")");
             QString friendlyMsg = AppEngine::instance()->system()->getFriendlyError((int)error, technicalMsg);
             QString suggestion = AppEngine::instance()->system()->getActionSuggestion((int)error, technicalMsg);
 
@@ -69,6 +70,7 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
 
 void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps)
 {
+    LOG_INFO("UI_Host", "Host session requested on interface: " + interfaceInfo.toStdString() + ", Bitrate: " + std::to_string(bitrate) + ", FPS: " + std::to_string(fps));
     QString interfaceIp = getIpFromInterface(interfaceInfo);
 
     ParsecConfig config = {};
@@ -92,6 +94,7 @@ void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps
 
 void SystemService::startClient(const QString& interfaceInfo, const QString& hostIp, int bitrate, int fps)
 {
+    LOG_INFO("UI_Client", "Client connection requested to Host IP: " + hostIp.toStdString() + " via interface: " + interfaceInfo.toStdString());
     QString interfaceIp = getIpFromInterface(interfaceInfo);
     addToHistory(hostIp);
 
@@ -164,6 +167,7 @@ void SystemService::addToHistory(const QString& host) {
 void SystemService::setUsername(const QString& username)
 {
     if (m_username != username) {
+        LOG_INFO("UI_Settings", "Username changed from '" + m_username.toStdString() + "' to '" + username.toStdString() + "'");
         m_username = username;
         Config::getInstance().setString("username", username.toStdString());
         Config::getInstance().save("config.ini");
@@ -174,6 +178,7 @@ void SystemService::setUsername(const QString& username)
 void SystemService::setUseHardwareEncoding(bool use)
 {
     if (m_useHardwareEncoding != use) {
+        LOG_INFO("UI_Settings", "Hardware encoding changed to: " + std::string(use ? "true" : "false"));
         m_useHardwareEncoding = use;
         Config::getInstance().setBool("useHardwareEncoding", use);
         Config::getInstance().save("config.ini");
@@ -184,6 +189,7 @@ void SystemService::setUseHardwareEncoding(bool use)
 void SystemService::setEncoderPreset(int preset)
 {
     if (m_encoderPreset != preset) {
+        LOG_INFO("UI_Settings", "Encoder preset changed to: " + std::to_string(preset));
         m_encoderPreset = preset;
         Config::getInstance().setInt("encoderPreset", preset);
         Config::getInstance().save("config.ini");
@@ -194,6 +200,7 @@ void SystemService::setEncoderPreset(int preset)
 void SystemService::setResolutionScale(double scale)
 {
     if (qAbs(m_resolutionScale - scale) > 0.001) {
+        LOG_INFO("UI_Settings", "Resolution scale changed to: " + std::to_string(scale));
         m_resolutionScale = scale;
         Config::getInstance().setDouble("resolutionScale", scale);
         Config::getInstance().save("config.ini");
@@ -245,6 +252,7 @@ QString SystemService::getIpFromInterface(const QString& info) {
 
 void SystemService::stopSession()
 {
+    LOG_INFO("UI_Session", "Stopping active session requested by user.");
     Parsec_StopSession();
 #ifdef _WIN32
     if (m_clientWindow) { DestroyWindow((HWND)m_clientWindow); m_clientWindow = nullptr; }
