@@ -1,0 +1,30 @@
+================================================================================
+                          CONFIGURATION SNAPSHOT
+================================================================================
+Application Mode:     parsec-lite-core.log
+Build Version:        v1.2.0-Production
+Process ID (PID):     319230
+Operating System:     Linux / POSIX
+Total Physical RAM:   7959 MB
+Available RAM:        7158 MB
+FFmpeg Version:       6.1.1-3ubuntu5
+Qt Version:           Not Linked / Static Engine
+
+--- active config.ini parameters ---
+log_level=INFO
+max_log_file_size_mb=100
+max_log_files=5
+enable_performance_logging=false
+username=User
+useHardwareEncoding=true
+encoderPreset=0
+resolutionScale=1
+================================================================================
+
+[2026-07-11 14:42:53.219] [PID:319230] [TID:319230] [Session:00000000] [Test] [CRIT] observability_test.cpp:25 main() This is a CRITICAL log.
+[2026-07-11 14:42:53.219] [PID:319230] [TID:319230] [Session:00000000] [Test] [INFO] observability_test.cpp:17 main() Observability system initialized.
+[2026-07-11 14:42:53.219] [PID:319230] [TID:319230] [Session:00000000] [Test] [TRACE] observability_test.cpp:20 main() This is a TRACE log.
+[2026-07-11 14:42:53.219] [PID:319230] [TID:319230] [Session:00000000] [Test] [DEBUG] observability_test.cpp:21 main() This is a DEBUG log.
+[2026-07-11 14:42:53.219] [PID:319230] [TID:319230] [Session:00000000] [Test] [INFO] observability_test.cpp:22 main() This is an INFO log.
+[2026-07-11 14:42:53.219] [PID:319230] [TID:319230] [Session:00000000] [Test] [WARN] observability_test.cpp:23 main() This is a WARNING log.
+[2026-07-11 14:42:53.219] [PID:319230] [TID:319230] [Session:00000000] [Test] [ERROR] observability_test.cpp:24 main() This is an ERROR log.

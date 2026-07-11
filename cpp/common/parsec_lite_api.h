@@ -65,6 +65,7 @@ PARSEC_API void Parsec_StartSession(ParsecConfig config);
 PARSEC_API void Parsec_StopSession();
 PARSEC_API bool Parsec_GetTelemetry(ParsecTelemetry* outTelemetry);
 PARSEC_API void Parsec_Shutdown();
+PARSEC_API bool Parsec_GenerateSupportPackage(const char* outputPath);
 
 PARSEC_API void Parsec_SetConnectionCallback(ParsecConnectionCallback callback);
 PARSEC_API void Parsec_SetErrorCallback(ParsecErrorCallback callback);

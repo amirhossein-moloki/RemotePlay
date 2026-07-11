@@ -53,6 +53,13 @@ struct CapturedFrame {
 void SessionManager::startSession(ParsecConfig config) {
     if (m_running) stopSession();
 
+    std::string role = "App";
+    if (config.runBoth) role = "Standalone";
+    else if (config.isHost) role = "Host";
+    else role = "Client";
+    Logger::getInstance().init(role);
+    Logger::getInstance().loadConfig();
+
     m_latencyPredictor = std::make_unique<AI::LatencyPredictor>();
     m_intelligentRouter = std::make_unique<AI::IntelligentRouter>();
     m_cloudOptimizer = std::make_unique<AI::CloudOptimizer>();
@@ -393,6 +400,7 @@ void SessionManager::runHost(ParsecConfig config) {
             }
 
             for (auto& client : activeClients) {
+                Logger::getInstance().setThreadSessionId(client->sessionId);
                 std::vector<Host::EncodedPacket> frames;
                 if (client->encodeQueue.pop(frames)) {
                     worked = true;
@@ -747,6 +755,7 @@ void SessionManager::runHost(ParsecConfig config) {
                     }
 
                     if (targetClient) {
+                        Logger::getInstance().setThreadSessionId(targetClient->sessionId);
                         uint8_t decrypted[2048];
                         if (sh.encryptedSize > sizeof(decrypted)) continue;
 
@@ -1076,6 +1085,7 @@ void SessionManager::runClient(ParsecConfig config) {
                         if (Crypto::CryptoManager::DeriveSessionKeys(clientKeyPair.publicKey, clientKeyPair.privateKey, hostPubKey,
                                                                      rxKey, txKey, false)) {
                             sessionId = hrp->sessionId;
+                            Logger::getInstance().setThreadSessionId(sessionId);
                             currentHostIp = senderIp;
                             currentHostPort = senderPort;
                             handshakeApproved = true;
@@ -1200,10 +1210,56 @@ void SessionManager::runClient(ParsecConfig config) {
     uint32_t lastReportedMissingFrameId = 0;
 
     auto lastTimeSync = std::chrono::steady_clock::now();
+    auto lastPerformanceLogTime = std::chrono::steady_clock::now();
 
     while (m_running) {
         try {
             auto now = std::chrono::steady_clock::now();
+
+            // Periodic Performance Telemetry Logging (Goal 8)
+            if (Logger::getInstance().isPerformanceLoggingEnabled() &&
+                std::chrono::duration_cast<std::chrono::seconds>(now - lastPerformanceLogTime).count() >= 5) {
+
+                auto& profiler = Profiler::getInstance();
+                double fps = profiler.getStats("FPS").latest;
+                double rtt = profiler.getStats("Network_RTT").latest;
+                double loss = profiler.getStats("Network_LossRate").latest;
+                double bitrate = profiler.getStats("Host_Bitrate").latest;
+                double captureTime = profiler.getStats("Capture_Time").avg / 1000.0;
+                double encodeTime = profiler.getStats("Encode_Time").avg / 1000.0;
+                double decodeTime = profiler.getStats("Decode_Time").avg / 1000.0;
+
+                double cpu = 5.0; // Fallback / simulated
+                double memory = 20.0; // Fallback / simulated
+#ifdef _WIN32
+                MEMORYSTATUSEX memInfo;
+                memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+                if (GlobalMemoryStatusEx(&memInfo)) {
+                    memory = 100.0 - (100.0 * memInfo.ullAvailPhys / memInfo.ullTotalPhys);
+                }
+#else
+                struct sysinfo si;
+                if (sysinfo(&si) == 0) {
+                    memory = 100.0 - (100.0 * si.freeram / si.totalram);
+                }
+#endif
+
+                LOG_INFO("Performance", "FPS: " + std::to_string(fps) +
+                                       ", RTT: " + std::to_string(rtt) + "ms" +
+                                       ", PacketLoss: " + std::to_string(loss) + "%" +
+                                       ", Bitrate: " + std::to_string(bitrate) + " Mbps" +
+                                       ", CaptureTime: " + std::to_string(captureTime) + "ms" +
+                                       ", EncodeLatency: " + std::to_string(encodeTime) + "ms" +
+                                       ", DecodeLatency: " + std::to_string(decodeTime) + "ms" +
+                                       ", CPU: " + std::to_string(cpu) + "%" +
+                                       ", Memory: " + std::to_string(memory) + "%" +
+                                       ", Jitter: " + std::to_string(profiler.getStats("Jitter").latest) + "ms" +
+                                       ", DroppedFrames: " + std::to_string(profiler.getStats("DroppedFrames").latest) +
+                                       ", FECRecovery: " + std::to_string(profiler.getStats("FEC_RecoveryCount").latest) +
+                                       ", NACKCount: " + std::to_string(profiler.getStats("NACK_Count").latest));
+
+                lastPerformanceLogTime = now;
+            }
 
             // Detect missing frames and request keyframe if we have a gap that persists
             uint32_t nextExpected = receiver.GetNextExpectedFrameId();

@@ -1,0 +1,27 @@
+================================================================================
+                          CONFIGURATION SNAPSHOT
+================================================================================
+Application Mode:     Client
+Build Version:        v1.2.0-Production
+Process ID (PID):     468949
+Operating System:     Linux / POSIX
+Total Physical RAM:   7959 MB
+Available RAM:        7046 MB
+FFmpeg Version:       6.1.1-3ubuntu5
+Qt Version:           Not Linked / Static Engine
+
+--- active config.ini parameters ---
+log_level=INFO
+max_log_file_size_mb=100
+max_log_files=5
+enable_performance_logging=false
+username=User
+useHardwareEncoding=true
+encoderPreset=0
+resolutionScale=1
+================================================================================
+
+[2026-07-11 14:52:13.689] [PID:468949] [TID:468949] [Session:00000000] [TestClient] [INFO] observability_test.cpp:40 main() Logging from simulated Client mode.
+[2026-07-11 14:52:13.691] [PID:468949] [TID:468949] [Session:00000000] [CrashHandler] [WARN] crash_handler.cpp:341 GenerateCrashReport() Crash report generated at: CrashReports/crash_2026-07-11_14-52-13.txt
+[2026-07-11 14:52:13.702] [PID:468949] [TID:468949] [Session:00000000] [Support] [INFO] parsec_lite_api.cpp:224 Parsec_GenerateSupportPackage() Compressing SupportReport into support diagnostics package: support_diagnostic_package.tar.gz
+[2026-07-11 14:52:13.715] [PID:468949] [TID:468949] [Session:00000000] [Support] [ERROR] parsec_lite_api.cpp:119 Parsec_GenerateSupportPackage() Rejected support package generation: unsafe path characters or command injection signature: support_diagnostic_package;rm -rf .tar.gz
