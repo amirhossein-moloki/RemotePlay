@@ -19,6 +19,7 @@ ScrollView {
 
         // --- 1. GLOBAL CONNECTION STATUS (TOP) ---
         NexusCard {
+            id: statusCard
             Layout.fillWidth: true
             Layout.preferredHeight: 100
 
@@ -32,14 +33,14 @@ ScrollView {
                     Layout.preferredWidth: 64
                     Layout.preferredHeight: 64
                     radius: 32
-                    color: Qt.rgba(statusColor.r, statusColor.g, statusColor.b, 0.1)
+                    color: Qt.rgba(statusCard.statusColor.r, statusCard.statusColor.g, statusCard.statusColor.b, 0.1)
 
                     Rectangle {
                         anchors.centerIn: parent
                         width: 16
                         height: 16
                         radius: 8
-                        color: statusColor
+                        color: statusCard.statusColor
 
                         SequentialAnimation on opacity {
                             loops: Animation.Infinite
@@ -54,14 +55,14 @@ ScrollView {
                     Layout.fillWidth: true
                     spacing: 4
                     Text {
-                        text: statusTitle
+                        text: statusCard.statusTitle
                         font.family: Theme.fontFamily
                         font.pixelSize: 20
                         font.weight: Font.Bold
                         color: Theme.textPrimary
                     }
                     Text {
-                        text: statusSubtitle
+                        text: statusCard.statusSubtitle
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
                         color: Theme.textSecondary

@@ -60,6 +60,7 @@ ApplicationWindow {
 
         // Bottom Status Bar
         Rectangle {
+            id: statusBar
             Layout.fillWidth: true
             height: 40
             color: Theme.panel
@@ -87,8 +88,8 @@ ApplicationWindow {
 
                     StatusIndicator {
                         label: "APP STATE"
-                        value: statusLabel
-                        valueColor: statusColor
+                        value: statusBar.statusLabel
+                        valueColor: statusBar.statusColor
                     }
 
                     Rectangle { width: 1; height: 16; color: Theme.border; Layout.alignment: Qt.AlignVCenter }
