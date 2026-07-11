@@ -22,8 +22,8 @@ extern "C" {
 }
 #endif
 
-// Define the static thread-local session ID variable
-thread_local std::string Logger::m_threadSessionId = "00000000";
+// File-scoped thread-local session ID variable
+static thread_local std::string t_threadSessionId = "00000000";
 
 Logger::Logger() {
     m_runtimeLogLevel.store(LogLevel::LL_TRACE, std::memory_order_relaxed);
@@ -124,23 +124,23 @@ void Logger::shutdown() {
 
 void Logger::setThreadSessionId(uint64_t sessionId) {
     if (sessionId == 0) {
-        m_threadSessionId = "00000000";
+        t_threadSessionId = "00000000";
         return;
     }
     std::stringstream ss;
     ss << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (sessionId & 0xFFFFFFFF);
-    m_threadSessionId = ss.str();
+    t_threadSessionId = ss.str();
 }
 
 void Logger::setThreadSessionId(const std::string& sessionIdStr) {
-    m_threadSessionId = sessionIdStr;
+    t_threadSessionId = sessionIdStr;
 }
 
 std::string Logger::getThreadSessionId() {
-    if (m_threadSessionId.empty()) {
+    if (t_threadSessionId.empty()) {
         return "00000000";
     }
-    return m_threadSessionId;
+    return t_threadSessionId;
 }
 
 void Logger::log(LogLevel level, const std::string& module, const std::string& message,

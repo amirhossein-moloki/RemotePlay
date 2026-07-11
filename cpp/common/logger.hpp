@@ -123,9 +123,6 @@ private:
     std::mutex m_initMutex;
     std::mutex m_configMutex;
     std::mutex m_fileMutex; // Protects file writing & rotation from races
-
-    // Thread-local Session ID
-    static thread_local std::string m_threadSessionId;
 };
 
 // Thread-safe Macros with Compile-Time Filtering
