@@ -656,6 +656,7 @@ void SessionManager::runHost(ParsecConfig config) {
                                 uint64_t sessionID;
                                 std::memcpy(&sessionID, Crypto::CryptoManager::GenerateRandomBytes(8).data(), 8);
                                 newState->sessionId = sessionID;
+                                Logger::getInstance().setThreadSessionId(sessionID);
 
                                 if (newState->encoder->Initialize(ctx->capturedWidth, ctx->capturedHeight, config.fps, ctx->capture.GetDevice(), config.useHardwareEncoding)) {
                                     newState->audioEncoder->Initialize(48000, 2, 128000);
@@ -1047,6 +1048,7 @@ void SessionManager::runClient(ParsecConfig config) {
                 } else if (type == Protocol::PacketType::Secure && len >= (int)sizeof(Protocol::SecureHeader)) {
                     Protocol::SecureHeader* sh = (Protocol::SecureHeader*)buf;
                     if (sh->sessionId == sessionId && sessionId != 0) {
+                        Logger::getInstance().setThreadSessionId(sessionId);
                         uint8_t decrypted[2048];
                         if (sh->encryptedSize > sizeof(decrypted)) continue;
 

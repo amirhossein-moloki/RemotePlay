@@ -110,6 +110,7 @@ public:
     };
 
     explicit SystemService(QObject *parent = nullptr);
+    ~SystemService() override;
 
     Q_INVOKABLE void startHost(const QString& interfaceInfo, int bitrate, int fps);
     Q_INVOKABLE void startClient(const QString& interfaceInfo, const QString& hostIp, int bitrate, int fps);

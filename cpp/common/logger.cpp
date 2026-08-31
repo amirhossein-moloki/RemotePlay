@@ -282,17 +282,27 @@ void Logger::openFile() {
 
 void Logger::rotateFiles() {
     // Note: Called under m_fileMutex
-    m_file.close();
+    if (m_file.is_open()) m_file.close();
     int historyLimit = m_maxFiles.load(std::memory_order_relaxed);
+    std::error_code ec;
+
+    // Delete any archived file beyond the history limit
+    std::string excessFile = m_baseFilename + "." + std::to_string(historyLimit);
+    if (std::filesystem::exists(excessFile, ec)) {
+        std::filesystem::remove(excessFile, ec);
+    }
+
+    // Shift previous archive files: file.N -> file.(N+1)
     for (int i = historyLimit - 1; i > 0; --i) {
         std::string oldFile = m_baseFilename + "." + std::to_string(i);
         std::string newFile = m_baseFilename + "." + std::to_string(i + 1);
-        if (std::filesystem::exists(oldFile)) {
-            std::filesystem::rename(oldFile, newFile);
+        if (std::filesystem::exists(oldFile, ec)) {
+            std::filesystem::rename(oldFile, newFile, ec);
         }
     }
-    if (std::filesystem::exists(m_baseFilename)) {
-        std::error_code ec;
+
+    // Shift current base log: base.log -> base.log.1
+    if (std::filesystem::exists(m_baseFilename, ec)) {
         std::filesystem::rename(m_baseFilename, m_baseFilename + ".1", ec);
     }
     openFile();
