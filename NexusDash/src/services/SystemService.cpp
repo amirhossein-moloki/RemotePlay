@@ -17,6 +17,7 @@
 SystemService::SystemService(QObject *parent) : QObject(parent)
 {
     try {
+        LOG_INFO("UI_Lifecycle", "Initializing SystemService backend.");
         m_username = QString::fromStdString(Config::getInstance().getString("username", "User"));
         m_useHardwareEncoding = Config::getInstance().getBool("useHardwareEncoding", true);
         m_encoderPreset = Config::getInstance().getInt("encoderPreset", 0);
@@ -28,6 +29,8 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
             LOG_ERROR("UI_Error", "ParsecCore error callback triggered: " + technicalMsg.toStdString() + " (Code: " + std::to_string((int)error) + ")");
             QString friendlyMsg = AppEngine::instance()->system()->getFriendlyError((int)error, technicalMsg);
             QString suggestion = AppEngine::instance()->system()->getActionSuggestion((int)error, technicalMsg);
+
+            LOG_INFO("UI_Dialog", "Displaying error dialog to user: " + friendlyMsg.toStdString());
 
             QMetaObject::invokeMethod(AppEngine::instance()->system(), "errorOccurred",
                                       Qt::QueuedConnection,
@@ -61,11 +64,17 @@ SystemService::SystemService(QObject *parent) : QObject(parent)
         m_timer->start(1000);
         updateStats();
 
+        LOG_INFO("UI_Lifecycle", "SystemService backend successfully initialized.");
         addLog("INFO", "System", "NexusDash Services Initialized");
     } catch (...) {
         LOG_ERROR("SystemService", "Failed to initialize SystemService");
         throw;
     }
+}
+
+SystemService::~SystemService()
+{
+    LOG_INFO("UI_Lifecycle", "Shutting down SystemService backend.");
 }
 
 void SystemService::startHost(const QString& interfaceInfo, int bitrate, int fps)
@@ -142,6 +151,10 @@ void SystemService::startClient(const QString& interfaceInfo, const QString& hos
 
 void SystemService::setAppStatus(AppStatus status) {
     if (m_appStatus != status) {
+        static const char* statusNames[] = { "Idle", "Hosting", "Connected", "Error", "Reconnecting" };
+        const char* oldName = (m_appStatus >= 0 && m_appStatus <= 4) ? statusNames[m_appStatus] : "Unknown";
+        const char* newName = (status >= 0 && status <= 4) ? statusNames[status] : "Unknown";
+        LOG_INFO("UI_State", "AppStatus changed: " + std::string(oldName) + " -> " + std::string(newName));
         m_appStatus = status;
         emit appStatusChanged();
     }
@@ -149,6 +162,10 @@ void SystemService::setAppStatus(AppStatus status) {
 
 void SystemService::setConnectionStep(ConnectionStep step) {
     if (m_connectionStep != step) {
+        static const char* stepNames[] = { "StepNone", "StepResolving", "StepHandshake", "StepEncrypting", "StepConnected" };
+        const char* oldName = (m_connectionStep >= 0 && m_connectionStep <= 4) ? stepNames[m_connectionStep] : "Unknown";
+        const char* newName = (step >= 0 && step <= 4) ? stepNames[step] : "Unknown";
+        LOG_INFO("UI_State", "ConnectionStep changed: " + std::string(oldName) + " -> " + std::string(newName));
         m_connectionStep = step;
         emit connectionStepChanged();
     }
@@ -243,7 +260,10 @@ QString SystemService::getActionSuggestion(int errorCode, const QString& technic
     }
 }
 
-void SystemService::copyToClipboard(const QString& text) { QGuiApplication::clipboard()->setText(text); }
+void SystemService::copyToClipboard(const QString& text) {
+    LOG_INFO("UI_Action", "User copied text to clipboard (length: " + std::to_string(text.length()) + ")");
+    QGuiApplication::clipboard()->setText(text);
+}
 QString SystemService::getIpFromInterface(const QString& info) {
     QRegularExpression re("\\[(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})\\]");
     auto match = re.match(info);

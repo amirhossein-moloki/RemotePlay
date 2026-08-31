@@ -96,22 +96,32 @@ PARSEC_API void* Parsec_CreateClientWindow(const char* title, int width, int hei
 }
 
 static bool isSafePath(const std::string& path) {
-    if (path.empty()) return false;
+    if (path.empty() || path.length() > 512) return false;
 
-    // Strict whitelist of characters permitted in the output path
-    const std::string allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-/";
+    // Disallow path traversal
+    if (path.find("..") != std::string::npos) return false;
+
+    // Disallow command injection characters
+    const std::string forbidden = ";|&`$<>\"'\r\n";
     for (char c : path) {
-        if (allowed.find(c) == std::string::npos) {
+        if (forbidden.find(c) != std::string::npos) {
             return false;
         }
     }
 
-    // Block directory traversal or duplicate slashes
-    if (path.find("..") != std::string::npos || path.find("//") != std::string::npos) {
-        return false;
-    }
-
     return true;
+}
+
+static bool containsSensitiveKey(const std::string& line) {
+    std::string lowerLine = line;
+    std::transform(lowerLine.begin(), lowerLine.end(), lowerLine.begin(), ::tolower);
+    const char* sensitiveKeywords[] = {
+        "password", "secret", "token", "private_key", "tx_key", "rx_key", "credential", "auth_key"
+    };
+    for (const char* kw : sensitiveKeywords) {
+        if (lowerLine.find(kw) != std::string::npos) return true;
+    }
+    return false;
 }
 
 PARSEC_API bool Parsec_GenerateSupportPackage(const char* outputPath) {
@@ -119,7 +129,7 @@ PARSEC_API bool Parsec_GenerateSupportPackage(const char* outputPath) {
 
     std::string outPathStr = outputPath;
     if (!isSafePath(outPathStr)) {
-        LOG_ERROR("Support", "Rejected support package generation: unsafe path characters or command injection signature: " + outPathStr);
+        LOG_ERROR("Support", "Rejected support package generation: unsafe path or command injection signature: " + outPathStr);
         return false;
     }
 
@@ -129,7 +139,7 @@ PARSEC_API bool Parsec_GenerateSupportPackage(const char* outputPath) {
         std::filesystem::remove_all(reportDir);
         std::filesystem::create_directories(reportDir);
         std::filesystem::create_directories(reportDir + "/Logs");
-        std::filesystem::create_directories(reportDir + "/Crash");
+        std::filesystem::create_directories(reportDir + "/CrashReports");
         std::filesystem::create_directories(reportDir + "/Configuration");
         std::filesystem::create_directories(reportDir + "/SystemInfo");
         std::filesystem::create_directories(reportDir + "/Telemetry");
@@ -141,23 +151,41 @@ PARSEC_API bool Parsec_GenerateSupportPackage(const char* outputPath) {
                 if (entry.is_regular_file()) {
                     auto relPath = std::filesystem::relative(entry.path(), "logs");
                     std::filesystem::create_directories(reportDir + "/Logs/" + relPath.parent_path().string());
-                    std::filesystem::copy_file(entry.path(), reportDir + "/Logs/" + relPath.string(), std::filesystem::copy_options::overwrite_existing);
+                    std::error_code ec;
+                    std::filesystem::copy_file(entry.path(), reportDir + "/Logs/" + relPath.string(), std::filesystem::copy_options::overwrite_existing, ec);
                 }
             }
         }
 
-        // 2. Copy Crashes
+        // 2. Copy Crash Reports
         if (std::filesystem::exists("CrashReports")) {
             for (const auto& entry : std::filesystem::directory_iterator("CrashReports")) {
                 if (entry.is_regular_file()) {
-                    std::filesystem::copy_file(entry.path(), reportDir + "/Crash/" + entry.path().filename().string(), std::filesystem::copy_options::overwrite_existing);
+                    std::error_code ec;
+                    std::filesystem::copy_file(entry.path(), reportDir + "/CrashReports/" + entry.path().filename().string(), std::filesystem::copy_options::overwrite_existing, ec);
                 }
             }
         }
 
-        // 3. Copy Configuration
+        // 3. Copy and Sanitize Configuration
         if (std::filesystem::exists("config.ini")) {
-            std::filesystem::copy_file("config.ini", reportDir + "/Configuration/config.ini", std::filesystem::copy_options::overwrite_existing);
+            std::ifstream cfgIn("config.ini");
+            std::ofstream cfgOut(reportDir + "/Configuration/config.ini");
+            if (cfgIn.is_open() && cfgOut.is_open()) {
+                std::string line;
+                while (std::getline(cfgIn, line)) {
+                    if (containsSensitiveKey(line)) {
+                        size_t eq = line.find('=');
+                        if (eq != std::string::npos) {
+                            cfgOut << line.substr(0, eq + 1) << " [REDACTED]\n";
+                        } else {
+                            cfgOut << "# [REDACTED LINE]\n";
+                        }
+                    } else {
+                        cfgOut << line << "\n";
+                    }
+                }
+            }
         }
 
         // 4. Generate SystemInfo/system_info.txt

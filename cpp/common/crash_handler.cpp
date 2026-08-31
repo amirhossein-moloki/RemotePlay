@@ -127,7 +127,14 @@ const char* CrashHandler::SignalCodeToString(int sig) {
 }
 #endif
 
+static std::atomic<bool> s_crashReportGenerated{false};
+
 void CrashHandler::GenerateCrashReport(const std::string& reason, void* exceptionPointers, bool isSignalContext) {
+    // Reentrancy guard to prevent recursive crash report generation or deadlocks
+    if (s_crashReportGenerated.exchange(true)) {
+        return;
+    }
+
     // Generate timestamp
     auto now = std::chrono::system_clock::now();
     auto now_time = std::chrono::system_clock::to_time_t(now);

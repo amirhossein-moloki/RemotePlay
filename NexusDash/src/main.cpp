@@ -33,6 +33,8 @@ int main(int argc, char *argv[])
 #endif
     try {
         Parsec_Initialize();
+        LOG_INFO("UI_Lifecycle", "NexusDash application startup (argc=" + std::to_string(argc) + ")");
+
         QQuickStyle::setStyle("Basic");
         QGuiApplication app(argc, argv);
 
@@ -63,6 +65,7 @@ int main(int argc, char *argv[])
         engine.load(url);
 
         int result = app.exec();
+        LOG_INFO("UI_Lifecycle", "NexusDash application exiting with code: " + std::to_string(result));
         Parsec_Shutdown();
         return result;
 
